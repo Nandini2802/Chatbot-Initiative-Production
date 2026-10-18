@@ -36,11 +36,24 @@ class Settings(BaseSettings):
     # Azure Key Vault
     key_vault_url: str | None = None
 
+    # Currency API
+    currency_api_url: str = ""
+    currency_cache_refresh_hours: int = 24
+    currency_cache_ttl_seconds: int = 259200
+    currency_api_cookie: str = ""
+
     # Correlation ID Header
     correlation_id_header: str = "X-Correlation-ID"
 
     # External APIs
     request_timeout_seconds: int = 10
+
+    # Marketing API
+    marketing_api_url: str = ""
+    marketing_cache_ttl_seconds: int = 172800
+    api_cache_refresh_hours: int = 12
+    marketing_product_name: str = "Vendor"
+    marketing_product_feature_name: str = "AMIRA"
 
     # Pinecone
     pinecone_index_name: str | None = None
@@ -72,6 +85,8 @@ class LocalSecrets(BaseSettings):
     redis_host: str
     redis_port: int
     pinecone_api_key: str
+    applicationinsights_connection_string: str
+    marketing_api_key: str
 
     model_config = SettingsConfigDict(
         env_file=".env",

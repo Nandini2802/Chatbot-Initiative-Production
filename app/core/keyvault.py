@@ -48,6 +48,8 @@ class AppSecrets(BaseModel):
     redis_host: str
     redis_port: int
     pinecone_api_key: SecretStr
+    applicationinsights_connection_string: SecretStr
+    marketing_api_key: SecretStr
 
 def is_retryable_error(exc: BaseException) -> bool:
     """
@@ -171,6 +173,8 @@ async def load_application_secrets() -> AppSecrets:
             redis_host=local.redis_host,
             redis_port=local.redis_port,
             pinecone_api_key=local.pinecone_api_key,
+            applicationinsights_connection_string=local.applicationinsights_connection_string,
+            marketing_api_key=local.marketing_api_key,
         )
     
     # Deployed environments
@@ -193,6 +197,14 @@ async def load_application_secrets() -> AppSecrets:
             ),
             pinecone_api_key=await keyvault.get_secret(
                 "pinecone-api-key"
+            ),
+            applicationinsights_connection_string=(
+                await keyvault.get_secret(
+                    "applicationinsights-connection-string"
+                )
+            ),
+            marketing_api_key=SecretStr(
+                await keyvault.get_secret("marketing-api-key")
             ),
         )
     

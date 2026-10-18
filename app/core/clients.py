@@ -46,17 +46,17 @@ class ServiceClients:
     pinecone_index: Any
 
 
-async def create_service_clients() -> ServiceClients:
+async def create_service_clients(
+        secrets: AppSecrets,
+) -> ServiceClients:
     """
     Load credentials and initialize service clients.
     """
 
     settings = get_settings()
 
-    # Step 1: Load secrets
-    secrets: AppSecrets = await load_application_secrets()
 
-    # Step 2: Initialize PostgreSQL
+    # Step 1: Initialize PostgreSQL
     postgres_engine = create_async_engine(
         secrets.postgres_url.get_secret_value(),
         pool_size=5,
@@ -66,7 +66,7 @@ async def create_service_clients() -> ServiceClients:
 
     logger.info("PostgreSQL engine initialized")
 
-    # Step 3: Initialize Redis
+    # Step 2: Initialize Redis
     redis_credential_provider = (
         create_from_default_azure_credential(
             ("https://redis.azure.com/.default",)
@@ -87,7 +87,7 @@ async def create_service_clients() -> ServiceClients:
 
     logger.info("Redis client initialized")
 
-    # Step 4: Initialize Pinecone
+    # Step 3: Initialize Pinecone
     pinecone_client = Pinecone(
         api_key=secrets.pinecone_api_key.get_secret_value()
     )

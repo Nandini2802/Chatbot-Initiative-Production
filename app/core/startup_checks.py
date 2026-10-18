@@ -60,6 +60,7 @@ async def check_pinecone(clients: ServiceClients) -> str:
 
 async def run_startup_checks(
     clients: ServiceClients,
+    application_insights_initialized: bool,
 ) -> dict[str, str]:
 
     results = await asyncio.gather(
@@ -68,9 +69,17 @@ async def run_startup_checks(
         check_pinecone(clients),
     )
 
-    return dict(
+    startup_status = dict(
         zip(
             ("postgres", "redis", "pinecone"),
             results,
         )
     )
+
+    startup_status["application_insights"] = (
+        "healthy"
+        if application_insights_initialized
+        else "unhealthy"
+    )
+
+    return startup_status

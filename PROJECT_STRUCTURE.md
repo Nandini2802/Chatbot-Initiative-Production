@@ -49,6 +49,7 @@ danube-chatbot-backend/
 │        └── errors.py                       # Standard error payload model
 │   ├── services/                            # Core business logic, one module per responsibility
 │        └── __init__.py                     # Marks the folder as a Python package
+│        └── api_cache_service.py            # Manages Redis caching of reusable API responses
 │        └── chat_orchestrator.py            # Runs full turn: session > RBAC > cache > route > retrieve > generate > verify > persist
 │        └── session_service.py              # New-vs-existing session resolution and short memory window (last N turns)
 │        └── rbac_service.py                 # Decides which roles may use the inventory path (Step 4)
@@ -66,6 +67,7 @@ danube-chatbot-backend/
 │   ├── retrieval/                           # Three source-specific paths, not one generic search
 │        └── __init__.py                     # Marks the folder as a Python package
 │        └── base.py                         # Defines common rules that all retrieval systems must follow
+│        └── currency_api_client.py          # Calls the Currency Rate API and retrieves the latest exchange-rate data.
 │        └── salesforce_client.py            # Salesforce HTTP client with retry (Project API + Units API)
 │        └── inventory_connector.py          # Live-only: routes to Project API (aggregate) or Units API (per-unit)
 │        └── marketing_api_client.py         # Marketing Materials API client with retry (full catalog, no filter)
@@ -123,6 +125,8 @@ danube-chatbot-backend/
 │   ├── evaluation/                          # Offline only - never in the live request path (Step 12)
 │   ├── scripts/                             # Operational jobs
 │        └── __init__.py                     # Marks the folder as a Python package
+│        └── refresh_api_cache.py            # Refreshes cached API content in Redis; designed to run every 12 hours
+│        └── cache_scheduler.py              # Schedules reusable API refresh function at midnight and noon UTC.
 │        └── sync_marketing_metadata.py      # 6-12h cron: full catalog to marketing index, with last-sync check
 │        └── check_sync_staleness.py         # Alerts when last successful sync exceeds 18 hours
 │        └── ingest_walkthrough_excel.py     # Extracts titles/tags/URLs from Excel, embeds, upserts to Pinecone
