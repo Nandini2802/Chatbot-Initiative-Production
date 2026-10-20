@@ -122,4 +122,8 @@ async def get_cached_currency_data(redis_client):
         "CURRENCY_DATA_SOURCE | source=redis"
     )
 
-    return cached_response.get("data")
+    return (
+        cached_response.get("data")
+        if isinstance(cached_response, dict)
+        else None
+    )

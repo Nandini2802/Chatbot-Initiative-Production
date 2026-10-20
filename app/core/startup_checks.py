@@ -13,6 +13,7 @@ import asyncio
 import logging
 
 from sqlalchemy import text
+from openai import OpenAIError
 
 from app.core.clients import ServiceClients
 from app.core.config import get_settings
@@ -57,6 +58,38 @@ async def check_pinecone(clients: ServiceClients) -> str:
         logger.exception("Pinecone connectivity check failed")
         return "unhealthy"
 
+async def check_azure_openai(
+    clients: ServiceClients,
+) -> str:
+
+    try:
+        settings = get_settings()
+
+        response = await (
+            clients.foundry_openai.responses.create(
+                model=settings.foundry_openai_model,
+                input="Reply with OK.",
+                max_output_tokens=100,
+            )
+        )
+
+        if not response.output:
+            logger.error(
+                "Foundry startup check returned no output"
+            )
+            return "unhealthy"
+
+        logger.info(
+            "Microsoft Foundry connectivity successful"
+        )
+
+        return "healthy"
+
+    except Exception:
+        logger.exception(
+            "Microsoft Foundry connectivity check failed"
+        )
+        return "unhealthy"
 
 async def run_startup_checks(
     clients: ServiceClients,
@@ -67,11 +100,17 @@ async def run_startup_checks(
         check_postgres(clients),
         check_redis(clients),
         check_pinecone(clients),
+        check_azure_openai(clients),
     )
 
     startup_status = dict(
         zip(
-            ("postgres", "redis", "pinecone"),
+            (
+                "postgres",
+                "redis",
+                "pinecone",
+                "azure_openai",
+            ),
             results,
         )
     )

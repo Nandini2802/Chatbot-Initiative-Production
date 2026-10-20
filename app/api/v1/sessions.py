@@ -1,4 +1,3 @@
-
 """
 Session Management APIs - Danube Properties Chatbot.
 
@@ -29,6 +28,8 @@ from fastapi import (
 from app.core.dependencies import get_session_service
 from app.schemas.session import *
 from app.services.session_service import *
+from app.schemas.session_history import *
+from app.services.session_timeout_service import *
 
 
 router = APIRouter(
@@ -49,10 +50,7 @@ CurrentUser = Annotated[
     ),
 ]
 
-
-# ------------------------------------------
 # 1. Create Session
-# ------------------------------------------
 
 @router.post(
     "",
@@ -76,9 +74,7 @@ async def create_session(
     return session
 
 
-# ------------------------------------------
 # 2. List User Sessions
-# ------------------------------------------
 
 @router.get(
     "",
@@ -105,9 +101,114 @@ async def list_sessions(
     }
 
 
-# ------------------------------------------
-# 3. Get Session Details
-# ------------------------------------------
+# 3. Get Latest User Session
+
+@router.get(
+    "/latest",
+    response_model=LatestSessionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_latest_session(
+    user_id: CurrentUser,
+    service: Service,
+):
+    """
+    Retrieve the user's latest chat session.
+
+    Check whether 30 minutes of inactivity
+    have passed.
+
+    This API does NOT update last_activity_at.
+    """
+
+    # Step 1: Fetch latest session from PostgreSQL.
+    session = await service.get_latest_session(
+        user_id=user_id,
+    )
+
+    # Step 2: Handle users with no previous sessions.
+    if session is None:
+        return LatestSessionResponse(
+            session=None,
+        )
+
+    # Step 3: Check the inactivity timeout.
+    requires_confirmation = (
+        session_requires_confirmation(
+            session.last_activity_at
+        )
+    )
+
+    # Step 4: Prepare the response.
+    session_summary = SessionSummary(
+        id=session.id,
+        title=session.title,
+        created_at=session.created_at,
+        last_activity_at=session.last_activity_at,
+        status=session.status,
+        requires_confirmation=requires_confirmation,
+    )
+
+    # Step 5: Return the response.
+    return LatestSessionResponse(
+        session=session_summary,
+    )
+
+
+# 8. Get Full Conversation History
+
+@router.get(
+    "/{session_id}/history",
+    response_model=SessionHistoryResponse,
+)
+async def get_session_history_api(
+    session_id: UUID,
+    user_id: CurrentUser,
+    service: Service,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """
+    Retrieve saved messages for a session.
+
+    Reading history does not reset inactivity.
+    """
+
+    try:
+        result = await service.get_session_history(
+            session_id=session_id,
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+        )
+
+        session = result["session"]
+        messages = result["messages"]
+
+        return SessionHistoryResponse(
+            session_id=session.id,
+            requires_confirmation=(
+                session_requires_confirmation(
+                    session.last_activity_at
+                )
+            ),
+            messages=[
+                HistoryMessage.model_validate(message)
+                for message in messages
+            ],
+            limit=limit,
+            offset=offset,
+            has_more=result["has_more"],
+        )
+
+    except SessionNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found",
+        )
+
+
+# 4. Get Session Details
 
 @router.get(
     "/{session_id}",
@@ -149,9 +250,7 @@ async def get_session(
         )
 
 
-# ------------------------------------------
-# 4. Update Session Title
-# ------------------------------------------
+# 5. Update Session Title
 
 @router.patch(
     "/{session_id}",
@@ -180,10 +279,7 @@ async def update_session(
             detail="Session not found",
         )
 
-
-# ------------------------------------------
-# 5. Delete Session
-# ------------------------------------------
+# 6. Delete Session
 
 @router.delete(
     "/{session_id}",
@@ -214,10 +310,7 @@ async def delete_session(
             detail="Session not found",
         )
 
-
-# ------------------------------------------
-# 6. Get Conversation Messages
-# ------------------------------------------
+# 7. Get Conversation Messages
 
 @router.get(
     "/{session_id}/messages",
@@ -251,9 +344,7 @@ async def get_messages(
         )
 
 
-# ------------------------------------------
-# 7. Get Recent Conversation Context
-# ------------------------------------------
+# 8. Get Recent Conversation Context
 
 @router.get(
     "/{session_id}/context",
@@ -286,4 +377,46 @@ async def get_recent_context(
         raise HTTPException(
             status_code=404,
             detail="Session not found",
+        )
+
+
+# 9. Resume Existing Conversation
+
+@router.post(
+    "/{session_id}/resume",
+    response_model=ResumeSessionResponse,
+)
+async def resume_chat_session(
+    session_id: UUID,
+    user_id: CurrentUser,
+    service: Service,
+):
+    """
+    Resume an existing conversation after
+    explicit user confirmation.
+    """
+
+    try:
+        session = await service.resume_session(
+            session_id=session_id,
+            user_id=user_id,
+        )
+
+        return ResumeSessionResponse(
+            session_id=session.id,
+            status=session.status,
+            requires_confirmation=False,
+            last_activity_at=session.last_activity_at,
+        )
+
+    except SessionNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found",
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
         )

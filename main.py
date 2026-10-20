@@ -1,8 +1,10 @@
-
+import os
 import logging
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from dotenv import load_dotenv
+from fastapi.exceptions import RequestValidationError
 
 from app.core.clients import (
     create_service_clients,
@@ -16,6 +18,9 @@ from app.api.v1.router import api_router
 from app.middleware.correlation_id import correlation_id_middleware
 from app.middleware.exception_handlers import register_exception_handlers
 from app.scripts.cache_scheduler import create_cache_scheduler
+from app.templates.dev.chat_harness import router as dev_router
+
+from app.middleware.exception_handlers import validation_exception_handler
 
 
 # Application logging
@@ -23,6 +28,7 @@ logging.getLogger("app").setLevel(logging.INFO)
 
 logger = logging.getLogger("app.main")
 
+load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -98,6 +104,7 @@ async def lifespan(app: FastAPI):
             "postgres",
             "redis",
             "pinecone",
+            "azure_openai",
         )
 
         failed_mandatory_services = [
@@ -175,3 +182,12 @@ app.include_router(
     api_router,
     prefix="/api/v1",
 )
+
+app.add_exception_handler(
+    RequestValidationError,
+    validation_exception_handler,
+)
+
+# Development-only HTML test harness
+if os.getenv("ENABLE_DEV_HARNESS", "false").lower() == "true":
+    app.include_router(dev_router)

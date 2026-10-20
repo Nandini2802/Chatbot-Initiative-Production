@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+	/* TEMP ENDS HERE (DO not use above) */
+ 	*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+		background: #000;
+		-webkit-font-smoothing: antialiased;
+		color: #fff;
+	}
+	.pay-header {
+		display: flex;
+		align-items: center;
+		gap: 16px;
+		height: 56px;
+		padding: 18px 16px;
+		background: rgba(0,0,0,.6);
+		backdrop-filter: blur(15px);
+		-webkit-backdrop-filter: blur(15px);
+		position: sticky;
+		top: 0;
+		z-index: 2;
+	}
+	.pay-header__title {
+		flex: 1 0 0;
+		min-width: 0;
+		text-align: center;
+		font-family: 'Montserrat', sans-serif;
+		font-weight: 600;
+		font-size: 17px;
+		line-height: 1.2;
+		letter-spacing: 1.7px;
+		text-transform: uppercase;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	/* TEMP ENDS HERE (DO not use above) */
+
+	/* UNIT LISTING */
+	.unit-table {
+		display: flex;
+		flex-direction: column;
+		background: #111;
+		border-radius: 10px;
+		overflow: hidden;
+	}
+	.unit-table__head {
+		display: flex;
+		gap: 5px;
+		padding: 10px;
+		color: #000;
+		line-height: 1.5;
+		background: linear-gradient(100.45deg, #b87c01 0%, #d7ac50 21.26%, #dc9b15 100%);
+	}
+	.unit-table__head .col-title { font-weight: 500; font-size: 12px; }
+	.unit-table__head .col-sub { font-weight: 400; font-size: 10px; }
+	/* Column widths match the Figma spec; Property flexes to fill. */
+	.col-property { flex: 1 0 0; min-width: 1px; }
+	.col-area  { width: 50px; }
+	.col-type  { width: 70px; }
+	.col-price { width: 50px; }
+
+	.unit-table__body { display: flex; flex-direction: column; padding: 0 10px; }
+	.unit-row {
+		display: flex;
+		gap: 5px;
+		padding: 16px 0;
+		border-bottom: 1px solid #000;
+		color: #fff;
+		font-weight: 400;
+		font-size: 12px;
+		line-height: 1.5;
+	}
+	.unit-row .col-property { white-space: nowrap; }
+	/* UNIT LISTING */
+</style>
+</head>
+<body>
+	<div class="pay-header">
+		<p class="pay-header__title">UNIT LISTING (HTML)</p>
+	</div>
+
+	<!-- UNITS LISTING -->
+	<div class="unit-table">
+		<div class="unit-table__head">
+			<p class="col-property col-title">Property</p>
+			<div class="col-area">
+				<p class="col-title">Area</p>
+				<p class="col-sub">(sqft)</p>
+			</div>
+			<p class="col-type col-title">Unit Type</p>
+			<div class="col-price">
+				<p class="col-title">Price</p>
+				<p class="col-sub">(AED)</p>
+			</div>
+		</div>
+		<div class="unit-table__body" id="unitRows">
+			<div class="unit-row">
+				<div class="col-property">B101Z-F101-1011</div>
+				<div class="col-area">1491.98</div>
+				<div class="col-type">2 BR</div>
+				<div class="col-price">1.7M</div>
+			</div>
+			<div class="unit-row">
+				<div class="col-property">B102Z-F102-1012</div>
+				<div class="col-area">1750.50</div>
+				<div class="col-type">2 BR</div>
+				<div class="col-price">1.89M</div>
+			</div>
+			<div class="unit-row">
+				<div class="col-property">B103Z-F103-1013</div>
+				<div class="col-area">1200.75</div>
+				<div class="col-type">2 BR</div>
+				<div class="col-price">1.9M</div>
+			</div>
+			<div class="unit-row">
+				<div class="col-property">B104Z-F104-1014</div>
+				<div class="col-area">2200.00</div>
+				<div class="col-type">2 BR</div>
+				<div class="col-price">2M</div>
+			</div>
+			<div class="unit-row">
+				<div class="col-property">B105Z-F105-1015</div>
+				<div class="col-area">1999.99</div>
+				<div class="col-type">2 BR</div>
+				<div class="col-price">2M</div>
+			</div>
+		</div>
+	</div>
+	<!-- UNITS LISTING /. -->
+</body>
+</html>

@@ -11,7 +11,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -78,6 +78,20 @@ class ChatSession(Base):
         cascade="all, delete-orphan",
     )
 
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        server_default="active",
+        default="active",
+    )
+
     __table_args__ = (
         Index("ix_sessions_user_updated", "user_id", "updated_at"),
     )
@@ -107,6 +121,11 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(
         Text,
         nullable=False,
+    )
+
+    response_payload: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

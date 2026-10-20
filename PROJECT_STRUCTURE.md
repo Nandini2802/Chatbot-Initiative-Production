@@ -22,6 +22,30 @@ danube-chatbot-backend/
 │          ├── sessions.py                   # GET session list / single session history (user's own only)
 │          ├── feedback.py                   # POST thumbs up/down per message_id (feeds the observability feedback signal)
 │          └── health.py                     # GET /health (liveness) and /ready (DB, Redis, Pinecone, Key Vault checks)
+│        └── apim_test.py                    # Provides a simple endpoint for checking that requests reach FastAPI through APIM
+│   ├── handlers/                            # Executes work for each classified intent
+│        ├── __init__.py                     # Marks the folder as a Python package
+│        ├── dispatcher.py                   # Sends each classified intent to its matching handler
+│        └── marketing_handler.py            # Finds requested project materials and prepares HTML cards and download links
+│        └── sample_api.py                   # Makes a sample external API request with retry handling
+│        └── streaming_service.py            # Routes chat requests, streams responses, and loads or saves conversation history
+│   ├── templates/                           # HTML templates used to render marketing materials
+│        ├── cards/                          # Reusable HTML cards for marketing assets and project information
+│        │    ├── block 2.html.j2            # Renders a block of marketing content
+│        │    ├── brochure.html.j2           # Renders brochure details and download links
+│        │    ├── compare 2.html.j2          # Renders project or unit comparison details
+│        │    ├── floor_plan.html.j2         # Renders floor-plan details and links
+│        │    ├── gallery.html.j2            # Renders an image gallery
+│        │    ├── language_list.html.j2      # Renders available language options
+│        │    ├── listing 2.html.j2          # Renders a list of available items
+│        │    ├── payment 2.html.j2          # Renders payment-plan details
+│        │    ├── project_overview.html.j2   # Renders a project overview
+│        │    ├── version_check.html.j2      # Renders version-check information
+│        │    ├── video.html.j2              # Renders video details and links
+│        │    └── zip_download.html.j2       # Renders a ZIP-file download link
+│        └── dev/                            # Local development chat-test page and route
+│             ├── chat_harness.py            # Serves the development chat-test page
+│             └── chat_test.html             # Provides the browser-based chat test interface
 │   ├── core/                                # App-wide building blocks (Step 2, Step 13)
 │        └── __init__.py                     # Marks the folder as a Python package
 │        └── config.py                       # Pydantic Settings: env vars + thresholds (cache TTL, RAG 0.7, sync 18h, top-k)
@@ -43,6 +67,9 @@ danube-chatbot-backend/
 │        └── chat.py                         # ChatRequest, ChatResponse, FollowUpChip, ResolvedLink
 │        └── auth.py                         # TokenClaims / RBAC claims model (user_id, role, region, entitlements)
 │        └── session.py                      # SessionRecord and ChatTurn models
+│        └── marketing.py                    # One consistent structure of Marketing API 
+│        └── generation.py                   # It defines what generation LLM should return 
+│        └── handler_result.py               # Common streaming response structure for all functionalities 
 │        └── routing.py                      # RouterOutput: intents/sub-intents, language tag, expanded queries
 │        └── retrieval.py                    # RetrievedChunk, RetrievalResult, source-type enum
 │        └── streaming.py                    # SSE event models (token, done)
@@ -53,9 +80,14 @@ danube-chatbot-backend/
 │        └── chat_orchestrator.py            # Runs full turn: session > RBAC > cache > route > retrieve > generate > verify > persist
 │        └── session_service.py              # New-vs-existing session resolution and short memory window (last N turns)
 │        └── rbac_service.py                 # Decides which roles may use the inventory path (Step 4)
+│        └── session_timeout_service.py      # common session-timeout utility
 │        └── cache_service.py                # Redis (~6h) then pgvector semantic cache; skipped for inventory
 │        └── router_service.py               # LLM 1: intent classification, language tag, query expansion, sub-intent split
 │        └── retrieval_service.py            # Dispatches to the correct retrieval path(s) per intent
+│        └── template_service.py             # Renders existing HTML files using data returned by API
+│        └── marketing_service.py            # It reads existing Redis cache , searches and returns the relevant files
+│        └── conversation_context_service.py # This stores the session, recent messages, current project, and any pending clarification.
+│        └── project_catalog_service.py      # Retrieves the project names dynamically from Redis
 │        └── context_builder.py              # Builds token-budgeted, per-source grounded context with top-k limits
 │        └── generation_service.py           # LLM 2: streamed answer in detected language, structured output with chips
 │        └── guardrail_service.py            # Input scope check and output safety/PII/groundedness check (Foundry / Content Safety)

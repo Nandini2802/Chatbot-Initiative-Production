@@ -50,6 +50,7 @@ class AppSecrets(BaseModel):
     pinecone_api_key: SecretStr
     applicationinsights_connection_string: SecretStr
     marketing_api_key: SecretStr
+    foundry_openai_api_key: SecretStr
 
 def is_retryable_error(exc: BaseException) -> bool:
     """
@@ -175,6 +176,7 @@ async def load_application_secrets() -> AppSecrets:
             pinecone_api_key=local.pinecone_api_key,
             applicationinsights_connection_string=local.applicationinsights_connection_string,
             marketing_api_key=local.marketing_api_key,
+            foundry_openai_api_key=local.foundry_openai_api_key,
         )
     
     # Deployed environments
@@ -205,6 +207,9 @@ async def load_application_secrets() -> AppSecrets:
             ),
             marketing_api_key=SecretStr(
                 await keyvault.get_secret("marketing-api-key")
+            ),
+            foundry_openai_api_key=SecretStr(
+                await keyvault.get_secret("foundry-openai-api-key")
             ),
         )
     

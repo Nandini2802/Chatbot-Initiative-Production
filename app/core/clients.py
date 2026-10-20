@@ -18,11 +18,13 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from redis.asyncio import Redis
+from redis.asyncio import RedisCluster
 from redis_entraid.cred_provider import (
     create_from_default_azure_credential,
 )
 from pinecone import Pinecone
+from openai import AsyncOpenAI
+from functools import partial
 
 from app.core.config import get_settings
 from app.core.keyvault import (
@@ -33,6 +35,24 @@ from app.core.keyvault import (
 
 logger = logging.getLogger(__name__)
 
+def remap_redis_node_address(
+    address: tuple[str, int],
+    redis_hostname: str,
+) -> tuple[str, int]:
+
+    host, port = address
+
+    if host == "51.11.255.75" and port == 8501:
+        print(
+            f"[REDIS DEBUG] Remapping {host}:{port} "
+            f"to {redis_hostname}:{port}",
+            flush=True,
+        )
+
+        return redis_hostname, port
+
+    return address
+
 
 @dataclass
 class ServiceClients:
@@ -41,9 +61,10 @@ class ServiceClients:
     """
 
     postgres: AsyncEngine
-    redis: Redis
+    redis: RedisCluster
     pinecone: Pinecone
     pinecone_index: Any
+    foundry_openai: AsyncOpenAI
 
 
 async def create_service_clients(
@@ -73,16 +94,54 @@ async def create_service_clients(
         )
     )
 
-    # Initialize Azure Managed Redis
-    redis_client = Redis(
+    redis_client = RedisCluster(
         host=secrets.redis_host,
         port=secrets.redis_port,
         ssl=True,
         ssl_cert_reqs="required",
+        ssl_check_hostname=True,
         credential_provider=redis_credential_provider,
         decode_responses=True,
         socket_connect_timeout=10,
         socket_timeout=10,
+        address_remap=partial(
+            remap_redis_node_address,
+            redis_hostname=secrets.redis_host,
+        ),
+    )
+
+    await redis_client.initialize()
+
+    print(
+        "[REDIS DEBUG] Cluster PING:",
+        await redis_client.ping(),
+        flush=True,
+    )
+
+    print(
+        "[REDIS DEBUG] Marketing catalog exists:",
+        await redis_client.exists(
+            "danube:api:marketing:v1"
+        ),
+        flush=True,
+    )
+
+    print(
+        "[REDIS DEBUG] Marketing catalog TTL:",
+        await redis_client.ttl(
+            "danube:api:marketing:v1"
+        ),
+        flush=True,
+    )
+
+    logger.info("Redis Cluster client initialized")
+
+    # Verify connection
+    redis_ping = await redis_client.ping()
+
+    print(
+        f"[REDIS DEBUG] Redis Cluster connected: {redis_ping}",
+        flush=True,
     )
 
     logger.info("Redis client initialized")
@@ -110,22 +169,42 @@ async def create_service_clients(
 
     logger.info("Pinecone client initialized")
 
+    # Step 4: Initialize Azure OpenAI
+    if not settings.foundry_openai_base_url:
+        await redis_client.aclose()
+        await postgres_engine.dispose()
+        raise ValueError(
+            "FOUNDRY_OPENAI_BASE_URL is not configured"
+        )
+
+    foundry_client = AsyncOpenAI(
+        base_url=settings.foundry_openai_base_url,
+        api_key=secrets.foundry_openai_api_key.get_secret_value(),
+        timeout=settings.foundry_openai_timeout_seconds,
+        max_retries=2,
+    )
+
+    logger.info("Microsoft Foundry client initialized")
+
     return ServiceClients(
         postgres=postgres_engine,
         redis=redis_client,
         pinecone=pinecone_client,
         pinecone_index=pinecone_index,
+        foundry_openai=foundry_client,
     )
 
 
 async def close_service_clients(
     clients: ServiceClients,
 ) -> None:
-    """
-    Close resources during application shutdown.
-    """
 
-    await clients.redis.aclose()
-    await clients.postgres.dispose()
+    try:
+        await clients.foundry_openai.close()
+    finally:
+        try:
+            await clients.redis.aclose()
+        finally:
+            await clients.postgres.dispose()
 
-    logger.info("Redis and PostgreSQL resources closed")
+    logger.info("External service clients closed")

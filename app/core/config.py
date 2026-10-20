@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     environment: Literal["local", "development", "uat", "production"]
     debug: bool = False
 
+    # Microsoft Foundry
+    foundry_openai_base_url: str = ""
+    foundry_openai_model: str = "gpt-5.4"
+    foundry_openai_timeout_seconds: float = 30.0
+    generation_openai_model: str = ""
+
     # Azure Key Vault
     key_vault_url: str | None = None
 
@@ -47,6 +53,9 @@ class Settings(BaseSettings):
 
     # External APIs
     request_timeout_seconds: int = 10
+
+    # History
+    session_inactivity_minutes: int = 30
 
     # Marketing API
     marketing_api_url: str = ""
@@ -87,6 +96,7 @@ class LocalSecrets(BaseSettings):
     pinecone_api_key: str
     applicationinsights_connection_string: str
     marketing_api_key: str
+    foundry_openai_api_key: str
 
     model_config = SettingsConfigDict(
         env_file=".env",

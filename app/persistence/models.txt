@@ -11,6 +11,8 @@ Stores the details of each chatbot conversation.
 | updated_at  | Date and time when the session was last updated.                                       |
 | messages    | Relationship linking the session to all its chat messages.                             |
 | query_logs  | Relationship linking the session to its query execution logs.                          |
+| last_activity_at  | when was the last time conversation updated                                      |
+| status      | conversation can stay active or closed                                                 |
 
 
 2. ChatMessage — messages table

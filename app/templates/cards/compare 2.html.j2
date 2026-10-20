@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&family=Poppins:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  	/* TEMP ENDS HERE (DO not use above) */
+ 	*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+		background: #000;
+		-webkit-font-smoothing: antialiased;
+		color: #fff;
+	}
+	.pay-header {
+		display: flex;
+		align-items: center;
+		gap: 16px;
+		height: 56px;
+		padding: 18px 16px;
+		background: rgba(0,0,0,.6);
+		backdrop-filter: blur(15px);
+		-webkit-backdrop-filter: blur(15px);
+		position: sticky;
+		top: 0;
+		z-index: 2;
+	}
+	.pay-header__title {
+		flex: 1 0 0;
+		min-width: 0;
+		text-align: center;
+		font-family: 'Montserrat', sans-serif;
+		font-weight: 600;
+		font-size: 17px;
+		line-height: 1.2;
+		letter-spacing: 1.7px;
+		text-transform: uppercase;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	/* TEMP ENDS HERE (DO not use above) */
+
+	/* Body Styles Starts Here */
+	.compare { display: flex; flex-direction: column; gap: 20px; }
+
+	/* Bot intro message */
+	.compare__msg { font-family: 'Poppins', sans-serif; font-size: 12px; line-height: 1.8; }
+	.compare__msg p + p { margin-top: 1.8em; }
+
+	/* Two unit image cards */
+	.compare-cards { display: flex; gap: 16px; }
+	.unit-card { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+	.unit-card__media { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+	.unit-card__img { width: 100%; aspect-ratio: 375 / 439; background: #16171a; border-radius: 10px; display: block; }
+	.unit-card__dots { display: flex; gap: 10px; align-items: center; }
+	.unit-card__dots i { display: block; height: 6px; width: 6px; border-radius: 50px; background: #fff; opacity: .5; }
+	.unit-card__dots i.is-active { width: 30px; opacity: 1; }
+	.unit-card__price { display: flex; gap: 4px; align-items: center; justify-content: center; }
+	.unit-card__price img { width: 15px; height: 13px; display: block; }
+	.unit-card__price span { font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 12px; line-height: 1.2; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; }
+
+	/* Accordion comparison sections (native <details>, no JS) */
+	.acc { display: block; border-top: 3px solid #16171a; padding-top: 33px; }
+	.acc__head {
+		display: flex; align-items: center; gap: 12px; width: 100%;
+		cursor: pointer; list-style: none; margin-bottom: 26px;
+	}
+	.acc__head::-webkit-details-marker { display: none; }
+	.acc__head h3 {
+		flex: 1 0 0; min-width: 0;
+		font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 17px; line-height: 1.2;
+		letter-spacing: 1.7px; text-transform: uppercase;
+		overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	}
+	.acc__chev { flex-shrink: 0; width: 16px; height: 16px; transition: transform .2s; }
+	.acc:not([open]) .acc__chev { transform: rotate(180deg); }
+	.acc:not([open]) .acc__head { margin-bottom: 0; }
+
+	.acc__body { display: flex; gap: 16px; }
+	.acc__col {
+		flex: 1 1 0; min-width: 0;
+		display: flex; flex-direction: column; gap: 26px;
+		font-family: 'Montserrat', sans-serif; font-weight: 400; font-size: 12px; line-height: 1.2;
+		text-transform: capitalize;
+	}
+	.kv { display: flex; flex-direction: column; gap: 10px; }
+	.kv .k { opacity: .6; }
+
+	.chips { display: flex; gap: 26px;flex-wrap: wrap; }
+	.chip { display: flex; gap: 6px; align-items: center; width: 49%;}
+	.chip img { flex-shrink: 0; width: 24px; height: 24px; filter: brightness(0) invert(1); }
+	.chip span { flex: 1 0 0; min-width: 0; }
+
+	/* Payment plan items */
+	.pp { display: flex; flex-direction: column; gap: 20px; }
+	.pp__item { display: flex; flex-direction: column; gap: 10px; }
+	.pp__title { opacity: .6; line-height: 1.5; }
+	.pp__installments { font-weight: 600; text-transform: uppercase; }
+	.pp__link { font-family: 'Poppins', sans-serif; font-weight: 500; color: #b87c01; text-decoration: underline; cursor: pointer; }
+	.muted { opacity: .6; }
+</style>
+</head>
+<body>
+	<div class="pay-header">
+    	<p class="pay-header__title">Compare Units (HTML)</p>
+  	</div>
+	<!-- Compared Units -->
+	<div class="compare">
+		<div class="compare-cards">
+			<div class="unit-card">
+				<div class="unit-card__media">
+				<div class="unit-card__img" role="img" aria-label="Unit 1"></div>
+				<div class="unit-card__dots"><i class="is-active"></i><i></i><i></i></div>
+				</div>
+				<div class="unit-card__price"><img src="https://aibot.danubeone.app/staging/assets/images/price-icon.svg" alt="AED" /><span>40,863,000</span></div>
+			</div>
+			<div class="unit-card">
+				<div class="unit-card__media">
+				<div class="unit-card__img" role="img" aria-label="Unit 3"></div>
+				<div class="unit-card__dots"><i class="is-active"></i><i></i><i></i></div>
+				</div>
+				<div class="unit-card__price"><img src="https://aibot.danubeone.app/staging/assets/images/price-icon.svg" alt="AED" /><span>41,250,000</span></div>
+			</div>
+		</div>
+
+		<!-- Overview -->
+		<details class="acc" open>
+			<summary class="acc__head">
+				<h3>Overview</h3>
+				<svg class="acc__chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7.5" stroke="#fff" stroke-opacity=".4"/><path d="M5 9.5 8 6.5l3 3" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			</summary>
+			<div class="acc__body">
+				<div class="acc__col"><p>Oceanz by Danube</p><p>B102Z-F102-1011</p><p>Dubai Maritime City</p></div>
+				<div class="acc__col"><p>Oceanz by Danube</p><p>B102Z-F102-1013</p><p>Dubai Maritime City</p></div>
+			</div>
+		</details>
+
+		<!-- Spaces -->
+		<details class="acc" open>
+			<summary class="acc__head">
+				<h3>Spaces</h3>
+				<svg class="acc__chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7.5" stroke="#fff" stroke-opacity=".4"/><path d="M5 9.5 8 6.5l3 3" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			</summary>
+			<div class="acc__body">
+				<div class="acc__col"><p>Residential</p><p>2 Bed</p><p>5 Bathroom</p><p>2 Parking Spots</p></div>
+				<div class="acc__col"><p>Residential</p><p>2 Bed</p><p>4 Bathroom</p><p>1 garage with 3 Parking Spots</p></div>
+			</div>
+		</details>
+
+		<!-- Unit Size -->
+		<details class="acc" open>
+			<summary class="acc__head">
+				<h3>Unit Size</h3>
+				<svg class="acc__chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7.5" stroke="#fff" stroke-opacity=".4"/><path d="M5 9.5 8 6.5l3 3" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			</summary>
+			<div class="acc__body">
+				<div class="acc__col">
+				<div class="kv"><span class="k">Total Area</span><span>801 sqft</span></div>
+				<div class="kv"><span class="k">Internal Area</span><span>600 sqft</span></div>
+				</div>
+				<div class="acc__col">
+				<div class="kv"><span class="k">Total Area</span><span>801 sqft</span></div>
+				<div class="kv"><span class="k">Internal Area</span><span>700 sqft</span></div>
+				</div>
+			</div>
+		</details>
+
+		<!-- Status -->
+		<details class="acc" open>
+			<summary class="acc__head">
+				<h3>Status</h3>
+				<svg class="acc__chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7.5" stroke="#fff" stroke-opacity=".4"/><path d="M5 9.5 8 6.5l3 3" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			</summary>
+			<div class="acc__body">
+				<div class="acc__col"><p>Ready to move</p><p class="muted">----</p></div>
+				<div class="acc__col"><p>Off Plan</p><p>Ready in June 2028</p></div>
+			</div>
+		</details>
+
+		<!-- Amenities -->
+		<details class="acc" open>
+			<summary class="acc__head">
+				<h3>Amenities</h3>
+				<svg class="acc__chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7.5" stroke="#fff" stroke-opacity=".4"/><path d="M5 9.5 8 6.5l3 3" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			</summary>
+			<div class="acc__body">
+				<div class="acc__col">
+					<p>11 Total Amenities</p>
+					<div class="chips">
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/beef.svg" alt="" /><span>Barbeque</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/land-plot.svg" alt="" /><span>Land Plot</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/volleyball.svg" alt="" /><span>Volleyball Court</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/clapperboard.svg" alt="" /><span>Cinema</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/dumbbell.svg" alt="" /><span>Gym</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/door-closed.svg" alt="" /><span>Changing Room</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/shirt.svg" alt="" /><span>Laundry</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/bath.svg" alt="" /><span>Spa</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/car-front.svg" alt="" /><span>Parking</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/tree-palm.svg" alt="" /><span>Palm Garden</span></div>
+						<div class="chip"><img src="https://unpkg.com/lucide-static@latest/icons/tent-tree.svg" alt="" /><span>Camping Area</span></div>
+					</div>
+				</div>
+			</div>
+		</details>
+
+		<!-- Payment Plans -->
+		<details class="acc" open>
+			<summary class="acc__head">
+				<h3>Payment Plans</h3>
+				<svg class="acc__chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7.5" stroke="#fff" stroke-opacity=".4"/><path d="M5 9.5 8 6.5l3 3" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			</summary>
+			<div class="acc__body">
+				<div class="acc__col">
+					<div class="pp">
+						<div class="pp__item">
+						<span class="pp__title">Breez Payment plan - Ismaili Community Jul 2025</span>
+						<span class="pp__installments">126 Installments</span>
+						<span class="pp__link">View Details</span>
+						</div>
+						<div class="pp__item">
+						<span class="pp__title">Breez Launch Payment plan - Residence 30% Upfront May 2024</span>
+						<span class="pp__installments">56 Installments</span>
+						<span class="pp__link">View Details</span>
+						</div>
+					</div>
+				</div>
+				<div class="acc__col">
+					<div class="pp">
+						<div class="pp__item">
+						<span class="pp__title">Bayz 101 Payment plan - Standard</span>
+						<span class="pp__installments">201 Installments</span>
+						<span class="pp__link">View Details</span>
+						</div>
+						<span class="muted">----</span>
+					</div>
+				</div>
+			</div>
+		</details>
+	</div>
+	<!-- Compared Units /. -->
+</body>
+</html>
