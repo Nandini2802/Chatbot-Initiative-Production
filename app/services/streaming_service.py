@@ -117,8 +117,6 @@ async def stream_chat_response(
     try:
         # 1. SESSION EVENT
 
-        print("session event started")
-
         yield format_sse(
             "session",
             {
@@ -128,8 +126,6 @@ async def stream_chat_response(
         )
 
         # 2. CLASSIFY USER QUERY
-
-        print("User query being qualified")
 
         settings = get_settings()
 
@@ -145,44 +141,6 @@ async def stream_chat_response(
             limit=10,
         )
 
-        catalog_key = RedisCacheKeys.MARKETING_CATALOG
-
-        print(
-            f"[REDIS DEBUG] Catalog key: {catalog_key}",
-            flush=True,
-        )
-
-        key_exists = await clients.redis.exists(catalog_key)
-
-        print(
-            f"[REDIS DEBUG] Key exists: {bool(key_exists)}",
-            flush=True,
-        )
-
-        key_ttl = await clients.redis.ttl(catalog_key)
-
-        print(
-            f"[REDIS DEBUG] Key TTL: {key_ttl}",
-            flush=True,
-        )
-
-        print("\n========== REDIS DEBUG ==========", flush=True)
-
-        try:
-            redis_connected = await clients.redis.ping()
-
-            print(
-                f"[REDIS DEBUG] Connection successful: {redis_connected}",
-                flush=True,
-            )
-
-        except Exception as exc:
-            print(
-                f"[REDIS DEBUG] Connection failed: {type(exc).__name__}: {exc}",
-                flush=True,
-            )
-
-        print("=================================\n", flush=True)
 
         # Load official project names from Redis
         project_catalog_service = ProjectCatalogService(
@@ -193,46 +151,13 @@ async def stream_chat_response(
             await project_catalog_service.get_project_names()
         )
 
-        # Load official project names from Redis
-        print(
-            "[CATALOG DEBUG] Initializing ProjectCatalogService",
-            flush=True,
-        )
-
-        print(
-            f"[CATALOG DEBUG] Redis client type: "
-            f"{type(clients.redis).__name__}",
-            flush=True,
-        )
 
         project_catalog_service = ProjectCatalogService(
             redis_client=clients.redis,
         )
 
-        print(
-            "[CATALOG DEBUG] Calling get_project_names()",
-            flush=True,
-        )
-
         available_projects = (
             await project_catalog_service.get_project_names()
-        )
-
-        print(
-            "[CATALOG DEBUG] get_project_names() completed",
-            flush=True,
-        )
-
-        print(
-            f"[CATALOG DEBUG] Returned type: "
-            f"{type(available_projects).__name__}",
-            flush=True,
-        )
-
-        print(
-            f"[CATALOG DEBUG] Number of projects: "
-            f"{len(available_projects) if available_projects is not None else 'None'}",
-            flush=True,
         )
 
         if not available_projects:

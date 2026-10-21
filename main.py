@@ -18,6 +18,8 @@ from app.api.v1.router import api_router
 from app.middleware.correlation_id import correlation_id_middleware
 from app.middleware.exception_handlers import register_exception_handlers
 from app.scripts.cache_scheduler import create_cache_scheduler
+from app.scripts.refresh_api_cache import refresh_marketing_cache
+from app.persistence.redis_store import RedisCacheKeys
 from app.templates.dev.chat_harness import router as dev_router
 
 from app.middleware.exception_handlers import validation_exception_handler
@@ -128,6 +130,34 @@ async def lifespan(app: FastAPI):
             )
 
         logger.info("Application startup completed")
+
+        # Initialize Marketing Catalog if Redis cache is empty.
+        catalog_key = RedisCacheKeys.MARKETING_CATALOG
+        catalog_exists = await clients.redis.exists(catalog_key)
+
+        if not catalog_exists:
+            logger.info(
+                "MARKETING_CACHE_MISSING | Starting initial refresh"
+            )
+
+            refresh_success = await refresh_marketing_cache(
+                clients=clients,
+                secrets=secrets,
+            )
+
+            if refresh_success:
+                logger.info(
+                    "MARKETING_CACHE_INITIALIZED_SUCCESSFULLY"
+                )
+            else:
+                logger.error(
+                    "MARKETING_CACHE_INITIALIZATION_FAILED"
+                )
+
+        else:
+            logger.info(
+                "MARKETING_CACHE_ALREADY_AVAILABLE"
+            )
 
         scheduler = create_cache_scheduler(
             clients=clients,

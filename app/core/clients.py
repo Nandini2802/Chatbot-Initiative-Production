@@ -112,37 +112,10 @@ async def create_service_clients(
 
     await redis_client.initialize()
 
-    print(
-        "[REDIS DEBUG] Cluster PING:",
-        await redis_client.ping(),
-        flush=True,
-    )
-
-    print(
-        "[REDIS DEBUG] Marketing catalog exists:",
-        await redis_client.exists(
-            "danube:api:marketing:v1"
-        ),
-        flush=True,
-    )
-
-    print(
-        "[REDIS DEBUG] Marketing catalog TTL:",
-        await redis_client.ttl(
-            "danube:api:marketing:v1"
-        ),
-        flush=True,
-    )
-
     logger.info("Redis Cluster client initialized")
 
     # Verify connection
     redis_ping = await redis_client.ping()
-
-    print(
-        f"[REDIS DEBUG] Redis Cluster connected: {redis_ping}",
-        flush=True,
-    )
 
     logger.info("Redis client initialized")
 

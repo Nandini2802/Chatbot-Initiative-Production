@@ -51,6 +51,35 @@ async def refresh_marketing_cache(
             await marketing_client.fetch_catalog()
         )
 
+        # Validate Marketing API response before caching.
+
+        if not isinstance(marketing_data, dict):
+            raise ValueError(
+                "Marketing API response must be a JSON object"
+            )
+
+        payload = marketing_data.get("data", marketing_data)
+
+        if not isinstance(payload, dict):
+            raise ValueError(
+                "Invalid Marketing API data structure"
+            )
+
+        projects = payload.get("marketingCollateral")
+
+        if (
+            not isinstance(projects, list)
+            or not any(
+                isinstance(item, dict)
+                and isinstance(item.get("project_title"), str)
+                and item["project_title"].strip()
+                for item in projects
+            )
+        ):
+            raise ValueError(
+                "Marketing API returned no valid projects"
+            )
+
         # Step 2: Add refresh timestamp
         cache_payload = {
             "refreshed_at": datetime.now(
