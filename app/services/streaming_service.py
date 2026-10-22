@@ -7,6 +7,7 @@ import json
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
+
 from app.core.config import get_settings
 from app.core.clients import ServiceClients
 from app.schemas.chat import ChatResponse
@@ -19,7 +20,10 @@ from app.utils.sse import format_sse
 from app.services.project_catalog_service import ProjectCatalogService
 from app.handlers.dispatcher import IntentDispatcher
 from app.persistence.redis_store import RedisCacheKeys
-
+from app.retrieval.salesforce_client import SalesforceClient
+from app.retrieval.inventory_connector import InventoryConnector
+from app.services.inventory_catalog_service import InventoryCatalogService
+from app.services.inventory_token_provider import get_inventory_token_service
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -102,6 +106,7 @@ async def stream_chat_response(
     role: str,
     source: str,
     clients: ServiceClients,
+    access_token: str,
 ):
 
     started_at = time.perf_counter()
@@ -147,13 +152,24 @@ async def stream_chat_response(
             redis_client=clients.redis,
         )
 
-        available_projects = (
-            await project_catalog_service.get_project_names()
+        inventory_client = SalesforceClient()
+        inventory_connector = InventoryConnector(
+            salesforce_client=inventory_client
         )
 
+        inventory_token_service = get_inventory_token_service()
 
-        project_catalog_service = ProjectCatalogService(
-            redis_client=clients.redis,
+        inventory_token = await inventory_token_service.get_token()
+
+        inventory_snapshot = (
+            await inventory_connector.fetch_inventory(
+                token=inventory_token,
+                user_id=settings.inventory_test_user_id,
+            )
+        )
+
+        inventory_catalogs = InventoryCatalogService.build(
+            inventory_snapshot
         )
 
         available_projects = (
@@ -170,25 +186,83 @@ async def stream_chat_response(
             message=message,
             history=history,
             available_projects=available_projects,
+            inventory_active_projects=(
+                inventory_catalogs.active_projects
+            ),
+            inventory_unit_projects=(
+                inventory_catalogs.unit_projects
+            ),
         )
 
-        valid_projects = set(available_projects)
-        for intent in routing_result.intents:
+
+        marketing_names = set(available_projects)
+
+        inventory_active_names = set(
+            inventory_catalogs.active_projects
+        )
+
+        inventory_unit_names = set(
+            inventory_catalogs.unit_projects
+        )
+
+        # Tracks intents that must not execute.
+        blocked_intents = set()
+
+        for index, intent in enumerate(routing_result.intents):
+
+            if intent.intent == "marketing":
+                valid_names = marketing_names
+
+            elif intent.intent == "inventory":
+
+                if intent.inventory_scope == "projects":
+                    valid_names = inventory_active_names
+
+                elif intent.inventory_scope == "units":
+                    # Accept recognized projects even when
+                    # no units are visible for that project.
+                    valid_names = (
+                        inventory_active_names
+                        | inventory_unit_names
+                    )
+
+                else:
+                    intent.requires_clarification = True
+                    blocked_intents.add(index)
+                    continue
+
+            else:
+                # Preserve current validation behavior for
+                # other intents until their own catalogs exist.
+                valid_names = marketing_names
 
             if (
-                intent.project_name
-                and intent.project_name not in valid_projects
+                intent.project_name is not None
+                and intent.project_name not in valid_names
             ):
                 logger.warning(
                     "INVALID_PROJECT_SELECTION | "
-                    "intent=%s | project=%s | "
-                    "correlation_id=%s",
+                    "intent=%s | correlation_id=%s",
                     intent.intent,
-                    intent.project_name,
                     correlation_id,
                 )
 
-                intent.project_name = None
+                # IMPORTANT: Do not erase the selected name.
+                intent.requires_clarification = True
+                blocked_intents.add(index)
+
+                if "project_name" not in intent.missing_fields:
+                    intent.missing_fields.append("project_name")
+
+            # Block ambiguous or incomplete requests.
+            if intent.requires_clarification:
+                blocked_intents.add(index)
+
+        routing_result.requires_clarification = any(
+            item.requires_clarification
+            for item in routing_result.intents
+        )
+
 
         detected_intents = [
             item.intent
@@ -211,7 +285,7 @@ async def stream_chat_response(
             ),
         )
                 
-        
+    
         # 3. INITIALIZE INTENT DISPATCHER
 
         dispatcher = IntentDispatcher(
@@ -219,10 +293,28 @@ async def stream_chat_response(
         )
 
         handler_results = []
+        clarification_messages = []
 
         # 4. PROCESS CLASSIFIED INTENTS
 
-        for intent in routing_result.intents:
+        for index, intent in enumerate(routing_result.intents):
+
+            # FIX 3: Do not execute unresolved intents.
+            if index in blocked_intents:
+
+                clarification_messages.append(
+                    "Please clarify the project or "
+                    "details for your request."
+                )
+
+                logger.info(
+                    "INTENT_BLOCKED_FOR_CLARIFICATION | "
+                    "intent=%s | correlation_id=%s",
+                    intent.intent,
+                    correlation_id,
+                )
+
+                continue
 
             result = await dispatcher.execute(intent)
 
@@ -240,11 +332,12 @@ async def stream_chat_response(
                 len(result.html_blocks),
             )
 
+
         # 4A. COMBINE HANDLER RESULTS
 
         all_html_blocks = []
         all_files = []
-        response_messages = []
+        response_messages = list(clarification_messages)
         generation_contexts = []
 
         for result in handler_results:

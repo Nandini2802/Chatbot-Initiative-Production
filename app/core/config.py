@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     # History
     session_inactivity_minutes: int = 30
 
+    # Inventory API
+    inventory_project_api_url: str = ""
+    inventory_units_api_url: str = ""
+    inventory_timeout_seconds: float = 30.0
+    inventory_max_retries: int = 3
+    inventory_test_user_id: str | None = None
+    inventory_test_cookie: str | None = None
+    inventory_auth_url: str = ""
+    inventory_client_id: str = ""
+    inventory_client_secret: str = ""
+
     # Marketing API
     marketing_api_url: str = ""
     marketing_cache_ttl_seconds: int = 172800

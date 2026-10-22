@@ -41,6 +41,9 @@ class RoutingIntent(BaseModel):
     missing_fields: list[str]
     requires_clarification: bool
 
+    # Inventory
+    inventory_scope: Literal["units", "projects"] | None = None
+
 
 class RoutingResult(BaseModel):
     language: str

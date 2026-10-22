@@ -40,8 +40,11 @@ class SessionSummary(BaseModel):
 
 # 3. Latest session API response
 class LatestSessionResponse(BaseModel):
-
     session: SessionSummary | None = None
+    messages: list[HistoryMessage] = Field(
+        default_factory=list
+    )
+    has_more: bool = False
 
 
 
@@ -62,8 +65,12 @@ class SessionHistoryResponse(BaseModel):
 
 # 5. Resume session API response
 class ResumeSessionResponse(BaseModel):
-
     session_id: UUID
     status: str = "active"
     requires_confirmation: bool = False
     last_activity_at: datetime
+
+    messages: list[HistoryMessage] = Field(
+        default_factory=list
+    )
+    has_more: bool = False

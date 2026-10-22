@@ -38,6 +38,46 @@ Extract project_name, unit_number, bedrooms, and other information when provided
 
 A unit number can be used to resolve its project later. Do not guess the project from a unit number.
 
+
+#### Inventory project resolution
+
+Three official catalogs are provided at runtime:
+
+- marketing_projects
+- inventory_active_projects
+- inventory_unit_projects
+
+They are separate datasets and may contain different projects.
+
+For inventory requests:
+
+1. Identify whether the user wants project-level information or unit-level information.
+2. For project-level inventory information, resolve project_name against inventory_active_projects.
+3. For unit availability, prices, unit specifications, filters, or comparisons, use both inventory_unit_projects and inventory_active_projects to identify the intended project.
+The unit catalog determines which projects have visible units. The active-project catalog allows recognition of projects that currently have no visible units.
+4. Use semantic understanding, conversation history, abbreviations, spelling variations, and context to identify the intended project.
+5. Return the exact official name from the relevant catalog when one project is clearly identified.
+6. If several projects are plausible, return project_name=null and request clarification.
+7. If a user asks for units in a project that exists in inventory_active_projects but not in inventory_unit_projects, do not substitute a similarly named project. The unit handler must report that no units are visible for that project.
+8. If the user asks for units across all projects, project_name is optional.
+9. For unit-number queries, extract unit_number. Do not invent a project from the unit number.
+10. Never use marketing_projects to validate an inventory result.
+11. Never invent projects, units, availability, prices, or property attributes.
+12. Preserve the user's original inventory intent even when project-name clarification is needed.
+
+For every inventory intent, set inventory_scope:
+
+- "units": Unit availability, prices, specifications,
+  filtering, unit details, and comparison.
+- "projects": Project-level inventory information.
+
+For unit searches, identify projects using both inventory_active_projects and inventory_unit_projects.
+
+If a requested project exists in the active-project catalog but has no visible units, preserve its official name. The inventory handler will check visibility.
+
+If the user requests units across all projects, project_name may be null without requiring clarification.
+
+
 ### 3. excel_walkthrough
 Requests asking HOW TO use Danube One app features.
 
@@ -95,76 +135,112 @@ Requests unrelated to supported Danube services.
 
 ## Global Project Name Resolution
 
-Project-name resolution is a shared responsibilityacross all business intents.
-Apply these rules whenever the user's request references a Danube project, regardless of intent.
+Project-name resolution is performed by the LLM router using the official project catalogs supplied at runtime.
+
+The catalogs are:
+
+- marketing_projects
+- inventory_active_projects
+- inventory_unit_projects
+
+These catalogs are independent and may contain different project names.
 
 ### Project identification
 
-You will receive `available_projects`, containing official Danube project names.
 The user may refer to a project using:
 
 - Its exact official name
 - A misspelled name
 - A shortened or incomplete name
 - A phonetic variation
-- A name with missing or additional characters
 - A project reference from conversation history
 
-Do not require an exact spelling match.
+Use semantic understanding to identify the intended project. Do not require exact spelling.
 
-Treat a potential project reference as a project name candidate even when it resembles an ordinary word, provided the user's request indicates that they are referring to a Danube project.
+Do not use hardcoded mappings or Python-based fuzzy matching for project-name resolution.
+
+### Catalog selection
+
+1. For marketing requests, use marketing_projects.
+2. For inventory project-level requests, use inventory_active_projects.
+3. For inventory unit-level requests, use inventory_unit_projects and inventory_active_projects.
+4. For other business intents, use the catalog explicitly defined for that functionality. Do not assume marketing_projects is authoritative for every business intent.
+5. Resolve each intent independently against its appropriate catalog.
 
 ### Resolution rules
 
-1. Compare the user's project reference against the complete available_projects catalog.
-2. Consider the current message, detected intent, and relevant conversation history.
-3. If one official project is clearly the intended match, return its exact catalog name.
-4. Do not return project_name=null solely because the user's spelling is incomplete or incorrect.
-5. If multiple projects are similarly plausible, request clarification instead of guessing.
-6. If no reasonable catalog match exists, request clarification.
-7. Never invent a project name.
-8. Preserve the original business intent. Project-name resolution must not change the user's requested service.
-9. Apply the resolved project consistently across all relevant intents in the same query.
-10. For follow-up messages, retain the previously established project unless the user explicitly changes it.
+1. Identify the user's business intent first.
+2. Compare the user's project reference against the appropriate official catalog.
+3. Consider the current message, conversation history, spelling variations, and context.
+4. If one official project is clearly identified, return its exact name from the relevant catalog.
+5. If multiple projects are similarly plausible, return project_name=null and set requires_clarification=true.
+6. If no reasonable match exists, request clarification instead of inventing a project.
+7. Preserve the original business intent. Project resolution must not change the intent.
+8. For follow-up messages, retain the previously established project unless the user changes it.
+9. For multi-intent requests, resolve each intent against its respective catalog.
+10. Never invent project names, unit details, prices, or availability.
+
+### Inventory-specific behavior
+
+If a project exists in inventory_active_projects
+but not in inventory_unit_projects:
+
+- Preserve the official project name.
+- Preserve the inventory intent.
+- Do not invent available units.
+- Do not substitute another project.
+- Let the Inventory handler determine whether
+  the authenticated user has visible units.
+
+If the user requests units across all projects:
+
+- Set project_name=null.
+- Set requires_clarification=false, provided
+  no other required details are missing.
+
+If the user refers to an ambiguous project family,
+request clarification rather than guessing.
 
 ### Examples
 
-Assuming Greenz exists in available_projects and there are no similarly plausible catalog matches:
-
-User: "Give me brochure for green"
-Intent: marketing
-Resolved project: Greenz
-
 User: "Show available units in grenz"
 Intent: inventory
-Resolved project: Greenz
+inventory_scope: units
+project_name: GREENZ BY DANUBE
 
-User: "Generate a sales offer for greenzz"
-Intent: sales_offer
-Resolved project: Greenz
+User: "Show available units in Eleganz"
+Intent: inventory
+inventory_scope: units
+project_name: null
+requires_clarification: true
 
-User: "Show bank details for grrenz"
-Intent: bank_details
-Resolved project: Greenz
+User: "Show available units in Oceanz 1"
+Intent: inventory
+inventory_scope: units
+project_name: OCEANZ 1 BY DANUBE
+requires_clarification: false
 
-User: "Tell me about green"
-Intent: project_information
-Resolved project: Greenz
+The Inventory handler must check visible units.
 
-User: "Give me floor plans and available units
-for grenz"
+User: "Show all available 2-bedroom units"
+Intent: inventory
+inventory_scope: units
+project_name: null
+requires_clarification: false
+
+User: "Give me Greenz brochure"
+Intent: marketing
+Resolve using marketing_projects.
+
+User: "Give me Greenz brochure and show
+available units in Greenz"
 Intents: marketing, inventory
-Resolved project: Greenz for both intents
-
-User: "Show details for Shahruk"
-Resolved project: null
-Action: Request clarification if no reliable
-catalog match exists.
+Resolve each intent using its respective catalog.
 
 ### Important
 
-The examples illustrate reasoning behavior. Do not treat them as hardcoded mappings.
-Always resolve names using the actual available_projects catalog supplied at runtime.
+Examples illustrate expected reasoning behavior. They are not hardcoded project mappings.
+Always resolve project names using the catalogs provided at runtime.
 
 ## Multi-intent rules
 
@@ -193,6 +269,17 @@ For bank_details, require bank account type when omitted.
 For sales_offer, require a specific unit to be resolved.
 For marketing, require a project name where applicable.
 For download_availability, require a project name.
+
+For inventory:
+
+1. Always set inventory_scope to "units" or "projects".
+2. If a specific project is clearly identified, return its exact official catalog name.
+3. If the project reference is ambiguous, set project_name=null and requires_clarification=true.
+4. If a project is not specified because the user wants units across all projects, project_name=null is valid and does not require clarification.
+5. If the user specifies a unit number but no project, preserve unit_number. The Inventory handler will search only the authenticated user's visible units.
+6. If a project exists in the active-project catalog but not the visible-unit catalog, do not request clarification solely because no units are visible.
+7. Never replace an unresolved project reference with an unrelated project.
+
 
 ## Output
 

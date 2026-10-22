@@ -112,46 +112,44 @@ async def get_latest_session(
     user_id: CurrentUser,
     service: Service,
 ):
-    """
-    Retrieve the user's latest chat session.
-
-    Check whether 30 minutes of inactivity
-    have passed.
-
-    This API does NOT update last_activity_at.
-    """
-
-    # Step 1: Fetch latest session from PostgreSQL.
     session = await service.get_latest_session(
         user_id=user_id,
     )
 
-    # Step 2: Handle users with no previous sessions.
     if session is None:
         return LatestSessionResponse(
             session=None,
+            messages=[],
+            has_more=False,
         )
 
-    # Step 3: Check the inactivity timeout.
     requires_confirmation = (
         session_requires_confirmation(
             session.last_activity_at
         )
     )
 
-    # Step 4: Prepare the response.
-    session_summary = SessionSummary(
-        id=session.id,
-        title=session.title,
-        created_at=session.created_at,
-        last_activity_at=session.last_activity_at,
-        status=session.status,
-        requires_confirmation=requires_confirmation,
+    result = await service.get_session_history(
+        session_id=session.id,
+        user_id=user_id,
+        limit=50,
+        offset=0,
     )
 
-    # Step 5: Return the response.
     return LatestSessionResponse(
-        session=session_summary,
+        session=SessionSummary(
+            id=session.id,
+            title=session.title,
+            created_at=session.created_at,
+            last_activity_at=session.last_activity_at,
+            status=session.status,
+            requires_confirmation=requires_confirmation,
+        ),
+        messages=[
+            HistoryMessage.model_validate(message)
+            for message in result["messages"]
+        ],
+        has_more=result["has_more"],
     )
 
 
@@ -391,15 +389,17 @@ async def resume_chat_session(
     user_id: CurrentUser,
     service: Service,
 ):
-    """
-    Resume an existing conversation after
-    explicit user confirmation.
-    """
-
     try:
         session = await service.resume_session(
             session_id=session_id,
             user_id=user_id,
+        )
+
+        result = await service.get_session_history(
+            session_id=session_id,
+            user_id=user_id,
+            limit=50,
+            offset=0,
         )
 
         return ResumeSessionResponse(
@@ -407,6 +407,11 @@ async def resume_chat_session(
             status=session.status,
             requires_confirmation=False,
             last_activity_at=session.last_activity_at,
+            messages=[
+                HistoryMessage.model_validate(message)
+                for message in result["messages"]
+            ],
+            has_more=result["has_more"],
         )
 
     except SessionNotFoundError:

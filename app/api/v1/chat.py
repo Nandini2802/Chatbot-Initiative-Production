@@ -152,6 +152,7 @@ async def chat_query(
             role=body.role,
             source=body.source,
             clients=clients,
+            access_token=credentials.credentials,
         ),
         media_type="text/event-stream",
         headers={
