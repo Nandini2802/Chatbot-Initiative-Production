@@ -21,6 +21,7 @@ class ChatRequest(BaseModel):
     session_id: UUID | None = None
     role: NonEmptyString = Field(alias="Role")
     source: Literal["mobile_app", "web_app"]
+    employee_type: Literal["direct", "indirect"]
 
     @model_validator(mode="after")
     def validate_session(self):

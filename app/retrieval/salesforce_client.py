@@ -7,6 +7,7 @@ from curl_cffi.requests import AsyncSession
 
 from app.core.config import get_settings
 from app.core.exceptions import AppException
+from app.core.keyvault import AppSecrets
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +15,14 @@ logger = logging.getLogger(__name__)
 class SalesforceClient:
     """Danube Inventory APIs. Use only authorized credentials and WAF access."""
 
-    def __init__(self, http_client: AsyncSession | None = None):
+    def __init__(
+        self,
+        http_client: AsyncSession | None = None,
+        secrets: AppSecrets | None = None,
+    ):
         self.settings = get_settings()
         self.http_client = http_client
+        self.secrets = secrets
 
     async def _request(
         self,
@@ -51,7 +57,11 @@ class SalesforceClient:
             headers["user_id"] = user_id.strip()
 
         # Test-only cookie: never hardcode it or depend on it in production.
-        cookie = os.getenv("INVENTORY_TEST_COOKIE", "").strip()
+        cookie = (
+            self.secrets.inventory_test_cookie
+            .get_secret_value()
+            .strip()
+        )
         if cookie:
             headers["Cookie"] = f"sess_map={cookie}"
 
@@ -65,6 +75,16 @@ class SalesforceClient:
                         headers=headers,
                         timeout=self.settings.inventory_timeout_seconds,
                     )
+                    print("response", response)
+                    print("status code", response.status_code)
+                    print(
+                        "\n========== INVENTORY API DEBUG =========="
+                        f"\nEndpoint: {url.split('?')[0]}"
+                        f"\nHTTP Status Code: {response.status_code}"
+                        f"\nRetry-After: {response.headers.get('Retry-After')}"
+                        f"\nAttempt: {attempt + 1}/{max_attempts}"
+                        "\n=========================================\n"
+                    )
                     if response.status_code in (401, 403):
                         raise AppException(
                             "Inventory authorization failed",
@@ -72,9 +92,25 @@ class SalesforceClient:
                             error_code="INVENTORY_ACCESS_ERROR",
                         )
 
-                    if response.status_code in (429, 502, 503, 504) and attempt < max_attempts - 1:
+                    if response.status_code in (502, 503, 504) and attempt < max_attempts - 1:
                         await asyncio.sleep(min(2 ** attempt, 4))
                         continue
+
+                    if response.status_code == 429:
+                        retry_after = response.headers.get("Retry-After")
+
+                        logger.warning(
+                            "INVENTORY_RATE_LIMITED | endpoint=%s | status=%s | retry_after=%s",
+                            url.split("?")[0],
+                            response.status_code,
+                            retry_after,
+                        )
+
+                        raise AppException(
+                            "Inventory service rate limit exceeded",
+                            status_code=503,
+                            error_code="INVENTORY_RATE_LIMITED",
+                        )
 
                     if response.status_code >= 400:
                         logger.warning(
@@ -83,6 +119,14 @@ class SalesforceClient:
                             url.split("?")[0],
                             response.headers.get("content-type"),
                         )
+                        logger.error(
+                            "SALESFORCE_API_FAILED | "
+                            "status=%s | "
+                            "reason=%s",
+                            response.status_code,
+                            response.reason_phrase,
+                        )
+                                                
                         raise AppException(
                             "Inventory service request failed",
                             status_code=502,

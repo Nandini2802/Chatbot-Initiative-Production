@@ -1,5 +1,6 @@
 from typing import Literal
 from pydantic import BaseModel, Field
+from decimal import Decimal
 
 
 IntentType = Literal[
@@ -43,6 +44,33 @@ class RoutingIntent(BaseModel):
 
     # Inventory
     inventory_scope: Literal["units", "projects"] | None = None
+    min_price: float | None = None
+    max_price: float | None = None
+    min_area_sqft: float | None = None
+    max_area_sqft: float | None = None
+
+    unit_type: str | None = None
+    category: str | None = None
+    status: str | None = None
+    floor_number: str | None = None
+
+    sort_by: Literal[
+        "price_asc",
+        "price_desc",
+        "area_asc",
+        "area_desc",
+    ] | None = None
+
+    inventory_operation: Literal[
+        "project_info",
+        "unit_search",
+        "unit_details",
+        "unit_comparison",
+    ] | None = None
+
+    compare_unit_numbers: list[str] = Field(
+        default_factory=list,
+    )
 
 
 class RoutingResult(BaseModel):

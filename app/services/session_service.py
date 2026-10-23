@@ -336,6 +336,47 @@ class SessionService:
             for item in messages
         ]
 
+    async def get_latest_inventory_context(
+        self,
+        session_id: UUID,
+        user_id: str,
+    ) -> dict | None:
+
+        user_id = self._validate_user(user_id)
+
+        await self._require_session(
+            session_id=session_id,
+            user_id=user_id,
+        )
+
+        statement = (
+            select(ChatMessage)
+            .where(
+                ChatMessage.session_id == session_id,
+                ChatMessage.role == "assistant",
+            )
+            .order_by(
+                ChatMessage.created_at.desc(),
+                ChatMessage.id.desc(),
+            )
+            .limit(20)
+        )
+
+        result = await self.db.execute(statement)
+
+        for record in result.scalars().all():
+            payload = record.response_payload or {}
+
+            if not isinstance(payload, dict):
+                continue
+
+            inventory_context = payload.get("inventory_context")
+
+            if inventory_context:
+                return inventory_context
+
+        return None
+
     # QUERY LOG OPERATIONS
 
     async def log_query(

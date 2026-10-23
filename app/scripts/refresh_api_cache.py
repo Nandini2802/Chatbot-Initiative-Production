@@ -119,15 +119,22 @@ async def refresh_currency_cache(
     Fetch latest currency rates and update Redis.
     """
 
-    settings = get_settings()
+    if secrets is None:
+        raise ValueError(
+            "Application secrets are not initialized"
+        )
 
-    if settings.currency_api_cookie is None:
+    currency_cookie = (
+        secrets.currency_api_cookie.get_secret_value()
+    )
+
+    if not currency_cookie or not currency_cookie.strip():
         raise ValueError(
             "CURRENCY_API_COOKIE is not configured"
         )
 
     currency_client = CurrencyAPIClient(
-        session_cookie=settings.currency_api_cookie
+        session_cookie=currency_cookie
     )
 
     cache = APICacheService(

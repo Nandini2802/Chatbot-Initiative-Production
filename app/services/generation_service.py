@@ -1,3 +1,4 @@
+
 import json
 import logging
 from pathlib import Path
@@ -10,10 +11,17 @@ from app.schemas.generation import GenerationResult
 
 logger = logging.getLogger(__name__)
 
-PROMPT_PATH = (
+PROMPTS_DIR = (
     Path(__file__).resolve().parents[1]
     / "prompts"
-    / "generation_marketing_v1.md"
+)
+
+MARKETING_PROMPT_PATH = (
+    PROMPTS_DIR / "generation_marketing_v1.md"
+)
+
+INVENTORY_PROMPT_PATH = (
+    PROMPTS_DIR / "generation_inventory_v1.md"
 )
 
 
@@ -27,9 +35,91 @@ class GenerationService:
         self.client = client
         self.model = model
 
-        self.system_prompt = PROMPT_PATH.read_text(
-            encoding="utf-8"
+        # Existing Marketing prompt
+        self.marketing_prompt = (
+            MARKETING_PROMPT_PATH.read_text(
+                encoding="utf-8"
+            )
         )
+
+        # New Inventory prompt
+        self.inventory_prompt = (
+            INVENTORY_PROMPT_PATH.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        # Preserve existing attribute for compatibility
+        self.system_prompt = self.marketing_prompt
+
+    def _select_prompt(
+        self,
+        intents: list[str],
+        service_results: dict[str, Any],
+    ) -> str:
+        """
+        Select response generation instructions
+        based on verified service results and intents.
+        """
+
+        service = service_results.get("service")
+
+        # 1. Inventory-only request
+        if (
+            service == "inventory"
+            and set(intents) == {"inventory"}
+        ):
+            return self.inventory_prompt
+
+        # 2. Marketing-only request
+        if (
+            service == "marketing"
+            and set(intents) == {"marketing"}
+        ):
+            return self.marketing_prompt
+
+        # 3. Multi-intent request
+        if service == "multi_intent":
+
+            results = service_results.get("results", [])
+
+            service_types = {
+                item.get("service")
+                for item in results
+                if isinstance(item, dict)
+            }
+
+            instructions = [
+                (
+                    "You are the Danube Properties "
+                    "response generation assistant.\n"
+                    "Generate one concise response using "
+                    "only verified backend service results.\n"
+                    "Handle each requested service separately.\n"
+                    "Never invent project names, unit details, "
+                    "prices, availability, files, or links.\n"
+                    "Follow the detected language.\n"
+                    "Return the structured GenerationResult "
+                    "with response and followups.\n"
+                )
+            ]
+
+            if "marketing" in service_types:
+                instructions.append(
+                    "\n## Marketing Instructions\n"
+                    + self.marketing_prompt
+                )
+
+            if "inventory" in service_types:
+                instructions.append(
+                    "\n## Inventory Instructions\n"
+                    + self.inventory_prompt
+                )
+
+            return "\n\n".join(instructions)
+
+        # 4. Fallback for existing functionalities
+        return self.system_prompt
 
     async def generate(
         self,
@@ -40,6 +130,13 @@ class GenerationService:
         history: list[dict] | None = None,
     ) -> GenerationResult:
 
+        # 1. Select prompt based on service
+        selected_prompt = self._select_prompt(
+            intents=intents,
+            service_results=service_results,
+        )
+
+        # 2. Prepare LLM input
         payload = {
             "user_message": message,
             "detected_language": language,
@@ -49,9 +146,10 @@ class GenerationService:
         }
 
         try:
+            # 3. Call Microsoft Foundry
             result = await self.client.responses.parse(
                 model=self.model,
-                instructions=self.system_prompt,
+                instructions=selected_prompt,
                 input=json.dumps(
                     payload,
                     ensure_ascii=False,
@@ -60,6 +158,7 @@ class GenerationService:
                 text_format=GenerationResult,
             )
 
+            # 4. Extract structured response
             generated = result.output_parsed
 
             if generated is None:
@@ -72,19 +171,26 @@ class GenerationService:
                     "Generation returned empty response"
                 )
 
-            # Enforce a maximum of three chips.
+            # 5. Clean and limit follow-up chips
             generated.followups = [
                 chip.strip()
                 for chip in generated.followups
-                if chip and chip.strip()
+                if isinstance(chip, str)
+                and chip.strip()
             ][:3]
 
+            # 6. Logging
             logger.info(
                 "GENERATION_COMPLETED | "
-                "model=%s | language=%s | "
+                "model=%s | "
+                "language=%s | "
+                "intents=%s | "
+                "service=%s | "
                 "followups=%s",
                 self.model,
                 language,
+                intents,
+                service_results.get("service"),
                 len(generated.followups),
             )
 
@@ -92,11 +198,12 @@ class GenerationService:
 
         except Exception:
             logger.exception(
-                "GENERATION_FAILED | model=%s",
+                "GENERATION_FAILED | "
+                "model=%s | intents=%s",
                 self.model,
+                intents,
             )
             raise
-
 
 
 def build_marketing_generation_context(

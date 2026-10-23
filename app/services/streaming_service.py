@@ -3,11 +3,12 @@ import asyncio
 import logging
 import uuid
 import json
+import re
+
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-
-
+from app.services.project_name_service import normalize_project_name
 from app.core.config import get_settings
 from app.core.clients import ServiceClients
 from app.schemas.chat import ChatResponse
@@ -24,6 +25,10 @@ from app.retrieval.salesforce_client import SalesforceClient
 from app.retrieval.inventory_connector import InventoryConnector
 from app.services.inventory_catalog_service import InventoryCatalogService
 from app.services.inventory_token_provider import get_inventory_token_service
+from app.retrieval.project_name import resolve_project_name
+from app.services.inventory_conversation_service import *
+from app.core.keyvault import load_application_secrets
+
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -97,6 +102,24 @@ async def load_chat_history(
 
         return history
 
+async def load_previous_inventory_context(
+    clients,
+    session_id,
+    user_id,
+):
+    session_factory = async_sessionmaker(
+        bind=clients.postgres,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+    async with session_factory() as db:
+        service = SessionService(db)
+
+        return await service.get_latest_inventory_context(
+            session_id=session_id,
+            user_id=user_id,
+        )
 
 async def stream_chat_response(
     message: str,
@@ -105,6 +128,7 @@ async def stream_chat_response(
     user_id: str,
     role: str,
     source: str,
+    employee_type: str,
     clients: ServiceClients,
     access_token: str,
 ):
@@ -152,20 +176,64 @@ async def stream_chat_response(
             redis_client=clients.redis,
         )
 
-        inventory_client = SalesforceClient()
+        secrets = await load_application_secrets()
+
+        inventory_client = SalesforceClient(
+            secrets=secrets
+        )
         inventory_connector = InventoryConnector(
             salesforce_client=inventory_client
         )
 
-        inventory_token_service = get_inventory_token_service()
+        inventory_token_service = get_inventory_token_service(secrets=secrets)
 
         inventory_token = await inventory_token_service.get_token()
 
         inventory_snapshot = (
             await inventory_connector.fetch_inventory(
                 token=inventory_token,
-                user_id=settings.inventory_test_user_id,
+                user_id=user_id,
             )
+        )
+
+        previous_inventory_context = await load_previous_inventory_context(
+            clients=clients,
+            session_id=session_id,
+            user_id=user_id,
+        )
+
+        previous_authorized_units = resolve_authorized_units(
+            previous_inventory_context,
+            inventory_snapshot,
+        )
+
+        previous_inventory_context = (
+            {
+                "project_name": previous_inventory_context.get("project_name"),
+                "operation": previous_inventory_context.get("operation"),
+                "unit_numbers": [
+                    unit.unit_name
+                    for unit in previous_authorized_units
+                    if unit.unit_name
+                ],
+                "total_matches": len(previous_authorized_units),
+            }
+            if previous_inventory_context
+            else None
+        )
+
+
+        active_project_names = list(
+            dict.fromkeys(
+                project.project_name
+                for project in inventory_snapshot.projects
+                if project.project_name
+            )
+        )
+
+        logger.info(
+            "ACTIVE_PROJECT_CATALOG_READY | count=%s",
+            len(active_project_names),
         )
 
         inventory_catalogs = InventoryCatalogService.build(
@@ -180,19 +248,111 @@ async def stream_chat_response(
             raise RuntimeError(
                 "Project catalog is unavailable or empty"
             )
+
+        active_project_names = active_project_names or []
         
         # LLM 1 receives the official project catalog
         routing_result = await router_service.classify(
             message=message,
             history=history,
             available_projects=available_projects,
-            inventory_active_projects=(
-                inventory_catalogs.active_projects
-            ),
-            inventory_unit_projects=(
-                inventory_catalogs.unit_projects
-            ),
+            inventory_active_projects=inventory_catalogs.active_projects,
+            inventory_unit_projects=inventory_catalogs.unit_projects,
+            active_project_names=active_project_names,
+            previous_inventory_context=previous_inventory_context,
         )
+
+        for intent in routing_result.intents:
+
+            if intent.intent != "inventory":
+                continue
+
+            if not previous_inventory_context:
+                continue
+
+            if intent.inventory_scope != "units":
+                continue
+
+            if intent.inventory_operation == "unit_comparison":
+
+                previous_unit_numbers = previous_inventory_context.get(
+                    "unit_numbers", []
+                )
+
+                if (
+                    len(intent.compare_unit_numbers or []) < 2
+                    and len(previous_unit_numbers) == 2
+                ):
+
+                    intent.compare_unit_numbers = list(
+                        previous_unit_numbers
+                    )
+
+                    if not intent.project_name:
+                        intent.project_name = (
+                            previous_inventory_context.get("project_name")
+                        )
+
+                    resolved_fields = {"compare_unit_numbers"}
+
+                    if intent.project_name:
+                        resolved_fields.add("project_name")
+
+                    intent.missing_fields = [
+                        field
+                        for field in intent.missing_fields
+                        if field not in resolved_fields
+                    ]
+
+                    intent.requires_clarification = bool(
+                        intent.missing_fields
+                    )
+
+                    print(
+                        "\n========== INVENTORY FOLLOW-UP DEBUG ==========",
+                        "\nOperation:", intent.inventory_operation,
+                        "\nProject:", intent.project_name,
+                        "\nUnits:", intent.compare_unit_numbers,
+                        "\nRequires clarification:",
+                        intent.requires_clarification,
+                        "\n===============================================",
+                    )
+                    
+
+        for intent in routing_result.intents:
+
+            if intent.intent not in {
+                "project_information",
+                "inventory",
+            }:
+                continue
+
+            if not intent.project_name:
+                continue
+
+            resolved_name = resolve_project_name(
+                requested_name=intent.project_name,
+                available_projects=active_project_names,
+            )
+
+            if resolved_name:
+                intent.project_name = resolved_name
+
+                # Clear stale project-name clarification.
+                intent.missing_fields = [
+                    field
+                    for field in intent.missing_fields
+                    if field != "project_name"
+                ]
+
+                if not intent.missing_fields:
+                    intent.requires_clarification = False
+
+            else:
+                intent.requires_clarification = True
+
+                if "project_name" not in intent.missing_fields:
+                    intent.missing_fields.append("project_name")
 
 
         marketing_names = set(available_projects)
@@ -205,12 +365,97 @@ async def stream_chat_response(
             inventory_catalogs.unit_projects
         )
 
+        # Map normalized marketing names to canonical names.
+        marketing_name_lookup = {}
+
+        for name in available_projects:
+            key = normalize_project_name(name)
+            marketing_name_lookup.setdefault(key, []).append(name)
+
+        def resolve_visible_unit_project(user_message: str):
+            matches = []
+
+            for unit in inventory_snapshot.units:
+                identifiers = [
+                    unit.unit_id,
+                    unit.unit_name,
+                ]
+
+                for identifier in identifiers:
+                    if not identifier:
+                        continue
+
+                    pattern = (
+                        r"(?<![A-Za-z0-9])"
+                        + re.escape(str(identifier))
+                        + r"(?![A-Za-z0-9])"
+                    )
+
+                    if re.search(
+                        pattern,
+                        user_message,
+                        flags=re.IGNORECASE,
+                    ):
+                        matches.append(unit)
+                        break
+
+            unique_projects = {
+                normalize_project_name(unit.project_name)
+                for unit in matches
+                if unit.project_name
+            }
+
+            if len(unique_projects) != 1:
+                return None
+
+            return matches[0].project_name
+        
+
         # Tracks intents that must not execute.
         blocked_intents = set()
 
         for index, intent in enumerate(routing_result.intents):
 
             if intent.intent == "marketing":
+                
+                resolved_project = resolve_visible_unit_project(
+                    message
+                )
+
+                if resolved_project:
+                    intent.project_name = resolved_project
+
+                if intent.project_name:
+
+                    key = normalize_project_name(
+                        intent.project_name
+                    )
+
+                    candidates = marketing_name_lookup.get(
+                        key, []
+                    )
+
+                    if len(candidates) == 1:
+                        intent.project_name = candidates[0]
+
+                        intent.missing_fields = [
+                            field
+                            for field in intent.missing_fields
+                            if field != "project_name"
+                        ]
+
+                        intent.requires_clarification = bool(
+                            intent.missing_fields
+                        )
+
+                    elif len(candidates) > 1:
+                        intent.requires_clarification = True
+
+                        if "project_name" not in intent.missing_fields:
+                            intent.missing_fields.append(
+                                "project_name"
+                            )
+
                 valid_names = marketing_names
 
             elif intent.intent == "inventory":
@@ -236,23 +481,47 @@ async def stream_chat_response(
                 # other intents until their own catalogs exist.
                 valid_names = marketing_names
 
-            if (
-                intent.project_name is not None
-                and intent.project_name not in valid_names
-            ):
-                logger.warning(
-                    "INVALID_PROJECT_SELECTION | "
-                    "intent=%s | correlation_id=%s",
-                    intent.intent,
-                    correlation_id,
+            if intent.project_name is not None:
+
+                normalized_requested = normalize_project_name(
+                    intent.project_name
                 )
 
-                # IMPORTANT: Do not erase the selected name.
-                intent.requires_clarification = True
-                blocked_intents.add(index)
+                matches = [
+                    name
+                    for name in valid_names
+                    if normalize_project_name(name)
+                    == normalized_requested
+                ]
 
-                if "project_name" not in intent.missing_fields:
-                    intent.missing_fields.append("project_name")
+                if len(matches) == 1:
+                    intent.project_name = matches[0]
+
+                    # Remove stale project-name clarification.
+                    intent.missing_fields = [
+                        field
+                        for field in intent.missing_fields
+                        if field != "project_name"
+                    ]
+
+                    if not intent.missing_fields:
+                        intent.requires_clarification = False
+
+                elif len(matches) == 0:
+                    intent.requires_clarification = True
+                    blocked_intents.add(index)
+
+                    if "project_name" not in intent.missing_fields:
+                        intent.missing_fields.append("project_name")
+
+                else:
+                    # Multiple catalog entries match the same normalized name.
+                    # Do not guess which project was intended.
+                    intent.requires_clarification = True
+                    blocked_intents.add(index)
+
+                    if "project_name" not in intent.missing_fields:
+                        intent.missing_fields.append("project_name")
 
             # Block ambiguous or incomplete requests.
             if intent.requires_clarification:
@@ -289,7 +558,8 @@ async def stream_chat_response(
         # 3. INITIALIZE INTENT DISPATCHER
 
         dispatcher = IntentDispatcher(
-            redis_client=clients.redis
+            redis_client=clients.redis,
+            inventory_snapshot=inventory_snapshot,
         )
 
         handler_results = []
@@ -358,18 +628,47 @@ async def stream_chat_response(
                 generation_contexts.append(
                     result.generation_context
                 )
+                logger.info(
+                    "GENERATION_CONTEXT_READY | "
+                    "service=%s | operation=%s | match_status=%s",
+                    result.generation_context.get("service"),
+                    result.generation_context.get("operation"),
+                    result.generation_context.get("match_status"),
+                )
 
 
         # 5. BUILD RESPONSE USING LLM 2
 
+        inventory_html_only = (
+            len(routing_result.intents) == 1
+            and routing_result.intents[0].intent == "inventory"
+            and routing_result.intents[0].inventory_operation
+                in {"unit_search", "unit_comparison"}
+            and not clarification_messages
+            and any(
+                block.get("card_type") in {
+                    "inventory_listing",
+                    "inventory_comparison",
+                }
+                for block in all_html_blocks
+            )
+            and all(
+                context.get("match_status") not in {
+                    "partial",
+                    "none",
+                    "no_exact_matches",
+                }
+                for context in generation_contexts
+            )
+        )
+
+        llm2_used = False
+
         if generation_contexts:
 
-            # Preserve the existing single-marketing
-            # context shape for the current LLM 2 prompt.
+            # Preserve the existing single-intent context.
             if len(generation_contexts) == 1:
-                generation_context = (
-                    generation_contexts[0]
-                )
+                generation_context = generation_contexts[0]
             else:
                 # Supports multiple successful intents.
                 generation_context = {
@@ -377,30 +676,31 @@ async def stream_chat_response(
                     "results": generation_contexts,
                 }
 
-            generation_result = (
-                await generation_service.generate(
-                    message=message,
-                    language=routing_result.language,
-                    intents=detected_intents,
-                    service_results=generation_context,
-                    history=history,
-                )
+            # LLM 2 still runs for dynamic follow-up chips.
+            generation_result = await generation_service.generate(
+                message=message,
+                language=routing_result.language,
+                intents=detected_intents,
+                service_results=generation_context,
+                history=history,
             )
 
-            response_text = generation_result.response
+            llm2_used = True
+
             followup_chips = generation_result.followups
 
+            response_text = (generation_result.response or "").strip()
+
+            # Preserve clarification and other messages.
             if response_messages:
                 response_text = " ".join(
                     [response_text, *response_messages]
-                )
+                ).strip()
 
         else:
 
             if response_messages:
-                response_text = " ".join(
-                    response_messages
-                )
+                response_text = " ".join(response_messages)
             else:
                 response_text = (
                     "I couldn't find the requested "
@@ -414,17 +714,37 @@ async def stream_chat_response(
             "RESPONSE_PREPARED | "
             "correlation_id=%s | "
             "llm2_used=%s | "
+            "inventory_html_only=%s | "
             "chips=%s",
             correlation_id,
-            bool(generation_contexts),
+            llm2_used,
+            inventory_html_only,
             len(followup_chips),
         )
 
+        # 5A. PREPARE TEXT FOR DATABASE PERSISTENCE
+
+        display_response_text = response_text.strip()
+
+        # Ensure that the assistant message is never empty.
+        if not display_response_text:
+            if all_html_blocks:
+                display_response_text = (
+                    "I found the requested information. "
+                    "You can view the details below."
+                )
+            else:
+                display_response_text = (
+                    "I couldn't find the requested information."
+                )
+
+        persist_response_text = display_response_text
+        response_text = display_response_text
 
         # 6. BUILD FINAL RESPONSE
 
         final_response = ChatResponse(
-            response=response_text,
+            response=display_response_text,
             session_id=session_id,
             correlation_id=correlation_id,
             followups=followup_chips,
@@ -445,15 +765,32 @@ async def stream_chat_response(
             ).model_dump(mode="json")
             for block in all_html_blocks
         ]
+
+        new_inventory_context = None
+        for intent, result in zip(
+            [
+                intent
+                for index, intent in enumerate(routing_result.intents)
+                if index not in blocked_intents
+            ],
+            handler_results,
+        ):
+            candidate = build_inventory_context(
+                intent=intent,
+                handler_result=result,
+                inventory_snapshot=inventory_snapshot,
+            )
+
+            if candidate:
+                new_inventory_context = candidate
+
         response_payload = {
             "version": 1,
             "html_blocks": saved_html_blocks,
-            "files": final_response.model_dump(
-                mode="json"
-            )["data"]["files"],
-            "followups": final_response.model_dump(
-                mode="json"
-            )["followups"],
+            "files": final_response.model_dump(mode="json")["data"]["files"],
+            "followups": final_response.model_dump(mode="json")["followups"],
+            "inventory_context": new_inventory_context,
+
         }
 
         
@@ -466,7 +803,7 @@ async def stream_chat_response(
             session_id=session_id,
             user_id=user_id,
             user_message=message,
-            assistant_message=response_text,
+            assistant_message=persist_response_text,
             intents=detected_intents,
             latency_ms=latency_ms,
             response_payload=response_payload,
@@ -484,13 +821,14 @@ async def stream_chat_response(
 
         # 8. STREAM GENERATED RESPONSE TEXT
 
-        for word in response_text.split(" "):
-            yield format_sse(
-                "token",
-                {"text": word + " "},
-            )
+        if response_text.strip():
+            for word in response_text.split(" "):
+                yield format_sse(
+                    "token",
+                    {"text": word + " "},
+                )
 
-            await asyncio.sleep(0.02)
+                await asyncio.sleep(0.02)
 
         # 9. STREAM HTML BLOCKS
 
@@ -548,22 +886,44 @@ async def stream_chat_response(
         print(f"[STREAM DEBUG] Exception message: {exc}", flush=True)
         print(f"[STREAM DEBUG] Correlation ID: {correlation_id}", flush=True)
         print("[STREAM DEBUG] FULL TRACEBACK:", flush=True)
+        print(f"[STREAM DEBUG] Error code: {getattr(exc, 'error_code', 'N/A')}",flush=True)
+
+        error_code = getattr(
+            exc,
+            "error_code",
+            "UPSTREAM_SERVICE_ERROR",
+        )
 
         traceback.print_exc()
 
-        print("=" * 70 + "\n", flush=True)
+        if error_code == "INVENTORY_RATE_LIMITED":
 
+            user_message = (
+                "The property information service is temporarily "
+                "busy due to high demand. "
+                "Please try again in a little while."
+            )
+
+            response_code = "INVENTORY_RATE_LIMITED"
+            retryable = True
+
+        else:
+
+            user_message = (
+                "The response could not be completed. "
+                "Please try again."
+            )
+
+            response_code = "UPSTREAM_SERVICE_ERROR"
+            retryable = True
 
         error_response = ErrorResponse(
             error=ErrorDetail(
-                code="UPSTREAM_SERVICE_ERROR",
-                message=(
-                    "The response could not be completed. "
-                    "Please try again."
-                ),
+                code=response_code,
+                message=user_message,
                 session_id=str(session_id),
                 correlation_id=correlation_id,
-                retryable=True,
+                retryable=retryable,
             )
         )
 

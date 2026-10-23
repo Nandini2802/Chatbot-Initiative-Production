@@ -1,15 +1,36 @@
-
 from app.schemas.handler_result import HandlerResult
+from app.schemas.retrieval import InventorySnapshot
+
 from app.handlers.marketing_handler import MarketingHandler
+from app.handlers.inventory_handler import InventoryHandler
 
 
 class IntentDispatcher:
 
-    def __init__(self, redis_client):
+    def __init__(
+        self,
+        redis_client,
+        inventory_snapshot: InventorySnapshot | None = None,
+    ):
 
+        # Register handlers that are always available.
         self.handlers = {
             "marketing": MarketingHandler(redis_client),
         }
+
+        # Register inventory handlers only when
+        # an inventory snapshot is available.
+        if inventory_snapshot is not None:
+
+            inventory_handler = InventoryHandler(
+                inventory_snapshot
+            )
+
+            self.handlers["inventory"] = inventory_handler
+
+            self.handlers["project_information"] = (
+                inventory_handler
+            )
 
     async def execute(self, intent) -> HandlerResult:
 
@@ -18,7 +39,6 @@ class IntentDispatcher:
         if handler is not None:
             return await handler.handle(intent)
 
-        # Existing out-of-scope behavior
         if intent.intent == "out_of_scope":
             return HandlerResult(
                 intent="out_of_scope",
@@ -28,8 +48,6 @@ class IntentDispatcher:
                 ],
             )
 
-        # Existing placeholder behavior for
-        # functionalities not yet integrated
         return HandlerResult(
             intent=intent.intent,
             messages=[

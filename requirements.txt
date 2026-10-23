@@ -5,6 +5,7 @@ asyncpg==0.32.0
 azure-identity==1.26.0
 azure-keyvault-secrets==4.11.3
 azure-monitor-opentelemetry==1.8.11
+curl_cffi==0.16.3
 fastapi==0.142.4
 httpx==0.28.1
 Jinja2==3.1.6

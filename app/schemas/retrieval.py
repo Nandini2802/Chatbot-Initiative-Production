@@ -1,6 +1,4 @@
-
 from typing import Any
-
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -10,122 +8,125 @@ class InventoryBaseModel(BaseModel):
         populate_by_name=True,
     )
 
+class InventoryProjectFile(InventoryBaseModel):
+
+    file_url: str | None = Field(
+        default=None,
+        alias="fileUrl",
+    )
+
+    file_type: str | None = Field(
+        default=None,
+        alias="fileType",
+    )
+
+    file_name: str | None = Field(
+        default=None,
+        alias="fileName",
+    )
 
 class InventoryProject(InventoryBaseModel):
-    # Project identification
+
     project_id: str | None = None
     project_name: str | None = None
-    project_number: Any = None
-    project_web_id: Any = None
-    project_sequence: Any = None
+    project_number: str | None = None
+    project_web_id: str | None = None
+    project_sequence: str | None = None
 
-    # Project configuration
-    files: Any = None
+    files: list[InventoryProjectFile] = Field(
+        default_factory=list
+    )
+
     enable_project_for: Any = None
-    enable_brandmorph_pitch: Any = None
-    enable_brandmorph_presentation: Any = None
+    enable_brandmorph_pitch: bool | None = None
+    enable_brandmorph_presentation: bool | None = None
     project_configuration: Any = None
-    eoi_active: Any = None
+    eoi_active: bool | None = None
+    service_charge: str | None = None
+    construction_status: str | None = None
+    handover_date: str | None = None
+    completion_date: str | None = None
+    location: str | None = None
+    bedrooms_categories: str | None = None
+    apartments: str | None = None
+    payment_plan: str | None = None
+    starting_price: str | None = None
+    project_image: str | None = None
+    unit_of_measurement: str | None = None
+    total_units: int | None = None
+    total_sold_units: int | None = None
+    total_selling_price: float | None = None
+    total_saleable_area: float | None = None
+    total_residential_units: int | None = None
+    total_other_units: int | None = None
+    total_new_units: int | None = None
+    total_floors: int | None = None
+    total_commercial_units: int | None = None
+    total_buildings: int | None = None
+    total_booked_units: int | None = None
+    total_bua_sqft: float | None = None
+    total_available_units: int | None = None
+    total_available_residential_units: int | None = None
+    total_available_commercial_units: int | None = None
+    plot_size_sqft: float | None = None
 
-    # Project details
-    service_charge: Any = None
-    construction_status: Any = None
-    handover_date: Any = None
-    completion_date: Any = None
-    location: Any = None
-    bedrooms_categories: Any = None
-    apartments: Any = None
-    payment_plan: Any = None
-    starting_price: Any = None
-    project_image: Any = None
-    unit_of_measurement: Any = None
-
-    # Unit statistics
-    total_units: Any = None
-    total_sold_units: Any = None
-    total_selling_price: Any = None
-    total_saleable_area: Any = None
-    total_residential_units: Any = None
-    total_other_units: Any = None
-    total_new_units: Any = None
-    total_floors: Any = None
-    total_commercial_units: Any = None
-    total_buildings: Any = None
-    total_booked_units: Any = None
-    total_bua_sqft: Any = None
-    total_available_units: Any = None
-    total_available_residential_units: Any = None
-    total_available_commercial_units: Any = None
-
-    # Additional project details
-    plot_size_sqft: Any = None
     places_nearby: Any = None
-    building_type: Any = None
+    building_type: str | None = None
     amenities: Any = None
 
-    # Original API record, unchanged
     attributes: dict[str, Any] = Field(
         default_factory=dict,
         exclude=True,
     )
-
 
 class InventoryUnit(InventoryBaseModel):
-    # Unit identification
+
     unit_id: str | None = None
     unit_name: str | None = None
-    unit_code: Any = None
-
-    # Project identification
+    unit_code: str | None = None
     project_id: str | None = None
     project_name: str | None = None
-    project_code: Any = None
-    project_location: Any = None
+    project_code: str | None = None
 
-    # Building details
-    building_id: Any = None
-    building_name: Any = None
-    building_code: Any = None
-    floor_number: Any = None
-    floor_code: Any = None
+    project_location: str | None = None
+    building_id: str | None = None
+    building_name: str | None = None
+    building_code: str | None = None
 
-    # Unit classification
-    category: Any = None
-    typology: Any = None
-    unit_type: Any = None
-    bedrooms: Any = None
-    bathrooms: Any = None
-    parking_spaces: Any = None
+    floor_number: str | None = None
+    floor_code: str | None = None
+    category: str | None = None
+    typology: str | None = None
+    unit_type: str | None = None
 
-    # Area and property details
-    internal_saleable_area: Any = None
-    area_sqft: Any = None
-    plot_area: Any = None
-    view: Any = None
+    bedrooms: int | None = None
+    bathrooms: int | None = None
+    parking_spaces: int | None = None
+    internal_saleable_area: float | None = None
 
-    # Pricing
-    price: Any = None
-    currency: Any = None
+    area_sqft: float | None = None
 
-    # Status
-    status: Any = None
-    handover_status: Any = None
-    construction_status: Any = None
+    plot_area: float | None = None
+    view: str | None = None
+    price: float | None = None
+    currency: str | None = None
+    status: str | None = None
+    handover_status: str | None = None
+    construction_status: str | None = None
 
-    # Additional display flag
-    is_show_villa: Any = None
+    is_show_villa: bool | None = None
 
-    # Original API record, unchanged
     attributes: dict[str, Any] = Field(
         default_factory=dict,
         exclude=True,
     )
 
-
 class InventorySnapshot(BaseModel):
+
     projects: list[InventoryProject] = Field(
         default_factory=list
     )
+
     units: list[InventoryUnit] = Field(
         default_factory=list
     )

@@ -46,7 +46,6 @@ class Settings(BaseSettings):
     currency_api_url: str = ""
     currency_cache_refresh_hours: int = 24
     currency_cache_ttl_seconds: int = 259200
-    currency_api_cookie: str = ""
 
     # Correlation ID Header
     correlation_id_header: str = "X-Correlation-ID"
@@ -63,10 +62,7 @@ class Settings(BaseSettings):
     inventory_timeout_seconds: float = 30.0
     inventory_max_retries: int = 3
     inventory_test_user_id: str | None = None
-    inventory_test_cookie: str | None = None
     inventory_auth_url: str = ""
-    inventory_client_id: str = ""
-    inventory_client_secret: str = ""
 
     # Marketing API
     marketing_api_url: str = ""
@@ -108,6 +104,10 @@ class LocalSecrets(BaseSettings):
     applicationinsights_connection_string: str
     marketing_api_key: str
     foundry_openai_api_key: str
+    currency_api_cookie: str = ""
+    inventory_client_id: str = ""
+    inventory_client_secret: str = ""
+    inventory_test_cookie: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

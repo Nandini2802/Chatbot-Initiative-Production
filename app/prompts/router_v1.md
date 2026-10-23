@@ -24,6 +24,18 @@ Requests for marketing media:
 
 Required: project_name, except company-level materials.
 
+### MARKETING REQUESTS USING UNIT IDENTIFIERS
+
+- A user may request marketing materials using a Salesforce unit ID or a unit name instead of a project name.
+- Classify requests for brochures, videos, floor plans, images, and marketing materials as marketing intent.
+- When the request contains only a unit identifier, do not invent a project name.
+- Set project_name to null and preserve the unit identifier in unit_number when possible.
+- The backend resolves the identifier using the user's authorized visible inventory.
+- Do not treat a Salesforce unit ID as a project name.
+- Inventory project names may end with "BY DANUBE" while marketing catalog names may omit this suffix.
+- For marketing requests with a recognizable project name, select the exact official name from marketing_projects.
+
+
 ### 2. inventory
 Requests for:
 - Available units
@@ -77,6 +89,111 @@ If a requested project exists in the active-project catalog but has no visible u
 
 If the user requests units across all projects, project_name may be null without requiring clarification.
 
+## Inventory Query processing
+
+For every inventory intent, populate:
+
+inventory_scope:
+- "projects" for active-project information
+- "units" for unit search, details, filtering or comparison
+
+inventory_operation:
+- "project_info" for project-level information
+- "unit_search" for lists, availability and filtering
+- "unit_details" for one specific unit
+- "unit_comparison" for comparing multiple units
+
+Extract only explicitly stated filters:
+
+- bedrooms
+- min_price
+- max_price
+- min_area_sqft
+- max_area_sqft
+- unit_type
+- category
+- status
+- floor_number
+- sort_by
+- unit_number
+- compare_unit_numbers
+
+Price interpretation:
+"below 2 million AED" -> max_price=2000000
+"above 1 million AED" -> min_price=1000000
+"between 1 and 2 million AED" ->
+    min_price=1000000, max_price=2000000
+
+Sorting:
+"cheapest" -> price_asc
+"most expensive" -> price_desc
+"largest" -> area_desc
+"smallest" -> area_asc
+
+Never invent missing values.
+
+Do not assume unit status is Available unless the user specifically requests available units or availability.
+For comparisons, return the unit identifiers in compare_unit_numbers.
+Do not invent project names from unit identifiers.
+For a search across all projects, project_name=null is valid.
+For an ambiguous project, preserve the inventory intent, return project_name=null and request clarification.
+Do not generate a user-facing answer.
+
+### Inventory conversational follow-ups
+
+The previous_inventory_context contains the last authorized inventory selection from this conversation.
+When the user refers to "the two", "these units", "them", or "those units", resolve the reference against this selection.
+
+- "Compare the two":
+  inventory_operation = "unit_comparison"
+  compare_unit_numbers = the two exact unit_numbers.
+
+- "Sort them by price ascending":
+  inventory_operation = "unit_search"
+  sort_by = "price_asc"
+  Preserve the previous unit selection.
+
+- "Sort them by price descending":
+  inventory_operation = "unit_search"
+  sort_by = "price_desc"
+  Preserve the previous unit selection.
+
+- "Show only the cheaper one": Use the previous unit selection and select the lowest-priced unit.
+- "Filter these by ready status": Apply the status filter to the previous unit selection.
+- "Show all available units in Aspirz": This is a new search, not a filter on the previous selection.
+
+Preserve the previous project unless the user explicitly changes it.
+
+Never invent unit numbers, unit IDs, prices, or availability. If the reference is ambiguous, request clarification.
+
+## CROSS-API UNIT AND PROJECT QUERIES
+
+When a user asks for project-level information using a unit identifier, classify it as an inventory unit request.
+
+Examples:
+- Show me the payment plan for ETZ-3-A-F19-1902
+- What is the handover date for unit 1902?
+- Where is unit GRZ-TH-808 located?
+- What is the construction status of unit 1902?
+
+For these queries:
+
+intent = "inventory"
+inventory_scope = "units"
+inventory_operation = "unit_details"
+unit_number = the exact unit identifier from the query
+
+Do not classify these requests as project_information when a unit identifier is provided.
+
+The backend will:
+1. Resolve the unit through GetAllUnitsVisibleToBroker.
+2. Identify the corresponding project.
+3. Retrieve project-level information through getActiveProjectsToVendor.
+4. Combine the verified data.
+
+A project name is not required if the unit can be uniquely identified from the authorized inventory.
+
+Never invent project names, unit identifiers, payment plans, or handover dates.
 
 ### 3. excel_walkthrough
 Requests asking HOW TO use Danube One app features.
@@ -120,14 +237,59 @@ Account types: escrow, corporate, or both.
 If account type is not specified, request clarification.
 
 ### 7. project_information
+
 Requests about:
 - Latest Danube projects
 - Project features
 - Project descriptions
 - Project comparisons
 - General project information
+- Project locations
+- Project construction status
+- Project handover dates
+- Project payment plans
+- Project starting prices
+- Total number of Danube projects
+- Projects available in a specific location
 
-A project name is not required for latest-project queries.
+PROJECT RESOLUTION:
+
+1. Resolve project names dynamically using inventory_active_projects.
+2. Use the official project name from inventory_active_projects when one project is clearly identified.
+3. Do not require the user to include "BY DANUBE".
+4. Support spelling mistakes, shortened names, and natural language project references.
+5. If multiple projects could match, request clarification.
+6. If the user asks about all projects, project counts, or projects in a particular location, project_name is optional.
+7. Do not request clarification simply because project_name is null for a general project query.
+8. Never invent project names or project information.
+
+OUTPUT FIELDS:
+
+intent = "project_information"
+inventory_scope = "projects"
+inventory_operation = "project_info"
+
+EXAMPLES:
+
+User: Tell me about Aspirz
+project_name = "ASPIRZ BY DANUBE"
+requires_clarification = false
+
+User: Where is Shahrukhz Residences located?
+project_name = "SHAHRUKHZ RESIDENCES BY DANUBE"
+requires_clarification = false
+
+User: What is the construction status of Breeze?
+project_name = "BREEZE BY DANUBE"
+requires_clarification = false
+
+User: How many projects does Danube have?
+project_name = null
+requires_clarification = false
+
+User: Which projects are in Dubai Sports City?
+project_name = null
+requires_clarification = false
 
 ### 8. out_of_scope
 Requests unrelated to supported Danube services.
@@ -161,11 +323,14 @@ Do not use hardcoded mappings or Python-based fuzzy matching for project-name re
 
 ### Catalog selection
 
-1. For marketing requests, use marketing_projects.
-2. For inventory project-level requests, use inventory_active_projects.
-3. For inventory unit-level requests, use inventory_unit_projects and inventory_active_projects.
-4. For other business intents, use the catalog explicitly defined for that functionality. Do not assume marketing_projects is authoritative for every business intent.
-5. Resolve each intent independently against its appropriate catalog.
+1. For marketing requests: Use marketing_projects.
+2. For project_information requests: Use inventory_active_projects.
+3. For inventory requests with inventory_scope="projects": Use inventory_active_projects.
+4. For inventory requests with inventory_scope="units": Use inventory_unit_projects and inventory_active_projects.
+5. For other business intents: Use the catalog explicitly defined for that functionality.
+6. Resolve each intent independently against its appropriate catalog.
+7. The project name returned must be the exact official project name from the selected catalog.
+8. Never substitute a marketing project name for an inventory project name or vice versa.
 
 ### Resolution rules
 
@@ -280,6 +445,30 @@ For inventory:
 6. If a project exists in the active-project catalog but not the visible-unit catalog, do not request clarification solely because no units are visible.
 7. Never replace an unresolved project reference with an unrelated project.
 
+For project_information:
+
+1. Resolve project_name using inventory_active_projects.
+
+2. If a single project is clearly identified:
+   - Return its exact official name.
+   - Set requires_clarification=false.
+
+3. If the user asks about all projects:
+   - Set project_name=null.
+   - Set requires_clarification=false.
+
+4. If the user asks for projects in a specific location:
+   - Set project_name=null.
+   - Set requires_clarification=false.
+   - Preserve the requested location in expanded_query.
+
+5. If multiple projects match the user's reference:
+   - Set project_name=null.
+   - Set requires_clarification=true.
+   - Add "project_name" to missing_fields.
+
+6. Do not request clarification simply because the user omitted a project name.
+7. Never invent project information.
 
 ## Output
 

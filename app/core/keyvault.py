@@ -51,6 +51,10 @@ class AppSecrets(BaseModel):
     applicationinsights_connection_string: SecretStr
     marketing_api_key: SecretStr
     foundry_openai_api_key: SecretStr
+    inventory_client_id: SecretStr
+    inventory_client_secret: SecretStr
+    inventory_test_cookie: SecretStr
+    currency_api_cookie: SecretStr
 
 def is_retryable_error(exc: BaseException) -> bool:
     """
@@ -177,6 +181,10 @@ async def load_application_secrets() -> AppSecrets:
             applicationinsights_connection_string=local.applicationinsights_connection_string,
             marketing_api_key=local.marketing_api_key,
             foundry_openai_api_key=local.foundry_openai_api_key,
+            inventory_client_id=local.inventory_client_id,
+            inventory_client_secret=local.inventory_client_secret,
+            inventory_test_cookie=local.inventory_test_cookie,
+            currency_api_cookie=local.currency_api_cookie,
         )
     
     # Deployed environments
@@ -210,6 +218,21 @@ async def load_application_secrets() -> AppSecrets:
             ),
             foundry_openai_api_key=SecretStr(
                 await keyvault.get_secret("foundry-openai-api-key")
+            ),
+            inventory_client_id=await keyvault.get_secret(
+                "inventory-client-id"
+            ),
+
+            inventory_client_secret=await keyvault.get_secret(
+                "inventory-client-secret"
+            ),
+
+            inventory_test_cookie=await keyvault.get_secret(
+                "inventory-test-cookie"
+            ),
+
+            currency_api_cookie=await keyvault.get_secret(
+                "currency-api-cookie"
             ),
         )
     

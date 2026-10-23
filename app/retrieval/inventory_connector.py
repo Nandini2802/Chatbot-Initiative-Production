@@ -1,13 +1,16 @@
 
 import asyncio
 import logging
+import os
 
+from app.core.config import get_settings
 from app.retrieval.salesforce_client import SalesforceClient
 from app.retrieval.inventory_normalizer import (
     normalize_project,
     normalize_unit,
 )
 from app.schemas.retrieval import InventorySnapshot
+from app.retrieval.local_inventory_loader import load_local_json
 
 
 logger = logging.getLogger(__name__)
@@ -20,6 +23,7 @@ class InventoryConnector:
         salesforce_client: SalesforceClient,
     ):
         self.salesforce_client = salesforce_client
+        self.settings = get_settings()
 
     async def fetch_inventory(
         self,
@@ -29,13 +33,63 @@ class InventoryConnector:
 
         logger.info("INVENTORY_FETCH_STARTED")
 
-        raw_projects, raw_units = await asyncio.gather(
-            self.salesforce_client.get_active_projects(token),
-            self.salesforce_client.get_visible_units(
-                token=token,
-                user_id=user_id,
-            ),
+        if not user_id or not user_id.strip():
+            raise ValueError(
+                "Authenticated user_id is required "
+                "for inventory retrieval."
+            )
+
+        user_id = user_id.strip()
+
+        use_mock_data = (
+            os.getenv("INVENTORY_USE_MOCK_DATA", "false")
+            .strip()
+            .lower()
+            == "true"
         )
+
+        environment = self.settings.environment
+
+        if use_mock_data:
+
+            if environment not in {"local", "development"}:
+                raise RuntimeError(
+                    "Inventory mock mode is only allowed "
+                    "in local development."
+                )
+
+            logger.warning(
+                "INVENTORY_MOCK_MODE_ENABLED | "
+                "Loading local JSON instead of Salesforce APIs"
+            )
+
+            projects_payload = load_local_json(
+                "active_projects.json"
+            )
+
+            units_payload = load_local_json(
+                "visible_units.json"
+            )
+
+            raw_projects = (
+                projects_payload["data"]["ActiveProjects"]
+            )
+
+            raw_units = (
+                units_payload["data"]["Units"]
+            )
+
+        else:
+
+            raw_projects, raw_units = await asyncio.gather(
+                self.salesforce_client.get_active_projects(
+                    token
+                ),
+                self.salesforce_client.get_visible_units(
+                    token=token,
+                    user_id=user_id,
+                ),
+            )
 
         projects = [
             normalize_project(item)
@@ -47,16 +101,19 @@ class InventoryConnector:
             for item in raw_units
         ]
 
-        # Reject incomplete records instead of silently
-        # introducing invalid project/unit identifiers.
         projects = [
-            item for item in projects
-            if item.project_name.strip()
+            item
+            for item in projects
+            if item.project_name
+            and item.project_name.strip()
         ]
 
         units = [
-            item for item in units
-            if item.unit_name.strip()
+            item
+            for item in units
+            if item.unit_name
+            and item.unit_name.strip()
+            and item.project_name
             and item.project_name.strip()
         ]
 
@@ -68,8 +125,8 @@ class InventoryConnector:
         logger.info(
             "INVENTORY_FETCH_COMPLETED | "
             "projects=%s | units=%s",
-            len(projects),
-            len(units),
+            len(snapshot.projects),
+            len(snapshot.units),
         )
 
         return snapshot
