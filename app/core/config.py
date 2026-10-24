@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # Azure Key Vault
     key_vault_url: str | None = None
 
+    # Bank Detail
+    bank_details_api_url: str = ""
+    bank_details_timeout_seconds: int = 45
+
     # Currency API
     currency_api_url: str = ""
     currency_cache_refresh_hours: int = 24
@@ -49,6 +53,11 @@ class Settings(BaseSettings):
 
     # Correlation ID Header
     correlation_id_header: str = "X-Correlation-ID"
+
+    # Download Availability
+    availability_api_url: str = ""
+    availability_timeout_seconds: float = 60.0
+    availability_app_version: str = "2.0.8"
 
     # External APIs
     request_timeout_seconds: int = 10
@@ -71,6 +80,10 @@ class Settings(BaseSettings):
     marketing_product_name: str = "Vendor"
     marketing_product_feature_name: str = "AMIRA"
 
+    # Payment Plan
+    payment_plan_api_url: str = ""
+    payment_plan_timeout_seconds: float = 30.0
+
     # Pinecone
     pinecone_index_name: str | None = None
 
@@ -78,6 +91,12 @@ class Settings(BaseSettings):
     retry_attempts: int = 3
     retry_min_wait_seconds: float = 1
     retry_max_wait_seconds: float = 8
+
+    # Sales Offer
+    sales_offer_unit_details_url: str = ""
+    sales_offer_generate_url: str = ""
+    sales_offer_timeout_seconds: int = 45
+    sales_offer_selection_ttl_seconds: int = 1800
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -1,0 +1,74 @@
+
+<div style="
+    background:#101010;
+    color:white;
+    border-radius:18px;
+    padding:18px;
+    font-family:Arial,sans-serif;
+    max-width:440px;
+">
+
+    <div style="
+        font-size:15px;
+        font-weight:600;
+        margin-bottom:6px;
+    ">
+        Select Payment Plans
+    </div>
+
+    <div style="
+        font-size:12px;
+        color:#aaaaaa;
+        margin-bottom:16px;
+    ">
+        Unit {{ unit_name }}
+        · {{ plans|length }} available plans
+    </div>
+
+    {% for plan in plans %}
+
+    <div style="
+        display:flex;
+        align-items:center;
+        gap:12px;
+        background:#1d1d1d;
+        border-radius:14px;
+        padding:14px;
+        margin-bottom:10px;
+    ">
+
+        <div style="
+            width:23px;
+            height:23px;
+            border:1px solid #777;
+            border-radius:6px;
+            flex-shrink:0;
+            text-align:center;
+            line-height:23px;
+            font-size:12px;
+            color:#f5c242;
+        ">
+            {{ loop.index }}
+        </div>
+
+        <div style="
+            font-size:13px;
+            line-height:1.5;
+        ">
+            {{ plan.payPlanName }}
+        </div>
+
+    </div>
+
+    {% endfor %}
+
+    <div style="
+        font-size:12px;
+        color:#aaaaaa;
+        margin-top:14px;
+    ">
+        Reply with the plan numbers you want.
+        For example: Select plans 1 and 3.
+    </div>
+
+</div>

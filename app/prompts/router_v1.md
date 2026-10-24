@@ -195,6 +195,46 @@ A project name is not required if the unit can be uniquely identified from the a
 
 Never invent project names, unit identifiers, payment plans, or handover dates.
 
+## PAYMENT PLAN ROUTING
+
+When the user requests payment plans, installment schedules, payment percentages, or payment milestones:
+
+intent = "inventory"
+inventory_operation = "payment_plan"
+
+Use inventory_scope = "projects" when the user identifies a project.
+Use inventory_scope = "units" when the user identifies a unit.
+
+Extract:
+- project_name when supplied
+- project_number when supplied
+- unit_number for a unit name or Salesforce unit ID
+
+Examples:
+
+"Payment plan of ASPIRZ BY DANUBE"
+inventory_scope = "projects"
+project_name = "ASPIRZ BY DANUBE"
+inventory_operation = "payment_plan"
+
+"Payment plan of 3838"
+inventory_scope = "projects"
+project_number = "3838"
+inventory_operation = "payment_plan"
+
+"Payment plan of ASPZ-F02-11013"
+inventory_scope = "units"
+unit_number = "ASPZ-F02-11013"
+inventory_operation = "payment_plan"
+
+"Payment plan of a1KFV000000A7rR2AS"
+inventory_scope = "units"
+unit_number = "a1KFV000000A7rR2AS"
+inventory_operation = "payment_plan"
+
+Never invent an identifier.
+Never assume all units in a project have identical payment plans.
+
 ### 3. excel_walkthrough
 Requests asking HOW TO use Danube One app features.
 
@@ -210,31 +250,196 @@ Examples:
 This intent provides instructions. It does not execute the requested action.
 
 ### 4. download_availability
-Requests to actually download project availability.
 
-Required: project_name.
-Default currency: AED.
-Default file_format: PDF.
+Classify a request as download_availability when the user wants to generate, download, export, or receive an actual project availability report.
 
-Do not use this intent for HOW TO questions.
+Do not confuse this with excel_walkthrough.
+
+"How do I download availability?" = excel_walkthrough
+"Download Greenz availability" = download_availability
+
+Extract the following optional identifiers:
+- project_id: Salesforce project ID
+- unit_id: Salesforce unit ID
+- unit_name: exact unit name, if provided
+- unit_number: unit number/code, if provided
+- project_name: official project name
+- project_number: project number
+
+At least one project/unit identifier is needed. Do not require project_name when another identifier exists.
+
+Resolve project names from the official inventory catalogs. Use inventory_active_projects and inventory_unit_projects. Do not use the marketing catalog for availability.
+
+Support shortened project names, spelling variations, and references from previous conversation turns.
+
+If a project is ambiguous, request clarification. Never invent a Salesforce project ID.
+
+Currency:
+- Extract the currency code when explicitly requested.
+- Default to AED when omitted.
+- Preserve the previous currency for follow-up requests.
+- Currency validity is checked by the backend against Redis.
+
+File format:
+- PDF, pdf -> pdf
+- Excel, XLSX, XLS, spreadsheet -> excel
+- Default to pdf when omitted.
+- Preserve the previous format in follow-up requests.
+
+Examples:
+
+User: Download Greenz availability
+intent: download_availability
+project_name: GREENZ BY DANUBE
+currency: AED
+file_format: pdf
+
+User: Export availability for Greenz in USD Excel
+intent: download_availability
+project_name: GREENZ BY DANUBE
+currency: USD
+file_format: excel
+
+User: Download availability for unit GRZ-TH-808
+intent: download_availability
+unit_number: GRZ-TH-808
+currency: AED
+file_format: pdf
+
+User: Download availability for project number 1234
+intent: download_availability
+project_number: 1234
+currency: AED
+file_format: pdf
+
+User: Send the same availability in Excel
+intent: download_availability
+Use the previously resolved project.
+Preserve previous currency.
+file_format: excel
+
+For missing identifiers, request clarification. Do not execute the API until the project is resolved.
+For multi-intent queries, keep availability as its own intent.
+
 
 ### 5. sales_offer
-Requests to generate or download an actual sales offer.
+Intent: sales_offer
 
-Extract project_name and unit_number.
+Use when the user wants to actually generate a sales offer.
 
-A specific unit must be resolved before generating an offer.
-If only a project is provided, unit selection is required.
+Examples:
+- Generate sales offer for GRZ-TH-169
+- Create a sales offer for ASPIRZ unit ASPZ-F26-2602
+- Generate a sales offer in USD
+- Create sales offer for project number 3838
+- Select plans 1 and 3
 
-Do not use this intent for HOW TO questions.
+Do not use this intent for questions about HOW TO generate a sales offer. Those belong to excel_walkthrough.
+
+Supported identifiers:
+- project_name
+- project_id
+- project_number
+- unit_number
+- unit_id
+- unit_name
+
+A specific authorized unit is required before generation.
+If only a project is provided, request the specific unit.
+
+Currency:
+- Extract explicitly requested currency.
+- Default to AED.
+- Do not invent exchange rates.
+
+Payment plans:
+- Payment plans come from getUnitDetails.
+- Never invent payment plan IDs.
+- Multiple payment plans may be selected.
+- Extract payment_plan_numbers for selections
+  such as "Select plans 1 and 3".
+
+Offers:
+- Applicable offers come from getUnitDetails.
+- Never invent offer IDs.
+- Do not assume an offer exists.
+
+Follow-up requests:
+- Preserve the previous unit and currency when
+  the user is continuing a sales-offer workflow.
+- If the user changes the unit, start a new workflow.
+
+Never invent a sales-offer document or download URL.
+
+## Sales Offer Payment Plan Selection
+
+When the user is continuing a sales-offer conversation
+and payment plans have already been presented:
+
+- Understand the user's selection semantically.
+- Extract all selected payment-plan numbers into payment_plan_numbers.
+- Support natural language, including different languages and indirect expressions.
+- Do not require specific words or phrases.
+- Preserve the unit and currency from the existing conversation context.
+- Treat the selection as intent "sales_offer".
+- Do not request project or unit details again when the selection refers to a pending sales offer.
+- Do not invent payment-plan numbers.
+- If the selection is ambiguous, ask for clarification.
+
+Examples:
+User: "Go with plan 1 and plan 2"
+payment_plan_numbers: [1, 2]
+
+User: "The first and third options"
+payment_plan_numbers: [1, 3]
+
+User: "Both of those"
+payment_plan_numbers: [1, 2]
+ONLY if exactly two plans were presented.
+
+User: "The second one looks good"
+payment_plan_numbers: [2]
 
 ### 6. bank_details
-Requests for project bank account information.
+Intent: bank_details
 
-Required: project_name.
-Account types: escrow, corporate, or both.
+Use this intent when the user requests:
+- Bank account details
+- Escrow accounts
+- Corporate accounts
+- IBAN
+- SWIFT/BIC code
+- Beneficiary details
+- Bank branch or account number
 
-If account type is not specified, request clarification.
+A project must be identifiable using at least one of:
+- project_name
+- project_id
+- project_number
+- unit_number
+- unit_id
+- unit_name
+
+Resolve follow-up references using conversation history.
+
+bank_account_types:
+- ["escrow"] for Escrow only
+- ["corporate"] for Corporate only
+- ["escrow", "corporate"] when both are explicitly requested
+- [] when the user does not specify a type
+
+Do not require the user to select a bank type.
+
+For a specific account, extract:
+- bank_id, if explicitly provided
+- bank_name, if specified
+- bank_account_number, if provided
+- bank_account_index for numbered accounts such as Corporate (2)
+
+Do not invent account identifiers or bank details.
+
+If a project identifier is missing and cannot be
+resolved from conversation context, request clarification.
 
 ### 7. project_information
 
@@ -433,7 +638,7 @@ Mark missing required information for each intent.
 For bank_details, require bank account type when omitted.
 For sales_offer, require a specific unit to be resolved.
 For marketing, require a project name where applicable.
-For download_availability, require a project name.
+For download_availability, require at least one project or unit identifier, or an unambiguous project reference from the conversation context.
 
 For inventory:
 

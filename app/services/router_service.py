@@ -183,11 +183,33 @@ class RouterService:
 
             if item.intent == "download_availability":
 
-                item.currency = item.currency or "AED"
-                item.file_format = item.file_format or "PDF"
+                item.currency = (
+                    item.currency or "AED"
+                ).strip().upper()
 
-                if not item.project_name:
-                    missing.add("project_name")
+                file_format = (
+                    item.file_format or "pdf"
+                ).strip().lower()
+
+                if file_format in {"xlsx", "xls", "spreadsheet"}:
+                    file_format = "excel"
+
+                item.file_format = file_format
+
+                has_identifier = any([
+                    item.project_id,
+                    item.unit_id,
+                    item.unit_name,
+                    item.unit_number,
+                    item.project_name,
+                    item.project_number,
+                ])
+
+                if not has_identifier:
+                    missing.add("project_identifier")
+                else:
+                    missing.discard("project_name")
+                    missing.discard("project_identifier")
 
             elif item.intent == "marketing":
 
@@ -199,22 +221,61 @@ class RouterService:
 
             elif item.intent == "bank_details":
 
-                if not item.project_name:
-                    missing.add("project_name")
+                identifiers = (
+                    item.project_name,
+                    item.project_id,
+                    item.project_number,
+                    item.unit_number,
+                    item.unit_id,
+                    item.unit_name,
+                )
 
-                if not item.bank_account_types:
-                    missing.add("bank_account_types")
+                if not any(identifiers):
+                    missing.add("project_identifier")
+                else:
+                    missing.discard("project_name")
+                    missing.discard("project_identifier")
+
+                # Bank type is optional.
+                # If unspecified, return both types available.
+                missing.discard("bank_account_types")
+
+                normalized_types = []
+
+                for account_type in item.bank_account_types:
+                    value = account_type.strip().lower()
+
+                    if "escrow" in value:
+                        normalized_types.append("escrow")
+                    elif "corporate" in value:
+                        normalized_types.append("corporate")
+
+                item.bank_account_types = list(
+                    dict.fromkeys(normalized_types)
+                )
 
             elif item.intent == "sales_offer":
+                has_identifier = any([
+                    item.project_name,
+                    item.project_id,
+                    item.project_number,
+                    item.unit_number,
+                    item.unit_id,
+                    item.unit_name,
+                ])
 
-                if not item.unit_number:
-                    missing.add("unit_number")
+                if not has_identifier:
+                    missing.add("project_or_unit_identifier")
+                else:
+                    missing.discard("project_name")
+                    missing.discard("unit_number")
+                    missing.discard("project_or_unit_identifier")
 
-                if (
-                    not item.project_name
-                    and not item.unit_number
-                ):
-                    missing.add("project_name_or_unit_number")
+                # Payment plans and offers are discovered from API.
+                missing.discard("payment_plan_ids")
+                missing.discard("offer_id")
+
+                item.currency = (item.currency or "AED").upper()
 
             elif item.intent == "project_information":
 
@@ -229,7 +290,15 @@ class RouterService:
                     item.inventory_operation = "project_info"
 
             elif item.intent == "inventory":
-                if item.inventory_scope == "projects":
+                if item.inventory_operation == "payment_plan":
+                    if not (
+                        item.project_name
+                        or item.project_number
+                        or item.unit_number
+                    ):
+                        missing.add("project_or_unit_identifier")
+
+                elif item.inventory_scope == "projects":
                     item.inventory_operation = "project_info"
 
                 elif item.inventory_scope == "units":

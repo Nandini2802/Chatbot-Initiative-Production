@@ -28,6 +28,16 @@ from app.services.inventory_token_provider import get_inventory_token_service
 from app.retrieval.project_name import resolve_project_name
 from app.services.inventory_conversation_service import *
 from app.core.keyvault import load_application_secrets
+from app.services.payment_plan_context_service import (
+    load_pending_payment_selection,
+    match_selected_plan,
+    clear_pending_payment_selection,
+)
+from app.services.availability_resolver import (
+    resolve_availability_project,
+    AvailabilityResolutionError,
+)
+from app.services.sales_offer_state import SalesOfferState
 
 
 logger = logging.getLogger(__name__)
@@ -170,6 +180,28 @@ async def stream_chat_response(
             limit=10,
         )
 
+        pending_payment_selection = await load_pending_payment_selection(
+            redis_client=clients.redis,
+            user_id=user_id,
+            session_id=str(session_id),
+        )
+
+        selected_payment_plan = None
+
+        if pending_payment_selection:
+            selected_payment_plan = match_selected_plan(
+                message=message,
+                plans=pending_payment_selection["plans"],
+            )
+
+            logger.info(
+                "PAYMENT_PLAN_FOLLOWUP | session_id=%s | "
+                "pending=%s | matched=%s",
+                session_id,
+                True,
+                selected_payment_plan is not None,
+            )
+
 
         # Load official project names from Redis
         project_catalog_service = ProjectCatalogService(
@@ -189,12 +221,114 @@ async def stream_chat_response(
 
         inventory_token = await inventory_token_service.get_token()
 
+        print(
+            "[STREAM DEBUG] Inventory user_id:",
+            user_id,
+            flush=True,
+        )
+
         inventory_snapshot = (
             await inventory_connector.fetch_inventory(
                 token=inventory_token,
                 user_id=user_id,
             )
         )
+
+        # PAYMENT PLAN FOLLOW-UP: exact selection bypasses LLM routing.
+        # Reuse the existing handler, HTML renderer, persistence, and SSE format.
+        if selected_payment_plan is not None:
+            from types import SimpleNamespace
+            from app.handlers.payment_plan_handler import PaymentPlanHandler
+
+            payment_handler = PaymentPlanHandler(
+                snapshot=inventory_snapshot,
+                salesforce_client=inventory_client,
+                token=access_token,
+                user_id=user_id,
+                redis_client=clients.redis,
+                session_id=str(session_id),
+            )
+
+            selected_intent = SimpleNamespace(
+                unit_number=pending_payment_selection["unit_id"],
+                project_name=None,
+                project_number=None,
+            )
+            selection_result = await payment_handler.handle(
+                selected_intent,
+                selected_plan_id=selected_payment_plan["id"],
+            )
+
+            selection_html = [
+                HTMLBlockEvent(
+                    card_type=block["card_type"],
+                    html=block["html"],
+                ).model_dump(mode="json")
+                for block in selection_result.html_blocks
+            ]
+            selection_succeeded = (
+                selection_result.has_data and bool(selection_html)
+            )
+            selection_text = (
+                f"Here is the selected payment plan for "
+                f"{pending_payment_selection['unit_name']}: "
+                f"{selected_payment_plan['name']}."
+                if selection_succeeded
+                else " ".join(selection_result.messages)
+                or "The selected payment plan could not be displayed."
+            )
+            selection_payload = {
+                "version": 1,
+                "html_blocks": selection_html,
+                "files": selection_result.files,
+                "followups": [],
+                "inventory_context": None,
+            }
+            selection_response = ChatResponse(
+                response=selection_text,
+                session_id=session_id,
+                correlation_id=correlation_id,
+                followups=[],
+                data={
+                    "files": selection_result.files,
+                    "classification": {
+                        "intents": [{
+                            "intent": "inventory",
+                            "inventory_operation": "payment_plan",
+                        }],
+                        "payment_plan_followup": True,
+                    },
+                },
+            )
+            await persist_completed_chat(
+                clients=clients,
+                session_id=session_id,
+                user_id=user_id,
+                user_message=message,
+                assistant_message=selection_text,
+                intents=["inventory"],
+                latency_ms=int((time.perf_counter() - started_at) * 1000),
+                response_payload=selection_payload,
+            )
+
+            if selection_succeeded:
+                await clear_pending_payment_selection(
+                    redis_client=clients.redis,
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+
+            yield format_sse("token", {"text": selection_text})
+            for block in selection_html:
+                yield format_sse("html_block", block)
+            yield format_sse("followups", {"chips": []})
+            yield format_sse(
+                "final",
+                selection_response.model_dump(mode="json"),
+            )
+            status = "completed"
+            yield format_sse("done", {"status": status})
+            return
 
         previous_inventory_context = await load_previous_inventory_context(
             clients=clients,
@@ -261,6 +395,46 @@ async def stream_chat_response(
             active_project_names=active_project_names,
             previous_inventory_context=previous_inventory_context,
         )
+
+        pending_sales_offer = await SalesOfferState(
+            clients.redis
+        ).load(
+            user_id=user_id,
+            session_id=str(session_id),
+        )
+
+        sales_intent = next(
+            (
+                item
+                for item in routing_result.intents
+                if item.intent == "sales_offer"
+            ),
+            None,
+        )
+
+        selected_numbers = (
+            sales_intent.payment_plan_numbers or []
+            if sales_intent
+            else []
+        )
+
+        if pending_sales_offer and sales_intent and selected_numbers:
+
+            sales_intent.unit_id = pending_sales_offer["unit_id"]
+            sales_intent.unit_name = pending_sales_offer["unit_name"]
+            sales_intent.currency = pending_sales_offer["currency"]
+
+            sales_intent.missing_fields = []
+            sales_intent.requires_clarification = False
+
+            routing_result.requires_clarification = False
+
+            logger.info(
+                "SALES_OFFER_SELECTION_RESTORED | "
+                "session_id=%s | selected_plans=%s",
+                session_id,
+                selected_numbers,
+            )
 
         for intent in routing_result.intents:
 
@@ -476,6 +650,13 @@ async def stream_chat_response(
                     blocked_intents.add(index)
                     continue
 
+            elif intent.intent == "download_availability":
+
+                valid_names = (
+                    inventory_active_names
+                    | inventory_unit_names
+                )
+
             else:
                 # Preserve current validation behavior for
                 # other intents until their own catalogs exist.
@@ -523,6 +704,45 @@ async def stream_chat_response(
                     if "project_name" not in intent.missing_fields:
                         intent.missing_fields.append("project_name")
 
+            if intent.intent == "download_availability":
+
+                if index not in blocked_intents:
+
+                    try:
+                        resolved = resolve_availability_project(
+                            intent=intent,
+                            snapshot=inventory_snapshot,
+                        )
+
+                        intent.project_id = resolved.project_id
+                        intent.project_name = resolved.project_name
+
+                        intent.missing_fields = [
+                            field
+                            for field in intent.missing_fields
+                            if field not in {
+                                "project_name",
+                                "project_identifier",
+                            }
+                        ]
+
+                        intent.requires_clarification = bool(
+                            intent.missing_fields
+                        )
+
+                    except AvailabilityResolutionError as exc:
+
+                        intent.requires_clarification = True
+                        blocked_intents.add(index)
+
+                        logger.info(
+                            "AVAILABILITY_RESOLUTION_FAILED | "
+                            "reason=%s | correlation_id=%s",
+                            str(exc),
+                            correlation_id,
+                        )
+
+
             # Block ambiguous or incomplete requests.
             if intent.requires_clarification:
                 blocked_intents.add(index)
@@ -560,6 +780,12 @@ async def stream_chat_response(
         dispatcher = IntentDispatcher(
             redis_client=clients.redis,
             inventory_snapshot=inventory_snapshot,
+            payment_client=inventory_client,
+            payment_token=access_token,
+            user_id=user_id,
+            session_id=str(session_id),
+            access_token=access_token,
+            message=message,
         )
 
         handler_results = []
@@ -722,6 +948,27 @@ async def stream_chat_response(
             len(followup_chips),
         )
 
+        # 5.1 ENSURE SALES OFFER DISCLAIMER
+
+        SALES_OFFER_DISCLAIMER = (
+            "Disclaimer: Exchange rate applied is valid for today "
+            "only and subject to change at the time of unit booking."
+        )
+
+        sales_offer_succeeded = any(
+            result.intent == "sales_offer"
+            and result.generation_context.get("generated") is True
+            for result in handler_results
+        )
+
+        if sales_offer_succeeded:
+            if SALES_OFFER_DISCLAIMER not in response_text:
+                response_text = (
+                    response_text.rstrip()
+                    + "\n\n"
+                    + SALES_OFFER_DISCLAIMER
+                )
+
         # 5A. PREPARE TEXT FOR DATABASE PERSISTENCE
 
         display_response_text = response_text.strip()
@@ -877,45 +1124,73 @@ async def stream_chat_response(
     except asyncio.CancelledError:
         raise
 
+
     except Exception as exc:
-        import traceback
 
-        print("\n" + "=" * 70, flush=True)
-        print("[STREAM DEBUG] EXCEPTION OCCURRED", flush=True)
-        print(f"[STREAM DEBUG] Exception type: {type(exc).__name__}", flush=True)
-        print(f"[STREAM DEBUG] Exception message: {exc}", flush=True)
-        print(f"[STREAM DEBUG] Correlation ID: {correlation_id}", flush=True)
-        print("[STREAM DEBUG] FULL TRACEBACK:", flush=True)
-        print(f"[STREAM DEBUG] Error code: {getattr(exc, 'error_code', 'N/A')}",flush=True)
+        from app.core.exceptions import AppException
 
-        error_code = getattr(
-            exc,
-            "error_code",
-            "UPSTREAM_SERVICE_ERROR",
+        if isinstance(exc, AppException):
+            error_code = exc.error_code
+        else:
+            error_code = "INTERNAL_SERVER_ERROR"
+
+        logger.exception(
+            "CHAT_STREAM_FAILED | "
+            "correlation_id=%s | "
+            "session_id=%s | "
+            "error_code=%s",
+            correlation_id,
+            session_id,
+            error_code,
         )
 
-        traceback.print_exc()
-
         if error_code == "INVENTORY_RATE_LIMITED":
-
-            user_message = (
-                "The property information service is temporarily "
-                "busy due to high demand. "
-                "Please try again in a little while."
-            )
-
             response_code = "INVENTORY_RATE_LIMITED"
+            user_message = (
+                "The property information service is "
+                "currently busy. Please try again shortly."
+            )
             retryable = True
+
+        elif error_code in {
+            "AUTHENTICATION_ERROR",
+            "INVENTORY_ACCESS_ERROR",
+        }:
+            response_code = "AUTHENTICATION_ERROR"
+            user_message = (
+                "Your session could not be authenticated "
+                "for property information. Please sign in "
+                "again or contact support if the issue continues."
+            )
+            retryable = False
+
+        elif error_code in {
+            "INVENTORY_UPSTREAM_ERROR",
+            "INVENTORY_RESPONSE_ERROR",
+        }:
+            response_code = "UPSTREAM_SERVICE_ERROR"
+            user_message = (
+                "We couldn't retrieve the property information "
+                "from Danube's service right now. "
+                "Please try again later."
+            )
+            retryable = True
+
+        elif error_code == "INVENTORY_CONFIGURATION_ERROR":
+            response_code = "SERVICE_CONFIGURATION_ERROR"
+            user_message = (
+                "The property information service is "
+                "not configured correctly. Please contact support."
+            )
+            retryable = False
 
         else:
-
+            response_code = "INTERNAL_SERVER_ERROR"
             user_message = (
-                "The response could not be completed. "
-                "Please try again."
+                "An unexpected error occurred while processing "
+                "your request. Please try again later."
             )
-
-            response_code = "UPSTREAM_SERVICE_ERROR"
-            retryable = True
+            retryable = False
 
         error_response = ErrorResponse(
             error=ErrorDetail(
@@ -929,9 +1204,7 @@ async def stream_chat_response(
 
         yield format_sse(
             "error",
-            error_response.model_dump(
-                mode="json"
-            ),
+            error_response.model_dump(mode="json"),
         )
 
     # 12. DONE EVENT

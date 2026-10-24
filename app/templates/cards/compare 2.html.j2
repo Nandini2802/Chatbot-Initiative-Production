@@ -53,7 +53,7 @@
 	.compare-cards { display: flex; gap: 16px; }
 	.unit-card { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 	.unit-card__media { display: flex; flex-direction: column; gap: 6px; align-items: center; }
-	.unit-card__img { width: 100%; aspect-ratio: 375 / 439; background: #16171a; border-radius: 10px; display: block; }
+	.unit-card__img { width: 100%; aspect-ratio: 375 / 439; background: #16171a; border-radius: 10px; display: block; object-fit: cover;}
 	.unit-card__dots { display: flex; gap: 10px; align-items: center; }
 	.unit-card__dots i { display: block; height: 6px; width: 6px; border-radius: 50px; background: #fff; opacity: .5; }
 	.unit-card__dots i.is-active { width: 30px; opacity: 1; }
@@ -112,7 +112,19 @@
         {% for item in comparisons %}
         <div class="unit-card">
           <div class="unit-card__media">
-            <div class="unit-card__img" role="img" aria-label="{{ item.unit.unit_name | default('Unit', true) | e }}"></div>
+            {% set project_info = item.project.project_information %}
+            {% set image_url = project_info.project_image if project_info else none %}
+            {% if image_url and (image_url.startswith('https://') or image_url.startswith('http://')) %}
+            <img
+              class="unit-card__img"
+              src="{{ image_url | e }}"
+              alt="{{ item.unit.project_name | default('Project image', true) | e }}"
+              loading="lazy"
+              referrerpolicy="no-referrer"
+            />
+            {% else %}
+            <div class="unit-card__img" role="img" aria-label="Project image unavailable for {{ item.unit.unit_name | default('Unit', true) | e }}"></div>
+            {% endif %}
           </div>
           <div class="unit-card__price"><span>{{ item.unit.currency | default('AED', true) | e }} {{ item.unit.price if item.unit.price is not none else 'Not available' }}</span></div>
         </div>
@@ -136,13 +148,48 @@
         </div>
       </details>
       <details class="acc" open>
-        <summary class="acc__head"><h3>Project Payment Plans</h3></summary>
+        <summary class="acc__head"><h3>Payment Plans</h3></summary>
         <div class="acc__body">
           {% for item in comparisons %}
           <div class="acc__col">
             {% if item.project.payment_plans %}
-              {% for plan in item.project.payment_plans %}<p>{{ plan | e }}</p>{% endfor %}
-            {% else %}<p class="muted">Not available</p>{% endif %}
+              <div class="pp">
+                {% for plan in item.project.payment_plans %}
+                <div class="pp__item">
+                  <p class="pp__title">{{ plan.name | e }}</p>
+                  {% if plan.installment_count is not none %}
+                    <p class="pp__installments">{{ plan.installment_count }} installments</p>
+                  {% else %}
+                    <p class="muted">Installment count unavailable</p>
+                  {% endif %}
+                  {% if plan.schedule is not none %}
+                  <details class="pp__details">
+                    <summary class="pp__link">View Details</summary>
+                    <div class="pp__schedule">
+                      {% for year, installments in plan.schedule.items() %}
+                        <p class="pp__year">{{ year | e }}</p>
+                        {% for installment in installments %}
+                        <div class="pp__installment">
+                          <span>{{ installment.display_date | e }}</span>
+                          <span>{{ installment.description | e }}</span>
+                          <strong>{{ installment.display_percentage | e }}</strong>
+                          <span>{{ installment.display_amount | e }}</span>
+                        </div>
+                        {% endfor %}
+                      {% endfor %}
+                    </div>
+                  </details>
+                  {% else %}
+                    <p class="muted">Schedule not available</p>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+            {% elif item.project.payment_error %}
+              <p class="muted">{{ item.project.payment_error | e }}</p>
+            {% else %}
+              <p class="muted">No payment plans available</p>
+            {% endif %}
           </div>
           {% endfor %}
         </div>

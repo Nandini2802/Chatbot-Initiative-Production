@@ -1,4 +1,5 @@
 import logging
+import asyncio
 
 
 from app.schemas.handler_result import HandlerResult
@@ -8,6 +9,7 @@ from app.services.inventory_filter_service import (
     norm,
 )
 from app.services.template_service import TemplateService
+from app.handlers.payment_plan_handler import PaymentPlanHandler
 from app.services.project_name_service import normalize_project_name
 
 
@@ -18,8 +20,17 @@ class InventoryHandler:
 
     MAX_DISPLAY_UNITS = 20
 
-    def __init__(self, snapshot: InventorySnapshot):
+    def __init__(
+        self,
+        snapshot: InventorySnapshot,
+        payment_client=None,
+        payment_token: str | None = None,
+        user_id: str | None = None,
+    ):
         self.snapshot = snapshot
+        self.payment_client = payment_client
+        self.payment_token = payment_token
+        self.user_id = user_id
         self.filter_service = InventoryFilterService()
         self.template_service = TemplateService()
 
@@ -45,7 +56,7 @@ class InventoryHandler:
 
         # Unit comparison
         if operation == "unit_comparison":
-            return self._handle_comparison(intent, result)
+            return await self._handle_comparison(intent, result)
 
         # Unit search / details
         if operation == "unit_details" and intent.unit_number:
@@ -227,7 +238,7 @@ class InventoryHandler:
 
         return result
 
-    def _handle_comparison(self, intent, result):
+    async def _handle_comparison(self, intent, result):
 
         identifiers = intent.compare_unit_numbers or []
 
@@ -304,9 +315,65 @@ class InventoryHandler:
 
             return []
 
+        # Payment plans belong to the Salesforce unit, not to the
+        # Active Projects payment_plan text field.
+        # Fetch independently so one failure does not break comparison.
+        payment_results = [None] * len(selected)
+        if self.payment_client and self.payment_token and self.user_id:
+            async def fetch_plans(unit):
+                if not unit.unit_id:
+                    return None
+                return await self.payment_client.get_payment_plans(
+                    token=self.payment_token,
+                    user_id=self.user_id,
+                    unit_id=unit.unit_id,
+                )
+
+            payment_results = await asyncio.gather(
+                *(fetch_plans(unit) for unit in selected),
+                return_exceptions=True,
+            )
+
         comparisons = []
 
-        for unit, safe_unit in zip(selected, safe_units):
+        for unit, safe_unit, payment_result in zip(
+            selected, safe_units, payment_results
+        ):
+            payment_plans = []
+            payment_error = None
+            if isinstance(payment_result, BaseException):
+                logger.warning(
+                    "COMPARISON_PAYMENT_PLAN_FAILED | unit_id=%s | error=%s",
+                    unit.unit_id,
+                    type(payment_result).__name__,
+                )
+                payment_error = "Payment plans temporarily unavailable"
+            elif payment_result is None:
+                payment_error = "Payment plans unavailable"
+            else:
+                for plan in payment_result:
+                    if not isinstance(plan, dict):
+                        continue
+                    records = PaymentPlanHandler._installment_records(plan)
+                    schedule = None
+                    if records is not None:
+                        try:
+                            schedule = PaymentPlanHandler._normalize_installments(
+                                plan, unit
+                            )
+                        except ValueError:
+                            logger.warning(
+                                "COMPARISON_PAYMENT_SCHEDULE_INVALID | unit_id=%s",
+                                unit.unit_id,
+                            )
+                    payment_plans.append({
+                        "name": PaymentPlanHandler._plan_name(plan),
+                        "installment_count": (
+                            len(records) if records is not None else None
+                        ),
+                        "schedule": schedule,
+                    })
+
             project = next(
                 (
                     p for p in self.snapshot.projects
@@ -335,16 +402,26 @@ class InventoryHandler:
                     "amenities": display_items(
                         project.amenities if project else None
                     ),
-                    "payment_plans": display_items(
-                        project.payment_plan if project else None
-                    ),
+                    "payment_plans": payment_plans,
+                    "payment_error": payment_error,
                 },
             })
 
         result.generation_context = {
             "service": "inventory",
             "operation": "unit_comparison",
-            "comparisons": comparisons,
+            "comparisons": [
+                {
+                    "unit": item["unit"],
+                    "project": {
+                        key: value
+                        for key, value in item["project"].items()
+                        if key not in {"payment_plans", "payment_error"}
+                    },
+                    "payment_plan_count": len(item["project"]["payment_plans"]),
+                }
+                for item in comparisons
+            ],
         }
 
         result.html_blocks.append({

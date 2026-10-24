@@ -24,6 +24,18 @@ INVENTORY_PROMPT_PATH = (
     PROMPTS_DIR / "generation_inventory_v1.md"
 )
 
+AVAILABILITY_PROMPT_PATH = (
+    PROMPTS_DIR / "generation_availability_v1.md"
+)
+
+BANK_DETAILS_PROMPT_PATH = (
+    PROMPTS_DIR / "generation_bank_details_v1.md"
+)
+
+SALES_OFFER_PROMPT_PATH = (
+    PROMPTS_DIR / "generation_sales_offer_v1.md"
+)
+
 
 class GenerationService:
 
@@ -45,6 +57,25 @@ class GenerationService:
         # New Inventory prompt
         self.inventory_prompt = (
             INVENTORY_PROMPT_PATH.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        # Availability prompt
+        self.availability_prompt = (
+            AVAILABILITY_PROMPT_PATH.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.bank_details_prompt = (
+            BANK_DETAILS_PROMPT_PATH.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.sales_offer_prompt = (
+            SALES_OFFER_PROMPT_PATH.read_text(
                 encoding="utf-8"
             )
         )
@@ -78,7 +109,30 @@ class GenerationService:
         ):
             return self.marketing_prompt
 
-        # 3. Multi-intent request
+        # 3. Download Availability only
+        if (
+            service == "download_availability"
+            and set(intents) == {"download_availability"}
+        ):
+            return self.availability_prompt
+
+        # 4. Bank Details
+
+        if (
+            service == "bank_details"
+            and set(intents) == {"bank_details"}
+        ):
+            return self.bank_details_prompt
+
+        # 4. Sales Offer
+
+        if (
+            service == "sales_offer"
+            and set(intents) == {"sales_offer"}
+        ):
+            return self.sales_offer_prompt
+
+        # 4. Multi-intent request
         if service == "multi_intent":
 
             results = service_results.get("results", [])
@@ -116,9 +170,27 @@ class GenerationService:
                     + self.inventory_prompt
                 )
 
+            if "download_availability" in service_types:
+                instructions.append(
+                    "\n## Download Availability Instructions\n"
+                    + self.availability_prompt
+                )
+
+            if "bank_details" in service_types:
+                instructions.append(
+                    "\n## Bank Details Instructions\n"
+                    + self.bank_details_prompt
+                )
+
+            if "sales_offer" in service_types:
+                instructions.append(
+                    "\n## Sales Offer Instructions\n"
+                    + self.sales_offer_prompt
+                )
+
             return "\n\n".join(instructions)
 
-        # 4. Fallback for existing functionalities
+        # 5. Fallback for existing functionalities
         return self.system_prompt
 
     async def generate(

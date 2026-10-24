@@ -54,6 +54,20 @@ class RoutingIntent(BaseModel):
     status: str | None = None
     floor_number: str | None = None
 
+    project_number: str | None = None
+    project_id: str | None = None
+    unit_id: str | None = None
+    unit_name: str | None = None
+
+    bank_id: str | None = None
+    bank_name: str | None = None
+    bank_account_number: str | None = None
+    bank_account_index: int | None = None
+
+    payment_plan_ids: list[str] = Field(default_factory=list)
+    payment_plan_numbers: list[int] = Field(default_factory=list)
+    offer_id: str | None = None
+
     sort_by: Literal[
         "price_asc",
         "price_desc",
@@ -66,6 +80,7 @@ class RoutingIntent(BaseModel):
         "unit_search",
         "unit_details",
         "unit_comparison",
+        "payment_plan",
     ] | None = None
 
     compare_unit_numbers: list[str] = Field(
