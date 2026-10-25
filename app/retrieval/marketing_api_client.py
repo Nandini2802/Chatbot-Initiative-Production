@@ -3,7 +3,9 @@ import logging
 from typing import Any
 
 import httpx
+import time
 
+from app.observability.logger import audit_event
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -63,13 +65,22 @@ class MarketingAPIClient:
                     "Marketing API returned empty data"
                 )
 
-            logger.info(
-                "MARKETING_API_REQUEST_SUCCESS | status=%s",
-                response.status_code,
+            audit_event(
+                "MARKETING_API_RESPONSE",
+                status="success",
+                api="marketing_catalog",
+                http_status=response.status_code,
+                latency_ms=round(
+                    (time.perf_counter() - started_at) * 1000,
+                    2,
+                ),
+                response_type=type(data).__name__,
+                response_empty=not bool(data),
             )
 
             return data
 
+        started_at = time.perf_counter()
         try:
             if self.http_client is not None:
                 return await make_request(
@@ -79,8 +90,23 @@ class MarketingAPIClient:
             async with httpx.AsyncClient() as client:
                 return await make_request(client)
 
-        except Exception:
-            logger.exception(
-                "MARKETING_API_REQUEST_FAILED"
+        except Exception as exc:
+            audit_event(
+                "MARKETING_API_RESPONSE",
+                level="ERROR",
+                status="failed",
+                api="marketing_catalog",
+                http_status=getattr(
+                    getattr(exc, "response", None),
+                    "status_code",
+                    None,
+                ),
+                latency_ms=round(
+                    (time.perf_counter() - started_at) * 1000,
+                    2,
+                ),
+                error_type=type(exc).__name__,
             )
+
+            logger.exception("MARKETING_API_REQUEST_FAILED")
             raise

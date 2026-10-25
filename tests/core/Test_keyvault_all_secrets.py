@@ -20,9 +20,6 @@ async def test_all_secrets_from_keyvault():
         "KEY_VAULT_URL is missing"
     )
 
-    print("\nEnvironment:", settings.environment)
-    print("Key Vault:", settings.key_vault_url)
-
     # This calls the actual Key Vault loading function
     secrets = await load_application_secrets()
 

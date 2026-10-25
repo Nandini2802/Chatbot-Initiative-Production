@@ -1,12 +1,14 @@
-
+import time
 import json
 import logging
-from pathlib import Path
-from typing import Any
 
+from pathlib import Path
+from typing import Any, AsyncIterator
 from openai import AsyncOpenAI
 
 from app.schemas.generation import GenerationResult
+from app.utils.streamed_json_response import StreamedResponseExtractor
+from app.observability.logger import audit_event
 
 
 logger = logging.getLogger(__name__)
@@ -293,47 +295,11 @@ class GenerationService:
             
 
             # 5. Clean and limit follow-up chips
-            if (
-                service_results.get("service") == "excel_walkthrough"
-                and set(intents) == {"excel_walkthrough"}
-            ):
-                allowed_features = service_results.get(
-                    "allowed_followup_features", []
-                )
-
-                allowed_lookup = {
-                    feature.casefold(): feature
-                    for feature in allowed_features
-                }
-
-                validated_features = []
-
-                for suggestion in generated.followups:
-                    if not isinstance(suggestion, str):
-                        continue
-
-                    feature = allowed_lookup.get(
-                        suggestion.strip().casefold()
-                    )
-
-                    if feature and feature not in validated_features:
-                        validated_features.append(feature)
-
-                    if len(validated_features) == 3:
-                        break
-
-                generated.followups = [
-                    f"How do I use {feature}?"
-                    for feature in validated_features
-                ]
-
-            else:
-                generated.followups = [
-                    chip.strip()
-                    for chip in generated.followups
-                    if isinstance(chip, str)
-                    and chip.strip()
-                ][:3]
+            generated = self._postprocess_result(
+                generated=generated,
+                intents=intents,
+                service_results=service_results,
+            )
 
             # 6. Logging
             logger.info(
@@ -360,6 +326,149 @@ class GenerationService:
                 intents,
             )
             raise
+
+    async def generate_stream(
+        self,
+        message: str,
+        language: str,
+        intents: list[str],
+        service_results: dict[str, Any],
+        history: list[dict] | None = None,
+    ) -> AsyncIterator[tuple[str, Any]]:
+
+        selected_prompt = self._select_prompt(
+            intents=intents,
+            service_results=service_results,
+        )
+
+        payload = {
+            "user_message": message,
+            "detected_language": language,
+            "detected_intents": intents,
+            "verified_service_results": service_results,
+            "recent_conversation": history or [],
+        }
+
+        extractor = StreamedResponseExtractor()
+
+        async with self.client.responses.stream(
+            model=self.model,
+            instructions=selected_prompt,
+            input=json.dumps(
+                payload,
+                ensure_ascii=False,
+                default=str,
+            ),
+            text_format=GenerationResult,
+        ) as stream:
+
+            async for event in stream:
+
+                if event.type == "response.output_text.delta":
+
+                    text = extractor.feed(event.delta)
+
+                    if text:
+                        yield ("token", text)
+
+            final_response = await stream.get_final_response()
+
+        generated = final_response.output_parsed
+
+        if generated is None:
+            raise ValueError(
+                "Streaming returned no parsed output"
+            )
+
+        if not generated.response.strip():
+            raise ValueError(
+                "Streaming returned an empty response"
+            )
+
+        if not extractor.finished:
+            raise ValueError(
+                "Streaming response field was incomplete"
+            )
+
+        if extractor.emitted != generated.response:
+            raise ValueError(
+                "Streamed text does not match final response"
+            )
+
+        generated = self._postprocess_result(
+            generated=generated,
+            intents=intents,
+            service_results=service_results,
+        )
+
+        yield ("result", generated)
+
+    
+    def _postprocess_result(
+        self,
+        generated: GenerationResult,
+        intents: list[str],
+        service_results: dict[str, Any],
+    ) -> GenerationResult:
+
+        if generated is None:
+            raise ValueError(
+                "Generation returned no parsed output"
+            )
+
+        if not generated.response.strip():
+            raise ValueError(
+                "Generation returned empty response"
+            )
+
+        # Preserve Excel Walkthrough RBAC behavior
+        if (
+            service_results.get("service")
+            == "excel_walkthrough"
+            and set(intents) == {"excel_walkthrough"}
+        ):
+            allowed_features = service_results.get(
+                "allowed_followup_features", []
+            )
+
+            allowed_lookup = {
+                feature.casefold(): feature
+                for feature in allowed_features
+            }
+
+            validated_features = []
+
+            for suggestion in generated.followups:
+                if not isinstance(suggestion, str):
+                    continue
+
+                feature = allowed_lookup.get(
+                    suggestion.strip().casefold()
+                )
+
+                if (
+                    feature
+                    and feature not in validated_features
+                ):
+                    validated_features.append(feature)
+
+                if len(validated_features) == 3:
+                    break
+
+            generated.followups = [
+                f"How do I use {feature}?"
+                for feature in validated_features
+            ]
+
+        else:
+            generated.followups = [
+                chip.strip()
+                for chip in generated.followups
+                if isinstance(chip, str)
+                and chip.strip()
+            ][:3]
+
+        return generated
 
 
 def build_marketing_generation_context(

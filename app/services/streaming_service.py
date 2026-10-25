@@ -4,7 +4,7 @@ import logging
 import uuid
 import json
 import re
-
+import os
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -39,10 +39,22 @@ from app.services.availability_resolver import (
 )
 from app.services.sales_offer_state import SalesOfferState
 from app.services.walkthrough_access_service import WalkthroughEngine
+from app.observability.logger import audit_event, log_context
+
 
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+real_llm_streaming = False
+streamed_answer = ""
+
+def is_real_streaming_enabled() -> bool:
+    return (
+        os.getenv(
+            "ENABLE_REAL_LLM_STREAMING", "false"
+        ).strip().lower() == "true"
+    )
+
 
 
 
@@ -146,6 +158,11 @@ async def stream_chat_response(
 ):
 
     started_at = time.perf_counter()
+
+    log_token = log_context.set({
+        "correlation_id": correlation_id,
+        "session_id": str(session_id),
+    })
 
     status = "failed"
 
@@ -921,6 +938,9 @@ async def stream_chat_response(
         )
 
         llm2_used = False
+        real_llm_streaming = False
+        streamed_answer = ""
+
 
         if generation_contexts:
 
@@ -943,20 +963,65 @@ async def stream_chat_response(
             )
 
             try:
-                generation_result = await generation_service.generate(
-                    message=message,
-                    language=routing_result.language,
-                    intents=detected_intents,
-                    service_results=generation_context,
-                    history=history,
+                
+                real_llm_streaming = (
+                    is_real_streaming_enabled()
+                    and bool(generation_contexts)
+                    and not clarification_messages
                 )
+
+                if real_llm_streaming:
+                    generation_result = None
+
+                    async for event_type, value in (
+                        generation_service.generate_stream(
+                            message=message,
+                            language=routing_result.language,
+                            intents=detected_intents,
+                            service_results=generation_context,
+                            history=history,
+                        )
+                    ):
+                        if event_type == "token":
+                            streamed_answer += value
+
+                            yield format_sse(
+                                "token",
+                                {"text": value},
+                            )
+
+                        elif event_type == "result":
+                            generation_result = value
+
+                    if generation_result is None:
+                        raise ValueError(
+                            "Streaming returned no final result"
+                        )
+
+                else:
+                    generation_result = (
+                        await generation_service.generate(
+                            message=message,
+                            language=routing_result.language,
+                            intents=detected_intents,
+                            service_results=generation_context,
+                            history=history,
+                        )
+                    )
 
                 llm2_used = True
                 followup_chips = generation_result.followups
-                response_text = (generation_result.response or "").strip()
+                response_text = (
+                    generation_result.response or ""
+                ).strip()
 
             except Exception:
                 if not walkthrough_only:
+                    raise
+
+                # If partial text is already visible, do not
+                # append a completely different fallback answer.
+                if streamed_answer:
                     raise
 
                 logger.exception(
@@ -967,12 +1032,28 @@ async def stream_chat_response(
 
                 response_text = generation_context["approved_steps"]
                 followup_chips = []
+                real_llm_streaming = False
+
 
             # Preserve clarification and other messages.
             if response_messages:
                 response_text = " ".join(
                     [response_text, *response_messages]
                 ).strip()
+            if real_llm_streaming:
+                remaining_text = response_text[len(streamed_answer):]
+
+                if not response_text.startswith(streamed_answer):
+                    raise ValueError(
+                        "Final response differs from streamed response"
+                    )
+
+                if remaining_text:
+                    yield format_sse(
+                        "token",
+                        {"text": remaining_text},
+                    )
+                    streamed_answer += remaining_text
 
         else:
 
@@ -1038,6 +1119,22 @@ async def stream_chat_response(
 
         persist_response_text = display_response_text
         response_text = display_response_text
+
+        if real_llm_streaming:
+            if not response_text.startswith(streamed_answer):
+                raise ValueError(
+                    "Final response does not match streamed text"
+                )
+
+            remaining_text = response_text[len(streamed_answer):]
+
+            if remaining_text:
+                yield format_sse(
+                    "token",
+                    {"text": remaining_text},
+                )
+
+                streamed_answer += remaining_text
 
         # 6. BUILD FINAL RESPONSE
 
@@ -1119,7 +1216,7 @@ async def stream_chat_response(
 
         # 8. STREAM GENERATED RESPONSE TEXT
 
-        if response_text.strip():
+        if not real_llm_streaming and response_text.strip():
             for word in response_text.split(" "):
                 yield format_sse(
                     "token",
@@ -1129,6 +1226,7 @@ async def stream_chat_response(
                 await asyncio.sleep(0.02)
 
         # 9. STREAM HTML BLOCKS
+
 
         for block in all_html_blocks:
 
@@ -1144,6 +1242,7 @@ async def stream_chat_response(
 
         # 10. FOLLOW-UP CHIPS
 
+    
         yield format_sse(
             "followups",
             {"chips": followup_chips},
@@ -1177,6 +1276,8 @@ async def stream_chat_response(
 
 
     except Exception as exc:
+
+        import traceback
 
         from app.core.exceptions import AppException
 

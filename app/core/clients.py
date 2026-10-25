@@ -43,12 +43,6 @@ def remap_redis_node_address(
     host, port = address
 
     if host == "51.11.255.75" and port == 8501:
-        print(
-            f"[REDIS DEBUG] Remapping {host}:{port} "
-            f"to {redis_hostname}:{port}",
-            flush=True,
-        )
-
         return redis_hostname, port
 
     return address

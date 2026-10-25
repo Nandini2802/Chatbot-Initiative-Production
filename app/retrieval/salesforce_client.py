@@ -1,17 +1,16 @@
 import asyncio
 import logging
 import re
-from typing import Any
+import time
 
+from typing import Any
 from curl_cffi.requests import AsyncSession
 
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.core.keyvault import AppSecrets
-
-from app.retrieval.salesforce_response_validator import (
-    validate_salesforce_response,
-)
+from app.retrieval.salesforce_response_validator import validate_salesforce_response
+from app.observability.logger import audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +73,26 @@ class SalesforceClient:
         async def execute(session: AsyncSession) -> dict[str, Any]:
             for attempt in range(max_attempts):
                 try:
+                    request_started = time.perf_counter()
                     response = await session.get(
                         url,
                         headers=headers,
                         timeout=self.settings.inventory_timeout_seconds,
+                    )
+
+                    audit_event(
+                        "INVENTORY_API_HTTP_RESPONSE",
+                        status=(
+                            "success"
+                            if response.status_code < 400
+                            else "failed"
+                        ),
+                        http_status=response.status_code,
+                        latency_ms=round(
+                            (time.perf_counter() - request_started) * 1000,
+                            2,
+                        ),
+                        attempt=attempt + 1,
                     )
 
                     if response.status_code in (401, 403):
@@ -188,7 +203,12 @@ class SalesforceClient:
                 status_code=502,
                 error_code="INVENTORY_RESPONSE_ERROR",
             )
-        logger.info("ACTIVE_PROJECTS_FETCHED | count=%s", len(projects))
+        audit_event(
+            "INVENTORY_API_DATA_VALIDATED",
+            api="active_projects",
+            status="success",
+            record_count=len(projects),
+        )
         return projects
 
     async def get_visible_units(self, token: str, user_id: str) -> list[dict]:
@@ -204,7 +224,12 @@ class SalesforceClient:
                 status_code=502,
                 error_code="INVENTORY_RESPONSE_ERROR",
             )
-        logger.info("VISIBLE_UNITS_FETCHED | count=%s", len(units))
+        audit_event(
+            "INVENTORY_API_DATA_VALIDATED",
+            api="visible_units",
+            status="success",
+            record_count=len(units),
+        )
         return units
 
     async def get_payment_plans(

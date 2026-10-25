@@ -25,10 +25,11 @@ from app.templates.dev.chat_harness import router as dev_router
 
 from app.middleware.exception_handlers import validation_exception_handler
 from app.services.walkthrough_access_service import WalkthroughEngine
+from app.observability.logger import setup_logging, audit_event
 
 
-# Application logging
-logging.getLogger("app").setLevel(logging.INFO)
+
+setup_logging()
 
 logger = logging.getLogger("app.main")
 
@@ -73,6 +74,13 @@ async def lifespan(app: FastAPI):
 
         # Step 5: Log individual service statuses
         for service_name, status in startup_status.items():
+
+            audit_event(
+                "AZURE_SERVICE_HEALTH",
+                service=service_name,
+                status=status,
+                healthy=(status == "healthy"),
+            )
 
             log_method = (
                 logger.info

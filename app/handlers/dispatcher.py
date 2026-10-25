@@ -1,6 +1,8 @@
+import time
+
+from app.observability.logger import audit_event
 from app.schemas.handler_result import HandlerResult
 from app.schemas.retrieval import InventorySnapshot
-
 from app.handlers.marketing_handler import MarketingHandler
 from app.handlers.inventory_handler import InventoryHandler
 from app.handlers.payment_plan_handler import PaymentPlanHandler
@@ -112,44 +114,84 @@ class IntentDispatcher:
                 )
             )
 
-    async def execute(self, intent) -> HandlerResult:
+async def execute(self, intent) -> HandlerResult:
 
-        if (
-            intent.intent == "inventory"
-            and intent.inventory_operation == "payment_plan"
-        ):
-            if self.payment_plan_handler is None:
-                return HandlerResult(
-                    intent="inventory",
-                    messages=[
-                        "The payment plan service "
-                        "is currently unavailable."
-                    ],
-                )
+    started_at = time.perf_counter()
 
-            return await self.payment_plan_handler.handle(
-                intent
-            )
-
+    if (
+        intent.intent == "inventory"
+        and intent.inventory_operation == "payment_plan"
+    ):
+        handler = self.payment_plan_handler
+    else:
         handler = self.handlers.get(intent.intent)
 
-        if handler is not None:
-            return await handler.handle(intent)
+    handler_name = (
+        type(handler).__name__
+        if handler is not None
+        else "NoHandler"
+    )
 
-        if intent.intent == "out_of_scope":
-            return HandlerResult(
-                intent="out_of_scope",
-                messages=[
-                    "I can help with Danube Properties "
-                    "projects and related services."
-                ],
-            )
+    audit_event(
+        "HANDLER_STARTED",
+        status="started",
+        functionality=intent.intent,
+        handler=handler_name,
+        operation=getattr(
+            intent,
+            "inventory_operation",
+            None,
+        ),
+    )
 
-        return HandlerResult(
-            intent=intent.intent,
-            messages=[
-                "The requested "
-                f"{intent.intent.replace('_', ' ')} "
-                "service is not available yet."
-            ],
+    try:
+        if handler is None:
+            if intent.intent == "out_of_scope":
+                result = HandlerResult(
+                    intent="out_of_scope",
+                    messages=[
+                        "I can help with Danube Properties "
+                        "projects and related services."
+                    ],
+                )
+            else:
+                result = HandlerResult(
+                    intent=intent.intent,
+                    messages=[
+                        "The requested "
+                        f"{intent.intent.replace('_', ' ')} "
+                        "service is not available yet."
+                    ],
+                )
+        else:
+            result = await handler.handle(intent)
+
+        audit_event(
+            "HANDLER_COMPLETED",
+            status="success",
+            functionality=intent.intent,
+            handler=handler_name,
+            has_data=result.has_data,
+            message_count=len(result.messages),
+            latency_ms=round(
+                (time.perf_counter() - started_at) * 1000,
+                2,
+            ),
         )
+
+        return result
+
+    except Exception as exc:
+        audit_event(
+            "HANDLER_FAILED",
+            level="ERROR",
+            status="failed",
+            functionality=intent.intent,
+            handler=handler_name,
+            error_type=type(exc).__name__,
+            latency_ms=round(
+                (time.perf_counter() - started_at) * 1000,
+                2,
+            ),
+        )
+        raise

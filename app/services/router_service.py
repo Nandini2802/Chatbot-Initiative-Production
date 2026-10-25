@@ -1,13 +1,15 @@
 import logging
 import json
-from pathlib import Path
+import time
 
+from pathlib import Path
 from openai import AsyncOpenAI
 
 from app.schemas.routing import (
     RoutingResult,
     RoutingIntent,
 )
+from app.observability.logger import audit_event
 
 
 logger = logging.getLogger(__name__)
@@ -175,6 +177,20 @@ class RouterService:
         )
 
         # 4. Call Microsoft Foundry
+        llm1_started = time.perf_counter()
+
+        audit_event(
+            "LLM1_REQUEST",
+            status="started",
+            model=self.model,
+            message_length=len(message),
+            history_count=len(history or []),
+            marketing_catalog_count=len(available_projects or []),
+            inventory_project_count=len(
+                inventory_active_projects or []
+            ),
+        )
+
         response = await self.client.responses.parse(
             model=self.model,
             instructions=self.system_prompt,
@@ -209,6 +225,22 @@ class RouterService:
         result.requires_clarification = any(
             item.requires_clarification
             for item in result.intents
+        )
+
+        audit_event(
+            "LLM1_COMPLETED",
+            status="success",
+            model=self.model,
+            language=result.language,
+            intents=[
+                item.intent
+                for item in result.intents
+            ],
+            requires_clarification=result.requires_clarification,
+            latency_ms=round(
+                (time.perf_counter() - llm1_started) * 1000,
+                2,
+            ),
         )
 
         return result
