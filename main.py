@@ -3,6 +3,7 @@ import logging
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from pathlib import Path
 from dotenv import load_dotenv
 from fastapi.exceptions import RequestValidationError
 
@@ -23,6 +24,7 @@ from app.persistence.redis_store import RedisCacheKeys
 from app.templates.dev.chat_harness import router as dev_router
 
 from app.middleware.exception_handlers import validation_exception_handler
+from app.services.walkthrough_access_service import WalkthroughEngine
 
 
 # Application logging
@@ -178,6 +180,17 @@ async def lifespan(app: FastAPI):
             scheduler.get_job("marketing_cache_refresh").next_run_time,
         )
 
+
+        walkthrough_path = (
+            Path(__file__).resolve().parent
+            / "app"
+            / "data"
+            / "walkthrough"
+        )
+
+        app.state.walkthrough_engine = WalkthroughEngine(
+            directory=walkthrough_path
+        )
         # Step 8: Application starts serving requests
         yield
 

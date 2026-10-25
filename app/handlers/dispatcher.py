@@ -7,6 +7,9 @@ from app.handlers.payment_plan_handler import PaymentPlanHandler
 from app.handlers.availability_handler import AvailabilityHandler
 from app.handlers.bank_details_handler import BankDetailsHandler
 from app.handlers.sales_offer_handler import SalesOfferHandler
+from app.handlers.project_information_handler import ProjectInformationHandler
+from app.handlers.walkthrough_handler import WalkthroughHandler
+from app.services.walkthrough_access_service import WalkthroughEngine
 
 class IntentDispatcher:
 
@@ -20,11 +23,24 @@ class IntentDispatcher:
         session_id: str | None = None,
         access_token: str | None = None,
         message: str = "",
+        inventory_token: str | None = None,
+        walkthrough_engine: WalkthroughEngine | None = None,
+        role: str = "",
+        source: str = "",
+        employee_type: str = "",
     ):
 
         self.handlers = {
             "marketing": MarketingHandler(redis_client),
         }
+
+        if walkthrough_engine is not None:
+            self.handlers["excel_walkthrough"] = WalkthroughHandler(
+                engine=walkthrough_engine,
+                role=role,
+                source=source,
+                employee_type=employee_type,
+            )
 
         self.redis_client = redis_client
         self.session_id = session_id
@@ -41,10 +57,6 @@ class IntentDispatcher:
             )
 
             self.handlers["inventory"] = inventory_handler
-
-            self.handlers["project_information"] = (
-                inventory_handler
-            )
 
             if (
                 payment_client is not None
@@ -75,6 +87,15 @@ class IntentDispatcher:
                     user_id=user_id,
                     session_id=str(session_id),
                     message=message,
+                )
+
+            if inventory_token and access_token:
+                self.handlers["project_information"] = (
+                    ProjectInformationHandler(
+                        inventory_snapshot=inventory_snapshot,
+                        inventory_token=inventory_token,
+                        access_token=access_token,
+                    )
                 )
 
         if (

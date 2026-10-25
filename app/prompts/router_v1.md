@@ -249,6 +249,47 @@ Examples:
 
 This intent provides instructions. It does not execute the requested action.
 
+## WALKTHROUGH FEATURE IDENTIFICATION
+
+The application provides an official walkthrough feature
+catalog at runtime.
+
+For every excel_walkthrough intent:
+
+1. Identify the feature requested by the user.
+2. Match the user's wording semantically against the catalog.
+3. Return the exact canonical name in feature_name.
+4. If the user asks about multiple features, return a
+   separate excel_walkthrough intent for each feature.
+5. If the feature is unknown or ambiguous, set
+   feature_name to null.
+6. Never invent a feature name.
+7. Never generate walkthrough steps.
+8. Never decide whether a role has access.
+9. Never convert a HOW-TO question into an action request.
+
+Examples:
+
+"How do I create a lead?"
+intent = excel_walkthrough
+feature_name = "Create Lead"
+
+"How do I compare two units in the app?"
+intent = excel_walkthrough
+feature_name = "Add a Unit to Compare"
+
+"How do I change my password?"
+intent = excel_walkthrough
+feature_name = "Change Password"
+
+"Download availability for Greenz"
+intent = download_availability
+feature_name = null
+
+"How do I download availability?"
+intent = excel_walkthrough
+feature_name = "Project Details Page – Download Availability"
+
 ### 4. download_availability
 
 Classify a request as download_availability when the user wants to generate, download, export, or receive an actual project availability report.
@@ -443,21 +484,97 @@ resolved from conversation context, request clarification.
 
 ### 7. project_information
 
-Requests about:
-- Latest Danube projects
-- Project features
-- Project descriptions
-- Project comparisons
-- General project information
-- Project locations
-- Project construction status
-- Project handover dates
-- Project payment plans
-- Project starting prices
-- Total number of Danube projects
-- Projects available in a specific location
+Use this intent when the user asks for Danube project information, latest projects, project listings, project  locations, starting prices, project-level payment plans, construction status, handover, or other descriptive facts.
 
-PROJECT RESOLUTION:
+Do not confuse project information with unit inventory search, marketing-material downloads, bank details, availability reports, or sales-offer generation.
+
+Supported operations:
+
+1. latest
+   - Latest projects, newest projects, recent launches.
+   - project_operation = "latest"
+   - project_limit = 3 unless user specifies another count.
+   - Project order is determined by the API.
+   - Do not sort by date, project number, or sequence.
+
+2. list
+   - General lists of Danube projects.
+   - project_operation = "list"
+   - project_limit = 5 unless specified.
+
+3. details
+   - Information about one specific project.
+   - project_operation = "details"
+   - Extract any available project or unit identifier.
+
+4. location_search
+   - Projects in a requested area or location.
+   - project_operation = "location_search"
+   - Extract the requested location into project_location.
+   - Do not require a project name.
+
+Supported identifiers:
+- project_name
+- project_id
+- project_number
+- unit_id
+- unit_name
+- unit_number
+
+Project name is not mandatory when another identifier uniquely identifies the project.
+
+For latest, list, and location_search:
+- Do not require a project identifier.
+- Do not invent project names.
+- Do not set requires_clarification just because
+  project_name is missing.
+
+For details:
+- Require at least one identifier or an unambiguous project reference from conversation history.
+- If multiple projects match, request clarification.
+
+Examples:
+
+User: Show me the latest Danube projects
+intent: project_information
+project_operation: latest
+project_limit: 3
+
+User: List all Danube projects
+intent: project_information
+project_operation: list
+
+User: Tell me about Greenz
+intent: project_information
+project_operation: details
+project_name: GREENZ BY DANUBE
+
+User: Show projects in Academic City
+intent: project_information
+project_operation: location_search
+project_location: Academic City
+
+User: Tell me about project number 4430
+intent: project_information
+project_operation: details
+project_number: 4430
+
+User: Tell me about project a14FV008PYD5RKCYY3
+intent: project_information
+project_operation: details
+project_id: a14FV008PYD5RKCYY3
+
+User: Show project details for unit GRZ-TH-169
+intent: project_information
+project_operation: details
+unit_name: GRZ-TH-169
+
+Use conversation history to understand follow-up references such as "tell me about the first project".
+
+Only use project information returned by the backend. Never invent amenities, prices, locations, handover dates, or project descriptions.
+
+
+## PROJECT RESOLUTION:
 
 1. Resolve project names dynamically using inventory_active_projects.
 2. Use the official project name from inventory_active_projects when one project is clearly identified.

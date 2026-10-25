@@ -41,47 +41,6 @@ class InventoryConnector:
 
         user_id = user_id.strip()
 
-        # use_mock_data = (
-        #     os.getenv("INVENTORY_USE_MOCK_DATA", "false")
-        #     .strip()
-        #     .lower()
-        #     == "true"
-        # )
-
-        # environment = self.settings.environment
-
-        # if use_mock_data:
-        #     print("inside mock data")
-
-        #     if environment not in {"local", "development"}:
-        #         raise RuntimeError(
-        #             "Inventory mock mode is only allowed "
-        #             "in local development."
-        #         )
-
-        #     logger.warning(
-        #         "INVENTORY_MOCK_MODE_ENABLED | "
-        #         "Loading local JSON instead of Salesforce APIs"
-        #     )
-
-        #     projects_payload = load_local_json(
-        #         "active_projects.json"
-        #     )
-
-        #     units_payload = load_local_json(
-        #         "visible_units.json"
-        #     )
-
-        #     raw_projects = (
-        #         projects_payload["data"]["ActiveProjects"]
-        #     )
-
-        #     raw_units = (
-        #         units_payload["data"]["Units"]
-        #     )
-
-        # else:
-        print("not in mock data")
         raw_projects, raw_units = await asyncio.gather(
             self.salesforce_client.get_active_projects(
                 token

@@ -36,6 +36,14 @@ SALES_OFFER_PROMPT_PATH = (
     PROMPTS_DIR / "generation_sales_offer_v1.md"
 )
 
+PROJECT_INFORMATION_PROMPT_PATH = (
+    PROMPTS_DIR / "generation_project_information_v1.md"
+)
+
+WALKTHROUGH_PROMPT_PATH = (
+    PROMPTS_DIR / "generation_walkthrough_v1.md"
+)
+
 
 class GenerationService:
 
@@ -76,6 +84,18 @@ class GenerationService:
 
         self.sales_offer_prompt = (
             SALES_OFFER_PROMPT_PATH.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.project_information_prompt = (
+            PROJECT_INFORMATION_PROMPT_PATH.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.walkthrough_prompt = (
+            WALKTHROUGH_PROMPT_PATH.read_text(
                 encoding="utf-8"
             )
         )
@@ -132,7 +152,23 @@ class GenerationService:
         ):
             return self.sales_offer_prompt
 
-        # 4. Multi-intent request
+        # 5. Project Information
+
+        if (
+            service == "project_information"
+            and set(intents) == {"project_information"}
+        ):
+            return self.project_information_prompt
+
+        # 6. Excel Walkthrough
+
+        if (
+            service == "excel_walkthrough"
+            and set(intents) == {"excel_walkthrough"}
+        ):
+            return self.walkthrough_prompt
+
+        # 7. Multi-intent request
         if service == "multi_intent":
 
             results = service_results.get("results", [])
@@ -188,9 +224,21 @@ class GenerationService:
                     + self.sales_offer_prompt
                 )
 
+            if "project_information" in service_types:
+                instructions.append(
+                    "\n## Project Information Instructions\n"
+                    + self.project_information_prompt
+                )
+
+            if "excel_walkthrough" in service_types:
+                instructions.append(
+                    "\n## Excel Walkthrough Instructions\n"
+                    + self.walkthrough_prompt
+                )
+                
             return "\n\n".join(instructions)
 
-        # 5. Fallback for existing functionalities
+        # 8. Fallback for existing functionalities
         return self.system_prompt
 
     async def generate(
@@ -242,14 +290,50 @@ class GenerationService:
                 raise ValueError(
                     "Generation returned empty response"
                 )
+            
 
             # 5. Clean and limit follow-up chips
-            generated.followups = [
-                chip.strip()
-                for chip in generated.followups
-                if isinstance(chip, str)
-                and chip.strip()
-            ][:3]
+            if (
+                service_results.get("service") == "excel_walkthrough"
+                and set(intents) == {"excel_walkthrough"}
+            ):
+                allowed_features = service_results.get(
+                    "allowed_followup_features", []
+                )
+
+                allowed_lookup = {
+                    feature.casefold(): feature
+                    for feature in allowed_features
+                }
+
+                validated_features = []
+
+                for suggestion in generated.followups:
+                    if not isinstance(suggestion, str):
+                        continue
+
+                    feature = allowed_lookup.get(
+                        suggestion.strip().casefold()
+                    )
+
+                    if feature and feature not in validated_features:
+                        validated_features.append(feature)
+
+                    if len(validated_features) == 3:
+                        break
+
+                generated.followups = [
+                    f"How do I use {feature}?"
+                    for feature in validated_features
+                ]
+
+            else:
+                generated.followups = [
+                    chip.strip()
+                    for chip in generated.followups
+                    if isinstance(chip, str)
+                    and chip.strip()
+                ][:3]
 
             # 6. Logging
             logger.info(

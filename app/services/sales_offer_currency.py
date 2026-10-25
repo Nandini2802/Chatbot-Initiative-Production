@@ -22,11 +22,6 @@ async def resolve_sales_offer_currency(
         RedisCacheKeys.CURRENCY_RATES
     )
 
-    print("\n========== SALES OFFER CURRENCY DEBUG ==========")
-    print("Redis key:", RedisCacheKeys.CURRENCY_RATES)
-    print("Raw Redis data type:", type(raw).__name__)
-    print("Raw Redis data length:", len(raw) if raw is not None else None)
-
     if raw is None:
         raise SalesOfferCurrencyError(
             "Currency rates are temporarily unavailable."
@@ -42,24 +37,11 @@ async def resolve_sales_offer_currency(
             else raw
         )
 
-        print("Parsed payload type:", type(payload).__name__)
 
         if isinstance(payload, dict):
-            print("Top-level keys:", list(payload.keys()))
-            print("Top-level base:", repr(payload.get("base")))
-            print("Top-level rates present:", isinstance(payload.get("rates"), dict))
 
             nested_data = payload.get("data")
 
-            print("Nested data type:", type(nested_data).__name__)
-
-            if isinstance(nested_data, dict):
-                print("Nested data keys:", list(nested_data.keys()))
-                print("Nested base:", repr(nested_data.get("base")))
-                print(
-                    "Nested rates present:",
-                    isinstance(nested_data.get("rates"), dict),
-                )
 
         if not isinstance(payload, dict):
             raise ValueError("Invalid currency payload")

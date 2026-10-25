@@ -79,16 +79,7 @@ class SalesforceClient:
                         headers=headers,
                         timeout=self.settings.inventory_timeout_seconds,
                     )
-                    print("response", response)
-                    print("status code", response.status_code)
-                    print(
-                        "\n========== INVENTORY API DEBUG =========="
-                        f"\nEndpoint: {url.split('?')[0]}"
-                        f"\nHTTP Status Code: {response.status_code}"
-                        f"\nRetry-After: {response.headers.get('Retry-After')}"
-                        f"\nAttempt: {attempt + 1}/{max_attempts}"
-                        "\n=========================================\n"
-                    )
+
                     if response.status_code in (401, 403):
                         raise AppException(
                             "Inventory authorization failed",
@@ -149,19 +140,6 @@ class SalesforceClient:
                     metadata = payload.get("metaData") or {}
                     data = payload.get("data") or {}
 
-                    print(
-                        "INVENTORY_API_DIAGNOSTIC | "
-                        f"endpoint={url.split('?')[0]} | "
-                        f"user_id={user_id} | "
-                        f"http_status={response.status_code} | "
-                        f"metadata_status={metadata.get('status')} | "
-                        f"metadata_code={metadata.get('statusCode')} | "
-                        f"data_status={data.get('Status')} | "
-                        f"data_code={data.get('StatusCode')} | "
-                        f"developer_message={str(metadata.get('developerMsg') or '')[:200]}",
-                        flush=True,
-                    )
-
                     validate_salesforce_response(
                         payload,
                         api_name="Inventory API",
@@ -214,7 +192,6 @@ class SalesforceClient:
         return projects
 
     async def get_visible_units(self, token: str, user_id: str) -> list[dict]:
-        print("user_id in visible units", user_id)
         payload = await self._request(
             url=self.settings.inventory_units_api_url,
             token=token,
@@ -330,52 +307,6 @@ class SalesforceClient:
                 payload.get("metaData", {})
                 if isinstance(payload, dict)
                 else {}
-            )
-
-            print(
-                "\n========== PAYMENT PLAN API DEBUG ==========",
-                flush=True,
-            )
-
-            print(
-                "HTTP Status:",
-                response.status_code,
-                flush=True,
-            )
-
-            print(
-                "Business Status:",
-                metadata.get("status"),
-                flush=True,
-            )
-
-            print(
-                "Business Status Code:",
-                metadata.get("statusCode"),
-                flush=True,
-            )
-
-            print(
-                "Developer Message:",
-                str(metadata.get("developerMsg", ""))[:200],
-                flush=True,
-            )
-
-            print(
-                "Error Message:",
-                str(metadata.get("ErrorMsg", ""))[:200],
-                flush=True,
-            )
-
-            print(
-                "Unit ID:",
-                unit_id,
-                flush=True,
-            )
-
-            print(
-                "============================================\n",
-                flush=True,
             )
 
             data = validate_salesforce_response(

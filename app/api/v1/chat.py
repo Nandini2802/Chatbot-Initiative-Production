@@ -154,6 +154,7 @@ async def chat_query(
             employee_type=body.employee_type,
             clients=clients,
             access_token=credentials.credentials.strip(),
+            walkthrough_engine=request.app.state.walkthrough_engine,
         ),
         media_type="text/event-stream",
         headers={

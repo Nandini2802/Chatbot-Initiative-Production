@@ -38,6 +38,7 @@ from app.services.availability_resolver import (
     AvailabilityResolutionError,
 )
 from app.services.sales_offer_state import SalesOfferState
+from app.services.walkthrough_access_service import WalkthroughEngine
 
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,7 @@ async def stream_chat_response(
     employee_type: str,
     clients: ServiceClients,
     access_token: str,
+    walkthrough_engine: WalkthroughEngine,
 ):
 
     started_at = time.perf_counter()
@@ -220,12 +222,6 @@ async def stream_chat_response(
         inventory_token_service = get_inventory_token_service(secrets=secrets)
 
         inventory_token = await inventory_token_service.get_token()
-
-        print(
-            "[STREAM DEBUG] Inventory user_id:",
-            user_id,
-            flush=True,
-        )
 
         inventory_snapshot = (
             await inventory_connector.fetch_inventory(
@@ -384,6 +380,11 @@ async def stream_chat_response(
             )
 
         active_project_names = active_project_names or []
+
+        walkthrough_features = [
+            guide.name
+            for guide in walkthrough_engine.guides.values()
+        ]
         
         # LLM 1 receives the official project catalog
         routing_result = await router_service.classify(
@@ -394,6 +395,16 @@ async def stream_chat_response(
             inventory_unit_projects=inventory_catalogs.unit_projects,
             active_project_names=active_project_names,
             previous_inventory_context=previous_inventory_context,
+            walkthrough_features=walkthrough_features,
+        )
+
+        logger.info(
+            "WALKTHROUGH_ROUTER_RESULT | features=%s",
+            [
+                intent.feature_name
+                for intent in routing_result.intents
+                if intent.intent == "excel_walkthrough"
+            ],
         )
 
         pending_sales_offer = await SalesOfferState(
@@ -481,24 +492,11 @@ async def stream_chat_response(
                     intent.requires_clarification = bool(
                         intent.missing_fields
                     )
-
-                    print(
-                        "\n========== INVENTORY FOLLOW-UP DEBUG ==========",
-                        "\nOperation:", intent.inventory_operation,
-                        "\nProject:", intent.project_name,
-                        "\nUnits:", intent.compare_unit_numbers,
-                        "\nRequires clarification:",
-                        intent.requires_clarification,
-                        "\n===============================================",
-                    )
                     
 
         for intent in routing_result.intents:
 
-            if intent.intent not in {
-                "project_information",
-                "inventory",
-            }:
+            if intent.intent != "inventory":
                 continue
 
             if not intent.project_name:
@@ -650,6 +648,35 @@ async def stream_chat_response(
                     blocked_intents.add(index)
                     continue
 
+            elif intent.intent == "project_information":
+                valid_names = set()
+
+                if intent.project_operation in {
+                    "latest",
+                    "list",
+                    "location_search",
+                }:
+                    intent.missing_fields = [
+                        field
+                        for field in intent.missing_fields
+                        if field not in {
+                            "project_name",
+                            "project_identifier",
+                        }
+                    ]
+
+                    intent.requires_clarification = bool(
+                        intent.missing_fields
+                    )
+
+                # Resolve identifiers in ProjectInformationHandler.
+                # Skip the old marketing-name validation.
+                if intent.requires_clarification:
+                    blocked_intents.add(index)
+
+                continue
+
+
             elif intent.intent == "download_availability":
 
                 valid_names = (
@@ -785,7 +812,12 @@ async def stream_chat_response(
             user_id=user_id,
             session_id=str(session_id),
             access_token=access_token,
+            inventory_token=inventory_token,
             message=message,
+            walkthrough_engine=walkthrough_engine,
+            role=role,
+            source=source,
+            employee_type=employee_type,
         )
 
         handler_results = []
@@ -903,19 +935,38 @@ async def stream_chat_response(
                 }
 
             # LLM 2 still runs for dynamic follow-up chips.
-            generation_result = await generation_service.generate(
-                message=message,
-                language=routing_result.language,
-                intents=detected_intents,
-                service_results=generation_context,
-                history=history,
+                        # Keep the original approved Excel steps as a safe fallback.
+            walkthrough_only = (
+                len(routing_result.intents) == 1
+                and routing_result.intents[0].intent == "excel_walkthrough"
+                and generation_context.get("service") == "excel_walkthrough"
             )
 
-            llm2_used = True
+            try:
+                generation_result = await generation_service.generate(
+                    message=message,
+                    language=routing_result.language,
+                    intents=detected_intents,
+                    service_results=generation_context,
+                    history=history,
+                )
 
-            followup_chips = generation_result.followups
+                llm2_used = True
+                followup_chips = generation_result.followups
+                response_text = (generation_result.response or "").strip()
 
-            response_text = (generation_result.response or "").strip()
+            except Exception:
+                if not walkthrough_only:
+                    raise
+
+                logger.exception(
+                    "WALKTHROUGH_GENERATION_FALLBACK | "
+                    "correlation_id=%s",
+                    correlation_id,
+                )
+
+                response_text = generation_context["approved_steps"]
+                followup_chips = []
 
             # Preserve clarification and other messages.
             if response_messages:

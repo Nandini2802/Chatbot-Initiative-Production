@@ -178,15 +178,6 @@ class InventoryHandler:
 
         if operation != "unit_details":
 
-            print(
-                "\n========== INVENTORY TEMPLATE DEBUG ==========",
-                "\nOperation:", operation,
-                "\nTemplate: listing 2.html.j2",
-                "\nCard type: inventory_listing",
-                "\nUnits displayed:", len(safe_units),
-                "\n==============================================",
-            )
-
             result.html_blocks.append({
                 "card_type": "inventory_listing",
                 "html": self.template_service.render(

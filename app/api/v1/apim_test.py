@@ -17,7 +17,6 @@ class APIMTestRequest(BaseModel):
 
 @router.post("/apim-test")
 async def apim_test(request: APIMTestRequest):
-    print(f"Received user_id: {request.user_id}", flush=True)
 
     return {
         "status": "success",

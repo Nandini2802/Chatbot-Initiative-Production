@@ -15,13 +15,13 @@ class ChatRequest(BaseModel):
         populate_by_name=True,
     ) 
 
-    user_id: NonEmptyString
-    message: str = Field(min_length=1, max_length=4000)
-    start_conversation: bool = Field(strict=True)
-    session_id: UUID | None = None
-    role: NonEmptyString = Field(alias="Role")
+    user_id: str
+    message: str
+    start_conversation: bool
+    session_id: str | None = None
+    role: str
     source: Literal["mobile_app", "web_app"]
-    employee_type: Literal["direct", "indirect"]
+    employee_type: Literal["direct", "indirect", ""] = Field(...)
 
     @model_validator(mode="after")
     def validate_session(self):

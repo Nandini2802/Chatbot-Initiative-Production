@@ -18,6 +18,8 @@ IntentType = Literal[
 class RoutingIntent(BaseModel):
     intent: IntentType
 
+    feature_name: str | None = None
+
     # Original part of the user query
     original_query: str
 
@@ -67,6 +69,9 @@ class RoutingIntent(BaseModel):
     payment_plan_ids: list[str] = Field(default_factory=list)
     payment_plan_numbers: list[int] = Field(default_factory=list)
     offer_id: str | None = None
+    project_limit: int | None = None
+
+    project_location: str | None = None
 
     sort_by: Literal[
         "price_asc",
@@ -83,9 +88,18 @@ class RoutingIntent(BaseModel):
         "payment_plan",
     ] | None = None
 
+    project_operation: Literal[
+        "latest",
+        "list",
+        "details",
+        "location_search",
+    ] | None = None
+
     compare_unit_numbers: list[str] = Field(
         default_factory=list,
     )
+
+    
 
 
 class RoutingResult(BaseModel):

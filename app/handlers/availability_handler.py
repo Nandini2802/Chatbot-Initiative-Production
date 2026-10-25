@@ -32,16 +32,6 @@ class AvailabilityHandler:
 
     async def handle(self, intent) -> HandlerResult:
 
-        print(
-            "\n========== AVAILABILITY HANDLER START ==========",
-            flush=True,
-        )
-        print("Intent:", intent.intent, flush=True)
-        print("Project:", intent.project_name, flush=True)
-        print("Project ID:", intent.project_id, flush=True)
-        print("Currency:", intent.currency, flush=True)
-        print("File type:", intent.file_format, flush=True)
-
         result = HandlerResult(
             intent="download_availability"
         )

@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     # Pinecone
     pinecone_index_name: str | None = None
 
+    # Project Discovery
+    project_information_api_url: str = ""
+    project_information_timeout_seconds: float = 45.0
+
     # Retry
     retry_attempts: int = 3
     retry_min_wait_seconds: float = 1
