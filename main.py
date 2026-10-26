@@ -28,12 +28,10 @@ from app.services.walkthrough_access_service import WalkthroughEngine
 from app.observability.logger import setup_logging, audit_event
 
 
-
+load_dotenv()
 setup_logging()
 
 logger = logging.getLogger("app.main")
-
-load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

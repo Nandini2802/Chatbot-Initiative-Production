@@ -11,7 +11,6 @@ from app.schemas.routing import (
 )
 from app.observability.logger import audit_event
 
-
 logger = logging.getLogger(__name__)
 
 PROMPT_PATH = (
@@ -206,8 +205,7 @@ class RouterService:
         if result is None:
             raise ValueError(
                 "Foundry returned no valid classification"
-            )
-
+            )            
         # 6. Apply deterministic business rules
         result = self.validate_routing(result)
 

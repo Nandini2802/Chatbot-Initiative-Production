@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import sys
+import hashlib
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
@@ -47,6 +48,47 @@ SENSITIVE_CONTENT_KEYS = {
     "download_url",
 }
 
+MESSAGE_LOGGING_EVENTS = {
+    "CHAT_REQUEST_RECEIVED",
+    "LLM1_COMPLETED",
+    "LLM2_OUTPUT",
+}
+
+
+def prepare_audit_details(event_name, details):
+    """
+    Prepare event details for Application Insights.
+
+    Only the three selected events may include message content.
+    Other events continue using the existing masking rules.
+    """
+
+    if event_name not in MESSAGE_LOGGING_EVENTS:
+        return safe_value(details)
+
+    # This is a deliberately restricted allowlist.
+    allowed_fields = {
+        "correlation_id",
+        "session_id",
+        "user_id",
+        "role",
+        "source",
+        "status",
+        "latency_ms",
+    }
+
+    result = {
+        key: safe_value(value, key)
+        for key, value in details.items()
+        if key in allowed_fields
+    }
+
+    for field in ("user_message", "llm1_response", "llm2_response"):
+        if field in details:
+            value = details[field]
+            result[field] = str(value)[:10000]
+
+    return result
 
 def safe_value(value, key="", depth=0):
     """Prevent sensitive payloads from entering logs."""
@@ -132,9 +174,27 @@ class JSONFormatter(logging.Formatter):
         }
 
         if record.exc_info:
-            payload["exception_type"] = (
-                record.exc_info[0].__name__
+            exception_type, exception_value, exception_tb = record.exc_info
+
+            payload["exception_type"] = exception_type.__name__
+
+            payload["exception_message"] = safe_value(
+                str(exception_value)
             )
+
+            # Keep detailed tracebacks local during debugging.
+            if os.getenv("LOG_FULL_TRACEBACK", "false").lower() == "true":
+                payload["exception_traceback"] = self.formatException(
+                    record.exc_info
+                )
+
+        payload["exception_message"] = safe_value(
+            str(record.exc_info[1])
+        )
+
+        payload["exception_traceback"] = self.formatException(
+            record.exc_info
+        )
 
         return json.dumps(
             payload,
@@ -182,15 +242,22 @@ def audit_event(
     level="INFO",
     **details,
 ):
-    """Standard logging function for all chatbot stages."""
-
     logger = logging.getLogger("app.audit")
+
+    prepared_details = prepare_audit_details(
+        event_name,
+        details
+    )
 
     logger.log(
         getattr(logging, level.upper(), logging.INFO),
         event_name,
         extra={
             "event_name": event_name,
-            "details": details,
+            "details": json.dumps(
+                prepared_details,
+                ensure_ascii=False,
+                default=str,
+            ),
         },
     )

@@ -68,33 +68,66 @@ async def persist_completed_chat(
     latency_ms,
     response_payload: dict | None = None,
 ):
-    """
-    Persist a completed chatbot exchange using
-    the existing SessionService.
 
-    Includes structured response data for
-    frontend chat history restoration.
-    """
+    save_started = time.perf_counter()
 
-    session_factory = async_sessionmaker(
-        bind=clients.postgres,
-        expire_on_commit=False,
-        autoflush=False,
+    audit_event(
+        "POSTGRES_CHAT_SAVE_STARTED",
+        status="started",
+        session_id=str(session_id),
+        intents=intents,
     )
 
-    async with session_factory() as db:
-
-        service = SessionService(db)
-
-        return await service.save_completed_exchange(
-            session_id=session_id,
-            user_id=user_id,
-            user_message=user_message,
-            assistant_message=assistant_message,
-            intents=intents,
-            latency_ms=latency_ms,
-            response_payload=response_payload,
+    try:
+        session_factory = async_sessionmaker(
+            bind=clients.postgres,
+            expire_on_commit=False,
+            autoflush=False,
         )
+
+        async with session_factory() as db:
+
+            service = SessionService(db)
+
+            saved_records = (
+                await service.save_completed_exchange(
+                    session_id=session_id,
+                    user_id=user_id,
+                    user_message=user_message,
+                    assistant_message=assistant_message,
+                    intents=intents,
+                    latency_ms=latency_ms,
+                    response_payload=response_payload,
+                )
+            )
+
+        audit_event(
+            "POSTGRES_CHAT_SAVE_SUCCESS",
+            status="success",
+            session_id=str(session_id),
+            latency_ms=round(
+                (time.perf_counter() - save_started) * 1000,
+                2,
+            ),
+        )
+
+        return saved_records
+
+    except Exception as exc:
+
+        audit_event(
+            "POSTGRES_CHAT_SAVE_FAILED",
+            level="ERROR",
+            status="failed",
+            session_id=str(session_id),
+            error_type=type(exc).__name__,
+            latency_ms=round(
+                (time.perf_counter() - save_started) * 1000,
+                2,
+            ),
+        )
+
+        raise
 
 async def load_chat_history(
     clients,
@@ -144,7 +177,7 @@ async def load_previous_inventory_context(
             user_id=user_id,
         )
 
-async def stream_chat_response(
+async def _stream_chat_response_impl(
     message: str,
     session_id: uuid.UUID,
     correlation_id: str,
@@ -158,11 +191,6 @@ async def stream_chat_response(
 ):
 
     started_at = time.perf_counter()
-
-    log_token = log_context.set({
-        "correlation_id": correlation_id,
-        "session_id": str(session_id),
-    })
 
     status = "failed"
 
@@ -378,10 +406,6 @@ async def stream_chat_response(
             )
         )
 
-        logger.info(
-            "ACTIVE_PROJECT_CATALOG_READY | count=%s",
-            len(active_project_names),
-        )
 
         inventory_catalogs = InventoryCatalogService.build(
             inventory_snapshot
@@ -415,6 +439,17 @@ async def stream_chat_response(
             walkthrough_features=walkthrough_features,
         )
 
+        audit_event(
+            "LLM1_COMPLETED",
+            correlation_id=correlation_id,
+            session_id=str(session_id),
+            llm1_response=(
+                routing_result.model_dump_json()
+                if hasattr(routing_result, "model_dump_json")
+                else str(routing_result)
+            ),
+        )
+
         logger.info(
             "WALKTHROUGH_ROUTER_RESULT | features=%s",
             [
@@ -423,6 +458,7 @@ async def stream_chat_response(
                 if intent.intent == "excel_walkthrough"
             ],
         )
+
 
         pending_sales_offer = await SalesOfferState(
             clients.redis
@@ -802,14 +838,6 @@ async def stream_chat_response(
             for item in routing_result.intents
         ]
 
-        logger.info(
-            "ROUTER_RESULT | correlation_id=%s | "
-            "intents=%s | clarification=%s",
-            correlation_id,
-            detected_intents,
-            routing_result.requires_clarification,
-        )
-
         generation_service = GenerationService(
             client=clients.foundry_openai,
             model=(
@@ -1068,17 +1096,6 @@ async def stream_chat_response(
 
             followup_chips = []
 
-        logger.info(
-            "RESPONSE_PREPARED | "
-            "correlation_id=%s | "
-            "llm2_used=%s | "
-            "inventory_html_only=%s | "
-            "chips=%s",
-            correlation_id,
-            llm2_used,
-            inventory_html_only,
-            len(followup_chips),
-        )
 
         # 5.1 ENSURE SALES OFFER DISCLAIMER
 
@@ -1204,15 +1221,6 @@ async def stream_chat_response(
             response_payload=response_payload,
         )
 
-        logger.info(
-            "CHAT_PERSISTED | "
-            "session_id=%s | "
-            "correlation_id=%s | "
-            "records=%s",
-            session_id,
-            correlation_id,
-            saved_records,
-        )
 
         # 8. STREAM GENERATED RESPONSE TEXT
 
@@ -1260,15 +1268,13 @@ async def stream_chat_response(
 
         status = "completed"
 
-
-        logger.info(
-            "Chat stream completed | "
-            "correlation_id=%s | "
-            "session_id=%s | "
-            "html_blocks=%s",
-            correlation_id,
-            session_id,
-            len(all_html_blocks),
+        audit_event(
+            "CHAT_COMPLETED",
+            status="completed",
+            latency_ms=round(
+                (time.perf_counter() - started_at) * 1000,
+                2,
+            ),
         )
 
     except asyncio.CancelledError:
@@ -1276,6 +1282,12 @@ async def stream_chat_response(
 
 
     except Exception as exc:
+
+        logger.exception(
+            "CHAT_PROCESSING_EXCEPTION | correlation_id=%s | session_id=%s",
+            correlation_id,
+            session_id,
+        )
 
         import traceback
 
@@ -1286,14 +1298,15 @@ async def stream_chat_response(
         else:
             error_code = "INTERNAL_SERVER_ERROR"
 
-        logger.exception(
-            "CHAT_STREAM_FAILED | "
-            "correlation_id=%s | "
-            "session_id=%s | "
-            "error_code=%s",
-            correlation_id,
-            session_id,
-            error_code,
+        audit_event(
+            "CHAT_FAILED",
+            level="ERROR",
+            status="failed",
+            error_type=type(exc).__name__,
+            latency_ms=round(
+                (time.perf_counter() - started_at) * 1000,
+                2,
+            ),
         )
 
         if error_code == "INVENTORY_RATE_LIMITED":
@@ -1367,3 +1380,68 @@ async def stream_chat_response(
             "status": status,
         },
     )
+
+async def stream_chat_response(
+    message: str,
+    session_id: uuid.UUID,
+    correlation_id: str,
+    user_id: str,
+    role: str,
+    source: str,
+    employee_type: str,
+    clients: ServiceClients,
+    access_token: str,
+    walkthrough_engine: WalkthroughEngine,
+):
+    started_at = time.perf_counter()
+
+    log_token = log_context.set({
+        "correlation_id": correlation_id,
+        "session_id": str(session_id),
+    })
+
+    status = "failed"
+
+    try:
+        async for event in _stream_chat_response_impl(
+            message=message,
+            session_id=session_id,
+            correlation_id=correlation_id,
+            user_id=user_id,
+            role=role,
+            source=source,
+            employee_type=employee_type,
+            clients=clients,
+            access_token=access_token,
+            walkthrough_engine=walkthrough_engine,
+        ):
+            if event.startswith("event: done\n"):
+                if '"completed"' in event:
+                    status = "completed"
+
+            yield event
+
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
+
+    except Exception as exc:
+        audit_event(
+            "CHAT_STREAM_WRAPPER_FAILED",
+            level="ERROR",
+            status="failed",
+            error_type=type(exc).__name__,
+        )
+        raise
+
+    finally:
+        audit_event(
+            "CHAT_PROCESSING_COMPLETED",
+            status=status,
+            latency_ms=round(
+                (time.perf_counter() - started_at) * 1000,
+                2,
+            ),
+        )
+
+        log_context.reset(log_token)

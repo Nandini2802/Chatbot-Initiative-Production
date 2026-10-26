@@ -114,84 +114,84 @@ class IntentDispatcher:
                 )
             )
 
-async def execute(self, intent) -> HandlerResult:
+    async def execute(self, intent) -> HandlerResult:
 
-    started_at = time.perf_counter()
+        started_at = time.perf_counter()
 
-    if (
-        intent.intent == "inventory"
-        and intent.inventory_operation == "payment_plan"
-    ):
-        handler = self.payment_plan_handler
-    else:
-        handler = self.handlers.get(intent.intent)
-
-    handler_name = (
-        type(handler).__name__
-        if handler is not None
-        else "NoHandler"
-    )
-
-    audit_event(
-        "HANDLER_STARTED",
-        status="started",
-        functionality=intent.intent,
-        handler=handler_name,
-        operation=getattr(
-            intent,
-            "inventory_operation",
-            None,
-        ),
-    )
-
-    try:
-        if handler is None:
-            if intent.intent == "out_of_scope":
-                result = HandlerResult(
-                    intent="out_of_scope",
-                    messages=[
-                        "I can help with Danube Properties "
-                        "projects and related services."
-                    ],
-                )
-            else:
-                result = HandlerResult(
-                    intent=intent.intent,
-                    messages=[
-                        "The requested "
-                        f"{intent.intent.replace('_', ' ')} "
-                        "service is not available yet."
-                    ],
-                )
+        if (
+            intent.intent == "inventory"
+            and intent.inventory_operation == "payment_plan"
+        ):
+            handler = self.payment_plan_handler
         else:
-            result = await handler.handle(intent)
+            handler = self.handlers.get(intent.intent)
+
+        handler_name = (
+            type(handler).__name__
+            if handler is not None
+            else "NoHandler"
+        )
 
         audit_event(
-            "HANDLER_COMPLETED",
-            status="success",
+            "HANDLER_STARTED",
+            status="started",
             functionality=intent.intent,
             handler=handler_name,
-            has_data=result.has_data,
-            message_count=len(result.messages),
-            latency_ms=round(
-                (time.perf_counter() - started_at) * 1000,
-                2,
+            operation=getattr(
+                intent,
+                "inventory_operation",
+                None,
             ),
         )
 
-        return result
+        try:
+            if handler is None:
+                if intent.intent == "out_of_scope":
+                    result = HandlerResult(
+                        intent="out_of_scope",
+                        messages=[
+                            "I can help with Danube Properties "
+                            "projects and related services."
+                        ],
+                    )
+                else:
+                    result = HandlerResult(
+                        intent=intent.intent,
+                        messages=[
+                            "The requested "
+                            f"{intent.intent.replace('_', ' ')} "
+                            "service is not available yet."
+                        ],
+                    )
+            else:
+                result = await handler.handle(intent)
 
-    except Exception as exc:
-        audit_event(
-            "HANDLER_FAILED",
-            level="ERROR",
-            status="failed",
-            functionality=intent.intent,
-            handler=handler_name,
-            error_type=type(exc).__name__,
-            latency_ms=round(
-                (time.perf_counter() - started_at) * 1000,
-                2,
-            ),
-        )
-        raise
+            audit_event(
+                "HANDLER_COMPLETED",
+                status="success",
+                functionality=intent.intent,
+                handler=handler_name,
+                has_data=result.has_data,
+                message_count=len(result.messages),
+                latency_ms=round(
+                    (time.perf_counter() - started_at) * 1000,
+                    2,
+                ),
+            )
+
+            return result
+
+        except Exception as exc:
+            audit_event(
+                "HANDLER_FAILED",
+                level="ERROR",
+                status="failed",
+                functionality=intent.intent,
+                handler=handler_name,
+                error_type=type(exc).__name__,
+                latency_ms=round(
+                    (time.perf_counter() - started_at) * 1000,
+                    2,
+                ),
+            )
+            raise

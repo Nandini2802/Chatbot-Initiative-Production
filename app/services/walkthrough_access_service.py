@@ -95,14 +95,43 @@ class WalkthroughEngine:
             return False, 'unmapped_feature'
         table = self.tables[source]
         # Prefer exact developer key; only use exact feature label if no key exists.
+        mapped_keys = {
+            norm(value)
+            for value in key.split(",")
+            if norm(value)
+        }
+        
         candidates = []
         for row in table[3:]:
-            row_label, row_key = norm(cell(row, 1)), norm(cell(row, 2))
-            if (key and key == row_key) or (not key and label and label == row_label):
+            row_key = norm(cell(row, 2))
+
+            if mapped_keys and row_key.rstrip(",").strip() in mapped_keys:
                 candidates.append(row)
-        if len(candidates) != 1:
-            return False, 'missing_or_ambiguous_permission_row'
-        return (norm(cell(candidates[0], col)) == 'yes', 'permission_checked')
+
+        # If no developer-key match exists, try exact feature label.
+        if not candidates and label:
+            for row in table[3:]:
+                row_label = norm(cell(row, 1))
+                row_group = norm(cell(row, 0))
+
+                if label in (row_label, row_group):
+                    candidates.append(row)
+
+        if not candidates:
+            return False, "missing_or_ambiguous_permission_row"
+
+        # Multiple rows may belong to the same feature.
+        # Deny if matching rows contain conflicting permissions.
+        permissions = {
+            norm(cell(row, col))
+            for row in candidates
+            if norm(cell(row, col)) in ("yes", "no")
+        }
+
+        if len(permissions) != 1:
+            return False, "missing_or_ambiguous_permission_row"
+
+        return ("yes" in permissions, "permission_checked")
 
     def lookup(self, feature, role, source, employee_type):
         allowed, reason = self.permission(feature, role, source, employee_type)

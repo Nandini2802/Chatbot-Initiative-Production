@@ -65,11 +65,13 @@ async def chat_query(
 
     audit_event(
         "CHAT_REQUEST_RECEIVED",
-        status="received",
+        correlation_id=correlation_id,
+        user_id=body.user_id,
+        role=body.role,
         source=body.source,
+        user_message=body.message,
         start_conversation=body.start_conversation,
-        query_length=len(body.message),
-        query_present=bool(body.message.strip()),
+        session_id=str(body.session_id) if body.session_id else None,
     )
 
     # 1. SESSION HANDLING
@@ -137,6 +139,13 @@ async def chat_query(
             correlation_id,
         )
 
+    audit_event(
+        "CHAT_SESSION_READY",
+        correlation_id=correlation_id,
+        session_id=str(session_id),
+        user_id=body.user_id,
+        status="ready",
+    )
 
     # 2. NORMAL CHATBOT STREAMING
 
@@ -150,7 +159,7 @@ async def chat_query(
             source=body.source,
             employee_type=body.employee_type,
             clients=clients,
-            access_token="U2FsdGVkX18uTSMWRy8vi3RXHdSpJGVr1zWZiTCo/fSH0U9PycmW4ld9sB14zhEx8aK7BQPM4ZV+1P7w/E2Nq7sAfPQM7D54cyGe+RX8TrC3fiPFadNVFS5y4bU/sdH70JmA8/jE91kClzLWG7E8fqflR3D+yZNBNGJL/b+VL4omLDRyah3qn/BeQmu0rrTh",
+            access_token="U2FsdGVkX19XZrENjvPpv/ame9yTWVyL1j9/MNtSBytd2dcoBMhiwRYPHC4jKKpQ0i4cH7iguxc3tf8IIkIlbfyPT+UzuueeDJ0ceFH/sTyJLS/xALUG+XDZkiam6iIwOsxzT4tWJf5fu3+7X/36Pf5gN9iH7xcstS5de+l/YF6Trxyp/YPmc3KwSY5RTrql",
             walkthrough_engine=request.app.state.walkthrough_engine,
         ),
         media_type="text/event-stream",

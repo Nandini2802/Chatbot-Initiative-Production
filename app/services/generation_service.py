@@ -1,6 +1,7 @@
 import time
 import json
 import logging
+import asyncio
 
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -243,6 +244,116 @@ class GenerationService:
         # 8. Fallback for existing functionalities
         return self.system_prompt
 
+        def _log_llm2_input(
+            self,
+            *,
+            mode: str,
+            message: str,
+            language: str,
+            intents: list[str],
+            service_results: dict,
+            history: list[dict] | None,
+            selected_prompt: str,
+        ):
+            audit_event(
+                "LLM2_INPUT",
+                status="started",
+                mode=mode,
+                model=self.model,
+                language=language,
+                intents=intents,
+                service=service_results.get("service"),
+                message_length=len(message),
+                history_count=len(history or []),
+                input_keys=[
+                    "user_message",
+                    "detected_language",
+                    "detected_intents",
+                    "verified_service_results",
+                    "recent_conversation",
+                ],
+                system_prompt_length=len(selected_prompt),
+            )
+
+    def _log_llm2_result(
+        self,
+        *,
+        mode: str,
+        generated: GenerationResult,
+        started_at: float,
+    ):
+        latency_ms = round(
+            (time.perf_counter() - started_at) * 1000,
+            2,
+        )
+
+        audit_event(
+            "LLM2_OUTPUT",
+            status="success",
+            mode=mode,
+            response_length=len(generated.response),
+            latency_ms=latency_ms,
+        )
+
+        audit_event(
+            "FOLLOWUP_CHIPS_GENERATED",
+            status="success",
+            mode=mode,
+            count=len(generated.followups),
+        )
+
+
+    def _log_llm2_input(
+        self,
+        *,
+        mode,
+        message,
+        language,
+        intents,
+        service_results,
+        history,
+        selected_prompt,
+    ):
+        audit_event(
+            "LLM2_INPUT",
+            status="started",
+            mode=mode,
+            model=self.model,
+            language=language,
+            intents=intents,
+            service=service_results.get("service"),
+            message_length=len(message),
+            history_count=len(history or []),
+            system_prompt_length=len(selected_prompt),
+        )
+
+    def _log_llm2_result(
+        self,
+        *,
+        mode,
+        generated,
+        started_at,
+    ):
+        latency_ms = round(
+            (time.perf_counter() - started_at) * 1000,
+            2,
+        )
+
+        audit_event(
+            "LLM2_OUTPUT",
+            status="success",
+            mode=mode,
+            response_length=len(generated.response),
+            latency_ms=latency_ms,
+        )
+
+        audit_event(
+            "FOLLOWUP_CHIPS_GENERATED",
+            status="success",
+            mode=mode,
+            count=len(generated.followups),
+        )
+
     async def generate(
         self,
         message: str,
@@ -266,6 +377,18 @@ class GenerationService:
             "verified_service_results": service_results,
             "recent_conversation": history or [],
         }
+
+        started_at = time.perf_counter()
+
+        self._log_llm2_input(
+            mode="standard",
+            message=message,
+            language=language,
+            intents=intents,
+            service_results=service_results,
+            history=history,
+            selected_prompt=selected_prompt,
+        )
 
         try:
             # 3. Call Microsoft Foundry
@@ -302,28 +425,25 @@ class GenerationService:
             )
 
             # 6. Logging
-            logger.info(
-                "GENERATION_COMPLETED | "
-                "model=%s | "
-                "language=%s | "
-                "intents=%s | "
-                "service=%s | "
-                "followups=%s",
-                self.model,
-                language,
-                intents,
-                service_results.get("service"),
-                len(generated.followups),
+            self._log_llm2_result(
+                mode="standard",
+                generated=generated,
+                started_at=started_at,
             )
 
             return generated
 
-        except Exception:
-            logger.exception(
-                "GENERATION_FAILED | "
-                "model=%s | intents=%s",
-                self.model,
-                intents,
+        except Exception as exc:
+            audit_event(
+                "LLM2_FAILED",
+                level="ERROR",
+                status="failed",
+                mode="standard",
+                error_type=type(exc).__name__,
+                latency_ms=round(
+                    (time.perf_counter() - started_at) * 1000,
+                    2,
+                ),
             )
             raise
 
@@ -336,11 +456,13 @@ class GenerationService:
         history: list[dict] | None = None,
     ) -> AsyncIterator[tuple[str, Any]]:
 
+        # 1. Select prompt based on service
         selected_prompt = self._select_prompt(
             intents=intents,
             service_results=service_results,
         )
 
+        # 2. Prepare LLM input
         payload = {
             "user_message": message,
             "detected_language": language,
@@ -349,60 +471,111 @@ class GenerationService:
             "recent_conversation": history or [],
         }
 
-        extractor = StreamedResponseExtractor()
+        started_at = time.perf_counter()
 
-        async with self.client.responses.stream(
-            model=self.model,
-            instructions=selected_prompt,
-            input=json.dumps(
-                payload,
-                ensure_ascii=False,
-                default=str,
-            ),
-            text_format=GenerationResult,
-        ) as stream:
-
-            async for event in stream:
-
-                if event.type == "response.output_text.delta":
-
-                    text = extractor.feed(event.delta)
-
-                    if text:
-                        yield ("token", text)
-
-            final_response = await stream.get_final_response()
-
-        generated = final_response.output_parsed
-
-        if generated is None:
-            raise ValueError(
-                "Streaming returned no parsed output"
-            )
-
-        if not generated.response.strip():
-            raise ValueError(
-                "Streaming returned an empty response"
-            )
-
-        if not extractor.finished:
-            raise ValueError(
-                "Streaming response field was incomplete"
-            )
-
-        if extractor.emitted != generated.response:
-            raise ValueError(
-                "Streamed text does not match final response"
-            )
-
-        generated = self._postprocess_result(
-            generated=generated,
+        self._log_llm2_input(
+            mode="stream",
+            message=message,
+            language=language,
             intents=intents,
             service_results=service_results,
+            history=history,
+            selected_prompt=selected_prompt,
         )
 
-        yield ("result", generated)
+        try:
 
+            extractor = StreamedResponseExtractor()
+
+            async with self.client.responses.stream(
+                model=self.model,
+                instructions=selected_prompt,
+                input=json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    default=str,
+                ),
+                text_format=GenerationResult,
+            ) as stream:
+
+                async for event in stream:
+
+                    if event.type == "response.output_text.delta":
+
+                        text = extractor.feed(event.delta)
+
+                        if text:
+                            yield ("token", text)
+
+                final_response = await stream.get_final_response()
+
+            generated = final_response.output_parsed
+
+            if generated is None:
+                raise ValueError(
+                    "Streaming returned no parsed output"
+                )
+
+            if not generated.response.strip():
+                raise ValueError(
+                    "Streaming returned an empty response"
+                )
+
+            if not extractor.finished:
+                raise ValueError(
+                    "Streaming response field was incomplete"
+                )
+
+            if extractor.emitted != generated.response:
+                raise ValueError(
+                    "Streamed text does not match final response"
+                )
+
+            generated = self._postprocess_result(
+                generated=generated,
+                intents=intents,
+                service_results=service_results,
+            )
+
+            audit_event(
+                "LLM2_OUTPUT",
+                llm2_response=generated.model_dump_json(),
+            )
+
+
+            self._log_llm2_result(
+                mode="stream",
+                generated=generated,
+                started_at=started_at,
+            )
+
+            yield ("result", generated)
+        
+        except asyncio.CancelledError:
+            audit_event(
+                "LLM2_STREAM_CANCELLED",
+                status="cancelled",
+                mode="stream",
+                latency_ms=round(
+                    (time.perf_counter() - started_at) * 1000,
+                    2,
+                ),
+            )
+            raise
+
+        except Exception as exc:
+            audit_event(
+                "LLM2_FAILED",
+                level="ERROR",
+                status="failed",
+                mode="stream",
+                error_type=type(exc).__name__,
+                latency_ms=round(
+                    (time.perf_counter() - started_at) * 1000,
+                    2,
+                ),
+            )
+            raise
     
     def _postprocess_result(
         self,

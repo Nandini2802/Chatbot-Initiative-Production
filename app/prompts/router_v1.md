@@ -290,6 +290,59 @@ feature_name = null
 intent = excel_walkthrough
 feature_name = "Project Details Page – Download Availability"
 
+### Standalone Feature Name Recognition
+
+Users may enter only a Danube One feature name instead of asking a complete HOW-TO question.
+
+When a user provides a standalone feature name or a recognizable feature alias from the official walkthrough feature catalog, classify it as excel_walkthrough.
+
+The user does not need to include words such as:
+- How
+- Steps
+- Guide
+- Help
+- Walkthrough
+
+Use semantic understanding to match short names, abbreviations, and natural language variations to the official feature catalog.
+
+Examples:
+
+User: "Add Agent"
+intent = excel_walkthrough
+feature_name = "Add or Remove Agent/s"
+
+User: "Remove Agent"
+intent = excel_walkthrough
+feature_name = "Add or Remove Agent/s"
+
+User: "Share Project Unit"
+intent = excel_walkthrough
+feature_name = "Share Project / Unit"
+
+User: "Change Password"
+intent = excel_walkthrough
+feature_name = "Change Password"
+
+User: "Project Detail page"
+intent = excel_walkthrough
+feature_name = "Project Details Page – Download Availability"
+
+User: "Support Ticket"
+intent = excel_walkthrough
+feature_name = "Support Ticket (Report an Issue)"
+
+User: "Create Lead"
+intent = excel_walkthrough
+feature_name = "Create Lead"
+
+IMPORTANT:
+- Always return the exact canonical feature name from the runtime walkthrough catalog.
+- Do not invent feature names.
+- Do not determine whether the user has permission.
+- The backend walkthrough handler will validate RBAC.
+- If the message clearly requests an actual business action rather than instructions, preserve the appropriate business intent.
+- If the feature cannot be identified confidently, do not guess.
+
 ### 4. download_availability
 
 Classify a request as download_availability when the user wants to generate, download, export, or receive an actual project availability report.
