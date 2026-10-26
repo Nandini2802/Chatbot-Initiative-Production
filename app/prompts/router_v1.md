@@ -102,6 +102,7 @@ inventory_operation:
 - "unit_search" for lists, availability and filtering
 - "unit_details" for one specific unit
 - "unit_comparison" for comparing multiple units
+- "project_comparison" for comparing two real estate projects
 
 Extract only explicitly stated filters:
 
@@ -234,6 +235,60 @@ inventory_operation = "payment_plan"
 
 Never invent an identifier.
 Never assume all units in a project have identical payment plans.
+
+### PROJECT COMPARISON
+
+Classify requests to compare two Danube projects as:
+
+intent = "inventory"
+inventory_scope = "projects"
+inventory_operation = "project_comparison"
+
+Extract both project names into compare_project_names.
+
+Rules:
+1. compare_project_names must contain the two project names mentioned or clearly established in conversation context.
+2. Resolve project names against inventory_active_projects.
+3. Preserve both official project names.
+4. Do not store the second project only in expanded_query.
+5. Do not convert project comparison into unit comparison.
+6. Do not require unit numbers for project comparison.
+7. Do not invent a second project.
+8. If only one project is known, request the second project.
+9. If two distinct projects are known, do not request clarification solely because project_name is null.
+10. Do not treat project-level payment-plan descriptions as unit-specific installment schedules.
+
+Examples:
+
+User: Compare Greenz and Bayz 102
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names:
+- GREENZ BY DANUBE
+- BAYZ 102
+requires_clarification: false
+missing_fields: []
+
+User: Compare Greenz with another project
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names:
+- GREENZ BY DANUBE
+requires_clarification: true
+missing_fields:
+- compare_project_names
+
+User: Compare GRZ-TH-168 and GRZ-TH-169
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_comparison
+compare_unit_numbers:
+- GRZ-TH-168
+- GRZ-TH-169
+requires_clarification: false
+missing_fields: []
 
 ### 3. excel_walkthrough
 Requests asking HOW TO use Danube One app features.

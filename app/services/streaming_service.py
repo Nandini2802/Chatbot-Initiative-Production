@@ -684,13 +684,65 @@ async def _stream_chat_response_impl(
                 valid_names = marketing_names
 
             elif intent.intent == "inventory":
+                if intent.inventory_operation == "project_comparison":
+
+                    resolved_names = []
+                    invalid_names = []
+
+                    for requested_name in (
+                        intent.compare_project_names or []
+                    ):
+                        requested_key = normalize_project_name(
+                            requested_name
+                        )
+
+                        matches = [
+                            name
+                            for name in inventory_active_names
+                            if normalize_project_name(name)
+                            == requested_key
+                        ]
+
+                        if len(matches) == 1:
+                            resolved_names.append(matches[0])
+                        else:
+                            invalid_names.append(requested_name)
+
+                    intent.compare_project_names = resolved_names
+
+                    intent.missing_fields = [
+                        field
+                        for field in intent.missing_fields
+                        if field not in {
+                            "project_name",
+                            "project_identifier",
+                            "compare_project_names",
+                            "compare_unit_numbers",
+                        }
+                    ]
+
+                    if (
+                        len(resolved_names) != 2
+                        or len(set(resolved_names)) != 2
+                        or invalid_names
+                    ):
+                        intent.missing_fields.append(
+                            "compare_project_names"
+                        )
+
+                    intent.requires_clarification = bool(
+                        intent.missing_fields
+                    )
+
+                    if intent.requires_clarification:
+                        blocked_intents.add(index)
+
+                    continue
 
                 if intent.inventory_scope == "projects":
                     valid_names = inventory_active_names
 
                 elif intent.inventory_scope == "units":
-                    # Accept recognized projects even when
-                    # no units are visible for that project.
                     valid_names = (
                         inventory_active_names
                         | inventory_unit_names
@@ -875,17 +927,20 @@ async def _stream_chat_response_impl(
             # FIX 3: Do not execute unresolved intents.
             if index in blocked_intents:
 
-                clarification_messages.append(
-                    "Please clarify the project or "
-                    "details for your request."
-                )
-
-                logger.info(
-                    "INTENT_BLOCKED_FOR_CLARIFICATION | "
-                    "intent=%s | correlation_id=%s",
-                    intent.intent,
-                    correlation_id,
-                )
+                if (
+                    intent.intent == "inventory"
+                    and intent.inventory_operation
+                        == "project_comparison"
+                ):
+                    clarification_messages.append(
+                        "Please provide two valid Danube "
+                        "project names to compare."
+                    )
+                else:
+                    clarification_messages.append(
+                        "Please clarify the project or "
+                        "details for your request."
+                    )
 
                 continue
 
@@ -946,7 +1001,7 @@ async def _stream_chat_response_impl(
             len(routing_result.intents) == 1
             and routing_result.intents[0].intent == "inventory"
             and routing_result.intents[0].inventory_operation
-                in {"unit_search", "unit_comparison"}
+                in {"unit_search", "unit_comparison", "project_comparison"}
             and not clarification_messages
             and any(
                 block.get("card_type") in {

@@ -44,7 +44,7 @@ When the backend has already generated an inventory HTML listing:
 
 ## INVENTORY HTML RESPONSE RULES
 
-When the service result contains inventory unit_search or unit_comparison data:
+When the service result contains inventory unit_search, unit_comparison or project_comparison data:
 
 1. Generate a short, natural introductory response.
 2. For unit_search: Mention the project name and number of matching units, if available.
@@ -96,3 +96,16 @@ For comparisons:
 Never invent prices, bedroom counts, availability, project information, or payment-plan details.
 
 Do not output generic fallback messages when useful verified retrieval context is available.
+
+## PROJECT COMPARISON RESPONSE RULES
+
+When operation = "project_comparison":
+
+1. Generate a short introduction mentioning both projects.
+2. Use only the project details supplied by the Inventory Handler.
+3. Do not invent project prices, availability, location, amenities, handover dates, or construction status.
+4. Do not describe units visible to a user as the total company-wide inventory.
+5. Do not treat project-level payment-plan descriptions as unit-specific payment plans.
+6. Do not repeat the full HTML comparison in the text response.
+7. Keep the response concise and follow the detected language.
+8. Do not generate Markdown comparison tables when the HTML comparison is already provided.

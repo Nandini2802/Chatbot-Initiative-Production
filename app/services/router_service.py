@@ -400,7 +400,30 @@ class RouterService:
                         missing.add("project_or_unit_identifier")
 
                 elif item.inventory_scope == "projects":
-                    item.inventory_operation = "project_info"
+                    if item.inventory_operation == "project_comparison":
+                        names = [
+                            str(name).strip()
+                            for name in (item.compare_project_names or [])
+                            if isinstance(name, str) and name.strip()
+                        ]
+
+                        # Remove exact duplicate names without changing order.
+                        item.compare_project_names = list(
+                            dict.fromkeys(names)
+                        )
+
+                        # Project comparison doesn't need a single project_name.
+                        missing.discard("project_name")
+                        missing.discard("project_identifier")
+                        missing.discard("compare_unit_numbers")
+
+                        if len(item.compare_project_names) != 2:
+                            missing.add("compare_project_names")
+                        else:
+                            missing.discard("compare_project_names")
+
+                    else:
+                        item.inventory_operation = "project_info"
 
                 elif item.inventory_scope == "units":
 

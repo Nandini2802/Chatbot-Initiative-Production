@@ -82,6 +82,7 @@ class RoutingIntent(BaseModel):
 
     inventory_operation: Literal[
         "project_info",
+        "project_comparison",
         "unit_search",
         "unit_details",
         "unit_comparison",
@@ -96,6 +97,10 @@ class RoutingIntent(BaseModel):
     ] | None = None
 
     compare_unit_numbers: list[str] = Field(
+        default_factory=list,
+    )
+
+    compare_project_names: list[str] = Field(
         default_factory=list,
     )
 

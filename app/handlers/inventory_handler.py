@@ -40,6 +40,9 @@ class InventoryHandler:
 
         operation = intent.inventory_operation
 
+        if operation == "project_comparison":
+            return self._handle_project_comparison(intent, result)
+
         # Project-level inventory
         if (
             intent.intent == "project_information"
@@ -420,12 +423,143 @@ class InventoryHandler:
             "html": self.template_service.render(
                 "compare 2.html.j2",
                 comparisons=comparisons,
+                comparison_mode="units",
             ),
         })
 
         result.has_data = True
         return result
 
+    def _handle_project_comparison(self, intent, result):
+        """Compare exactly two projects from Active Projects API."""
+
+        requested_names = intent.compare_project_names or []
+
+        if len(requested_names) != 2:
+            result.messages.append(
+                "Please provide exactly two project names to compare."
+            )
+            return result
+
+        selected_projects = []
+        selected_keys = set()
+
+        # Resolve both projects from the actual Active Projects snapshot.
+        for name in requested_names:
+
+            normalized_name = normalize_project_name(name)
+
+            matches = [
+                project
+                for project in self.snapshot.projects
+                if normalize_project_name(
+                    project.project_name or ""
+                ) == normalized_name
+            ]
+
+            if len(matches) != 1:
+                result.messages.append(
+                    f"Could not uniquely identify project '{name}'. "
+                    "Please provide the exact project name."
+                )
+                return result
+
+            if normalized_name in selected_keys:
+                result.messages.append(
+                    "Please select two different projects to compare."
+                )
+                return result
+
+            selected_projects.append(matches[0])
+            selected_keys.add(normalized_name)
+
+        comparisons = []
+
+        for project in selected_projects:
+
+            # Reuse your existing Active Projects API field mapping.
+            project_data = self._project_data(project)
+
+            # Snapshot units are scoped to the authenticated user.
+            visible_units = [
+                unit
+                for unit in self.snapshot.units
+                if (
+                    unit.project_id
+                    and project.project_id
+                    and str(unit.project_id)
+                        == str(project.project_id)
+                )
+                or (
+                    normalize_project_name(
+                        unit.project_name or ""
+                    ) == normalize_project_name(
+                        project.project_name or ""
+                    )
+                )
+            ]
+
+            unit_types = sorted({
+                str(unit.unit_type)
+                for unit in visible_units
+                if unit.unit_type is not None
+                and str(unit.unit_type).strip()
+            })
+
+            bedroom_types = sorted({
+                str(unit.bedrooms)
+                for unit in visible_units
+                if unit.bedrooms is not None
+            })
+
+            # Amenities can be a list or a string.
+            raw_amenities = project.amenities
+
+            if isinstance(raw_amenities, list):
+                amenities = [
+                    value.strip()
+                    for value in raw_amenities
+                    if isinstance(value, str) and value.strip()
+                ]
+            elif isinstance(raw_amenities, str):
+                amenities = (
+                    [raw_amenities.strip()]
+                    if raw_amenities.strip()
+                    else []
+                )
+            else:
+                amenities = []
+
+            comparisons.append({
+                "project": project_data,
+                "inventory": {
+                    "visible_unit_count": len(visible_units),
+                    "unit_types": unit_types,
+                    "bedroom_types": bedroom_types,
+                },
+                "amenities": amenities,
+            })
+
+        # Only verified project/inventory data is sent to LLM 2.
+        result.generation_context = {
+            "service": "inventory",
+            "operation": "project_comparison",
+            "comparisons": comparisons,
+        }
+
+        # Reuse the same HTML template as Unit Comparison.
+        result.html_blocks.append({
+            "card_type": "inventory_comparison",
+            "html": self.template_service.render(
+                "compare 2.html.j2",
+                comparisons=comparisons,
+                comparison_mode="projects",
+            ),
+        })
+
+        result.has_data = True
+
+        return result
 
     @staticmethod
     def _unit_data(unit):
