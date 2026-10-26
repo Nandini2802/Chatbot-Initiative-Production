@@ -1,3 +1,5 @@
+import re
+
 from app.services.project_name_service import normalize_project_name
 
 
@@ -91,3 +93,67 @@ def build_inventory_context(intent, handler_result, inventory_snapshot):
         "operation": operation,
         "total_matches": context.get("total_matches", len(selected_units)),
     }
+
+def resolve_unit_from_previous_context(
+    requested_unit: str | None,
+    previous_context: dict | None,
+) -> str | None:
+    """
+    Resolve a partial unit reference using previously
+    compared units.
+
+    Example:
+        requested_unit = "808"
+        previous units = ["GRZ-TH-808", "GRZ-TH-809"]
+
+        returns "GRZ-TH-808"
+
+    Returns None when there is no unique match.
+    """
+
+    if not requested_unit or not previous_context:
+        return None
+
+    previous_units = previous_context.get("unit_numbers") or []
+
+    if not previous_units:
+        return None
+
+    requested = str(requested_unit).strip().casefold()
+
+    # Allow "unit 808" as well as "808".
+    requested = re.sub(
+        r"^unit\s*(?:number\s*)?",
+        "",
+        requested,
+    ).strip()
+
+    if not requested:
+        return None
+
+    # First try exact full unit name.
+    exact_matches = [
+        unit_name
+        for unit_name in previous_units
+        if str(unit_name).strip().casefold() == requested
+    ]
+
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+
+    if exact_matches:
+        return None
+
+    # Match the complete final segment, not a substring.
+    # "808" matches "GRZ-TH-808", but not "GRZ-TH-1808".
+    suffix_matches = [
+        unit_name
+        for unit_name in previous_units
+        if str(unit_name).strip().casefold().rsplit("-", 1)[-1]
+        == requested
+    ]
+
+    if len(suffix_matches) == 1:
+        return suffix_matches[0]
+
+    return None

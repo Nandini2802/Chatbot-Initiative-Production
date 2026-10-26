@@ -189,7 +189,7 @@ class JSONFormatter(logging.Formatter):
                 )
 
         payload["exception_message"] = safe_value(
-            str(record.exc_info[1])
+            str(record.exc_info[1]) if record.exc_info else None
         )
 
         payload["exception_traceback"] = self.formatException(

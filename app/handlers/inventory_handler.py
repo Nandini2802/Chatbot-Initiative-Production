@@ -11,7 +11,9 @@ from app.services.inventory_filter_service import (
 from app.services.template_service import TemplateService
 from app.handlers.payment_plan_handler import PaymentPlanHandler
 from app.services.project_name_service import normalize_project_name
-
+from app.services.unit_comparison_client import UnitComparisonClient
+from app.services.unit_comparison_mapper import map_comparison
+from app.handlers.payment_plan_handler import PaymentPlanHandler
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ class InventoryHandler:
         self.user_id = user_id
         self.filter_service = InventoryFilterService()
         self.template_service = TemplateService()
+        self.unit_comparison_client = UnitComparisonClient()
 
     async def handle(self, intent) -> HandlerResult:
 
@@ -236,10 +239,9 @@ class InventoryHandler:
 
         identifiers = intent.compare_unit_numbers or []
 
-        if len(identifiers) < 2:
+        if len(identifiers) != 2:
             result.messages.append(
-                "Please provide at least two unit numbers "
-                "to compare."
+                "Please provide exactly two units to compare."
             )
             return result
 
@@ -289,117 +291,170 @@ class InventoryHandler:
             selected.append(unit)
 
 
-        safe_units = [
-            self._unit_data(unit)
-            for unit in selected
-        ]
-
-        def display_items(value):
-            # Only render simple, verified display values.
-            # Complex API structures need explicit field mapping.
-            if isinstance(value, str):
-                return [value] if value.strip() else []
-
-            if isinstance(value, list):
-                return [
-                    item.strip()
-                    for item in value
-                    if isinstance(item, str) and item.strip()
-                ]
-
-            return []
-
-        # Payment plans belong to the Salesforce unit, not to the
-        # Active Projects payment_plan text field.
-        # Fetch independently so one failure does not break comparison.
-        payment_results = [None] * len(selected)
-        if self.payment_client and self.payment_token and self.user_id:
-            async def fetch_plans(unit):
-                if not unit.unit_id:
-                    return None
-                return await self.payment_client.get_payment_plans(
-                    token=self.payment_token,
-                    user_id=self.user_id,
-                    unit_id=unit.unit_id,
-                )
-
-            payment_results = await asyncio.gather(
-                *(fetch_plans(unit) for unit in selected),
-                return_exceptions=True,
+        if not self.payment_token or not self.user_id:
+            result.messages.append(
+                "Authentication is required to compare units."
             )
+            return result
+
+        if not all(
+            unit.unit_id and unit.project_id
+            for unit in selected
+        ):
+            result.messages.append(
+                "Unable to identify the selected units."
+            )
+            return result
+
+        try:
+            api_data = await self.unit_comparison_client.compare_units(
+                token=self.payment_token,
+                user_id=self.user_id,
+                project_ids=[
+                    unit.project_id for unit in selected
+                ],
+                unit_ids=[
+                    unit.unit_id for unit in selected
+                ],
+            )
+
+        except Exception:
+            logger.exception("UNIT_COMPARISON_API_ERROR")
+            result.messages.append(
+                "Unable to compare units right now. "
+                "Please try again."
+            )
+            return result
+
+        # Map each returned unit to its parent project.
+        api_units = {}
+
+        for project in api_data:
+            if not isinstance(project, dict):
+                continue
+
+            project_id = project.get("Id")
+
+            records = (
+                (project.get("UnitsProject__r") or {})
+                .get("records") or []
+            )
+
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+
+                unit_id = record.get("Id")
+
+                if not unit_id:
+                    continue
+
+                # Ensure each returned unit belongs to its
+                # declared project.
+                if record.get("Project__c") != project_id:
+                    continue
+
+                api_units[unit_id] = {
+                    "project": project,
+                    "unit": record,
+                }
 
         comparisons = []
 
-        for unit, safe_unit, payment_result in zip(
-            selected, safe_units, payment_results
-        ):
-            payment_plans = []
-            payment_error = None
-            if isinstance(payment_result, BaseException):
-                logger.warning(
-                    "COMPARISON_PAYMENT_PLAN_FAILED | unit_id=%s | error=%s",
-                    unit.unit_id,
-                    type(payment_result).__name__,
-                )
-                payment_error = "Payment plans temporarily unavailable"
-            elif payment_result is None:
-                payment_error = "Payment plans unavailable"
-            else:
-                for plan in payment_result:
-                    if not isinstance(plan, dict):
-                        continue
-                    records = PaymentPlanHandler._installment_records(plan)
-                    schedule = None
-                    if records is not None:
-                        try:
-                            schedule = PaymentPlanHandler._normalize_installments(
-                                plan, unit
-                            )
-                        except ValueError:
-                            logger.warning(
-                                "COMPARISON_PAYMENT_SCHEDULE_INVALID | unit_id=%s",
-                                unit.unit_id,
-                            )
-                    payment_plans.append({
-                        "name": PaymentPlanHandler._plan_name(plan),
-                        "installment_count": (
-                            len(records) if records is not None else None
-                        ),
-                        "schedule": schedule,
-                    })
+        for selected_unit in selected:
 
-            project = next(
-                (
-                    p for p in self.snapshot.projects
-                    if (
-                        unit.project_id
-                        and p.project_id == unit.project_id
-                    )
-                    or (
-                        not unit.project_id
-                        and norm(p.project_name)
-                        == norm(unit.project_name)
-                    )
-                ),
-                None,
+            matched = api_units.get(selected_unit.unit_id)
+
+            if not matched:
+                result.messages.append(
+                    "Comparison data is unavailable for "
+                    "one or more selected units."
+                )
+                return result
+
+            if (
+                matched["project"].get("Id")
+                != selected_unit.project_id
+            ):
+                result.messages.append(
+                    "The returned project information "
+                    "does not match the selected unit."
+                )
+                return result
+
+            comparisons.append(
+                map_comparison(
+                    matched["project"],
+                    matched["unit"],
+                )
             )
 
-            comparisons.append({
-                "unit": safe_unit,
-                "project": {
-                    "project_information": (
-                        self._project_data(project) if project else None
-                    ),
-                    "handover_date": (
-                        project.handover_date if project else None
-                    ),
-                    "amenities": display_items(
-                        project.amenities if project else None
-                    ),
-                    "payment_plans": payment_plans,
-                    "payment_error": payment_error,
-                },
-            })
+            if self.payment_client and self.payment_token and self.user_id:
+
+                async def fetch_payment_schedules(unit):
+                    try:
+                        return await self.payment_client.get_payment_plans(
+                            token=self.payment_token,
+                            user_id=self.user_id,
+                            unit_id=unit.unit_id,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "COMPARISON_PAYMENT_SCHEDULE_FETCH_FAILED"
+                        )
+                        return None
+
+                payment_results = await asyncio.gather(
+                    *(
+                        fetch_payment_schedules(unit)
+                        for unit in selected
+                    )
+                )
+
+                for index, payment_result in enumerate(payment_results):
+
+                    if index >= len(comparisons):
+                        logger.warning(
+                            "PAYMENT_RESULT_SKIPPED | index=%s | comparisons=%s",
+                            index,
+                            len(comparisons),
+                        )
+                        continue
+
+                    comparison = comparisons[index]
+                    selected_unit = selected[index]
+
+                    for plan in comparison["payment_plans"]:
+
+                        plan["schedule"] = None
+
+                        matched_plan = next(
+                            (
+                                item
+                                for item in payment_result
+                                if isinstance(item, dict)
+                                and str(item.get("Name", "")).strip().casefold()
+                                == str(plan["name"]).strip().casefold()
+                            ),
+                            None,
+                        )
+
+                        if not matched_plan:
+                            continue
+
+                        try:
+                            plan["schedule"] = (
+                                PaymentPlanHandler._normalize_installments(
+                                    matched_plan,
+                                    selected_unit,
+                                )
+                            )
+
+                        except ValueError:
+                            logger.warning(
+                                "COMPARISON_INSTALLMENT_NORMALIZATION_FAILED"
+                            )
+
 
         result.generation_context = {
             "service": "inventory",
@@ -407,12 +462,9 @@ class InventoryHandler:
             "comparisons": [
                 {
                     "unit": item["unit"],
-                    "project": {
-                        key: value
-                        for key, value in item["project"].items()
-                        if key not in {"payment_plans", "payment_error"}
-                    },
-                    "payment_plan_count": len(item["project"]["payment_plans"]),
+                    "payment_plan_count": len(
+                        item["payment_plans"]
+                    ),
                 }
                 for item in comparisons
             ],
@@ -551,7 +603,7 @@ class InventoryHandler:
         result.html_blocks.append({
             "card_type": "inventory_comparison",
             "html": self.template_service.render(
-                "compare 2.html.j2",
+                "compare-projects.html.j2",
                 comparisons=comparisons,
                 comparison_mode="projects",
             ),
@@ -606,6 +658,7 @@ class InventoryHandler:
         return {
             "project_name": project.project_name,
             "project_number": project.project_number,
+            "project_configuration": project.project_configuration,
             "project_web_id": project.project_web_id,
             "project_sequence": project.project_sequence,
             "location": project.location,

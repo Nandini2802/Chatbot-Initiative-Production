@@ -1,398 +1,762 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&family=Poppins:wght@400;500&display=swap" rel="stylesheet" />
-<style>
-  	/* TEMP ENDS HERE (DO not use above) */
- 	*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-	body {
-		font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-		background: #000;
-		-webkit-font-smoothing: antialiased;
-		color: #fff;
-	}
-	.pay-header {
-		display: flex;
-		align-items: center;
-		gap: 16px;
-		height: 56px;
-		padding: 18px 16px;
-		background: rgba(0,0,0,.6);
-		backdrop-filter: blur(15px);
-		-webkit-backdrop-filter: blur(15px);
-		position: sticky;
-		top: 0;
-		z-index: 2;
-	}
-	.pay-header__title {
-		flex: 1 0 0;
-		min-width: 0;
-		text-align: center;
-		font-family: 'Montserrat', sans-serif;
-		font-weight: 600;
-		font-size: 17px;
-		line-height: 1.2;
-		letter-spacing: 1.7px;
-		text-transform: uppercase;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	/* TEMP ENDS HERE (DO not use above) */
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Poppins:wght@400;500;600&display=swap"
+        rel="stylesheet"
+    >
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #fff;
+            font-family: 'Poppins', Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .uc-wrap {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 16px 12px 28px;
+        }
 
-	/* Body Styles Starts Here */
-	.compare { display: flex; flex-direction: column; gap: 20px; }
+        /* ===============================
+           SELECTED UNITS
+        =============================== */
 
-	/* Bot intro message */
-	.compare__msg { font-family: 'Poppins', sans-serif; font-size: 12px; line-height: 1.8; }
-	.compare__msg p + p { margin-top: 1.8em; }
+        .uc-heading {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin: 0 0 24px;
+        }
 
-	/* Two unit image cards */
-	.compare-cards { display: flex; gap: 16px; }
-	.unit-card { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
-	.unit-card__media { display: flex; flex-direction: column; gap: 6px; align-items: center; }
-	.unit-card__img { width: 100%; aspect-ratio: 375 / 439; background: #16171a; border-radius: 10px; display: block; object-fit: cover;}
-	.unit-card__dots { display: flex; gap: 10px; align-items: center; }
-	.unit-card__dots i { display: block; height: 6px; width: 6px; border-radius: 50px; background: #fff; opacity: .5; }
-	.unit-card__dots i.is-active { width: 30px; opacity: 1; }
-	.unit-card__price { display: flex; gap: 4px; align-items: center; justify-content: center; }
-	.unit-card__price img { width: 15px; height: 13px; display: block; }
-	.unit-card__price span { font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 12px; line-height: 1.2; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; }
+        .uc-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
 
-	/* Accordion comparison sections (native <details>, no JS) */
-	.acc { display: block; border-top: 3px solid #16171a; padding-top: 33px; }
-	.acc__head {
-		display: flex; align-items: center; gap: 12px; width: 100%;
-		cursor: pointer; list-style: none; margin-bottom: 26px;
-	}
-	.acc__head::-webkit-details-marker { display: none; }
-	.acc__head h3 {
-		flex: 1 0 0; min-width: 0;
-		font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 17px; line-height: 1.2;
-		letter-spacing: 1.7px; text-transform: uppercase;
-		overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-	}
-	.acc__chev { flex-shrink: 0; width: 16px; height: 16px; transition: transform .2s; }
-	.acc:not([open]) .acc__chev { transform: rotate(180deg); }
-	.acc:not([open]) .acc__head { margin-bottom: 0; }
+        .uc-unit {
+            min-width: 0;
+        }
 
-	.acc__body { display: flex; gap: 16px; }
-	.acc__col {
-		flex: 1 1 0; min-width: 0;
-		display: flex; flex-direction: column; gap: 26px;
-		font-family: 'Montserrat', sans-serif; font-weight: 400; font-size: 12px; line-height: 1.2;
-		text-transform: capitalize;
-	}
-	.kv { display: flex; flex-direction: column; gap: 10px; }
-	.kv .k { opacity: .6; }
+        .uc-select {
+            background: #161616;
+            border-radius: 12px;
+            padding: 14px;
+            min-width: 0;
+        }
 
-	.chips { display: flex; gap: 26px;flex-wrap: wrap; }
-	.chip { display: flex; gap: 6px; align-items: center; width: 49%;}
-	.chip img { flex-shrink: 0; width: 24px; height: 24px; filter: brightness(0) invert(1); }
-	.chip span { flex: 1 0 0; min-width: 0; }
+        .uc-select-label {
+            font-size: 12px;
+            margin-bottom: 6px;
+            color: #aaa;
+        }
 
-	/* Payment plan items */
-	.pp { display: flex; flex-direction: column; gap: 20px; }
-	.pp__item { display: flex; flex-direction: column; gap: 10px; }
-	.pp__title { opacity: .6; line-height: 1.5; }
-	.pp__installments { font-weight: 600; text-transform: uppercase; }
-	.pp__link { font-family: 'Poppins', sans-serif; font-weight: 500; color: #b87c01; text-decoration: underline; cursor: pointer; }
-	.muted { opacity: .6; }
-</style>
+        .uc-unit-name {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
+        .uc-price {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            margin-top: 20px;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
+        /* ===============================
+           COMPARISON SECTIONS
+        =============================== */
+
+        .uc-section {
+            border-top: 3px solid #202020;
+            padding-top: 26px;
+            margin-top: 26px;
+        }
+
+        .uc-section > summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            list-style: none;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 24px;
+        }
+
+        .uc-section > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .uc-section > summary::after {
+            content: "⌃";
+            font-size: 22px;
+            font-weight: 400;
+            line-height: 1;
+        }
+
+        .uc-section:not([open]) > summary {
+            margin-bottom: 0;
+        }
+
+        .uc-section:not([open]) > summary::after {
+            content: "⌄";
+        }
+
+        .uc-field {
+            margin-bottom: 25px;
+            min-width: 0;
+        }
+
+        .uc-label {
+            font-size: 12px;
+            font-weight: 400;
+            margin-bottom: 6px;
+            color: #aaa;
+        }
+
+        .uc-value {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
+        /* ===============================
+           PAYMENT PLAN LIST
+        =============================== */
+
+        .uc-plan {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            margin-bottom: 24px;
+            min-width: 0;
+        }
+
+        .uc-plan-name {
+            font-size: 12px;
+            line-height: 1.6;
+            overflow-wrap: anywhere;
+        }
+
+        .uc-plan-count {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.5;
+        }
+
+        /* ===============================
+           VIEW / CLOSE DETAILS
+        =============================== */
+
+        .uc-plan-details {
+            margin-top: 8px;
+            min-width: 0;
+        }
+
+        .uc-plan-details > summary {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            width: fit-content;
+            margin: 0;
+            padding: 4px 0;
+            color: #c8ad86;
+            font-family: 'Poppins', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0;
+            text-transform: none;
+            text-decoration: underline;
+            cursor: pointer;
+            list-style: none;
+        }
+
+        .uc-plan-details > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .uc-plan-details > summary::after {
+            content: none !important;
+            display: none !important;
+        }
+
+        .uc-plan-details .close-text {
+            display: none;
+        }
+
+        .uc-plan-details[open] .view-text {
+            display: none;
+        }
+
+        .uc-plan-details[open] .close-text {
+            display: inline;
+        }
+
+        /* ===============================
+           INSTALLMENT DETAILS
+        =============================== */
+
+        .uc-plan-expanded {
+            margin-top: 14px;
+            padding: 12px 10px;
+            background: #151515;
+            border: 1px solid #292929;
+            border-radius: 12px;
+            min-width: 0;
+        }
+
+        .uc-plan-year {
+            margin-bottom: 22px;
+        }
+
+        .uc-plan-year:last-child {
+            margin-bottom: 0;
+        }
+
+        .uc-plan-year-title {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        .uc-installment-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        .uc-installment-table th {
+            font-size: 10px;
+            font-weight: 500;
+            color: #aaa;
+            text-align: left;
+            padding: 8px 3px;
+            border-bottom: 1px solid #333;
+        }
+
+        .uc-installment-table td {
+            font-size: 10px;
+            vertical-align: top;
+            padding: 12px 3px;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
+        .uc-installment-table th:nth-child(1),
+        .uc-installment-table td:nth-child(1) {
+            width: 42%;
+        }
+
+        .uc-installment-table th:nth-child(2),
+        .uc-installment-table td:nth-child(2) {
+            width: 20%;
+        }
+
+        .uc-installment-table th:nth-child(3),
+        .uc-installment-table td:nth-child(3) {
+            width: 38%;
+            text-align: right;
+        }
+
+        .uc-installment-date {
+            font-weight: 600;
+        }
+
+        .uc-installment-note {
+            display: block;
+            margin-top: 4px;
+            font-size: 10px;
+            color: #999;
+        }
+
+        .uc-installment-amount {
+            font-weight: 600;
+        }
+
+        .uc-plan-unavailable {
+            margin-top: 8px;
+            color: #999;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        /* ===============================
+           MOBILE RESPONSIVENESS
+        =============================== */
+
+        @media (max-width: 480px) {
+
+            .uc-wrap {
+                padding: 12px 8px 24px;
+            }
+
+            .uc-grid {
+                gap: 12px;
+            }
+
+            .uc-heading {
+                font-size: 16px;
+            }
+
+            .uc-select {
+                padding: 10px;
+            }
+
+            .uc-unit-name {
+                font-size: 14px;
+            }
+
+            .uc-price {
+                font-size: 13px;
+            }
+
+            .uc-section > summary {
+                font-size: 15px;
+            }
+
+            .uc-label {
+                font-size: 12px;
+            }
+
+            .uc-value {
+                font-size: 12px;
+            }
+
+            .uc-plan-name,
+            .uc-plan-count {
+                font-size: 12px;
+            }
+
+            .uc-plan-expanded {
+                padding: 10px 6px;
+            }
+
+            .uc-installment-table th,
+            .uc-installment-table td {
+                font-size: 9px;
+                padding-left: 2px;
+                padding-right: 2px;
+            }
+
+            .uc-installment-note {
+                font-size: 9px;
+            }
+        }
+    </style>
 </head>
+
 <body>
-	<div class="pay-header">
-    	<p class="pay-header__title">
-			{% if comparison_mode | default('units') == 'projects' %}
-				Compare Projects
-			{% else %}
-				Compare Units
-			{% endif %}
-		</p>
-  	</div>
-	{% if comparison_mode | default('units') == 'projects' %}
-		<div class="compare">
-			<!-- Project image cards -->
-			<div class="compare-cards">
-				{% for item in comparisons %}
-				<div class="unit-card">
 
-				<div class="unit-card__media">
-					{% set image_url = item.project.project_image %}
+<div class="uc-wrap">
 
-					{% if image_url and image_url.startswith('https://') %}
-					<img
-					class="unit-card__img"
-					src="{{ image_url | e }}"
-					alt="{{ item.project.project_name | e }}"
-					loading="lazy"
-					referrerpolicy="no-referrer"
-					/>
-					{% else %}
-					<div
-					class="unit-card__img"
-					role="img"
-					aria-label="Project image unavailable"
-					></div>
-					{% endif %}
-				</div>
+    <!-- =====================================
+         SELECTED UNITS
+    ===================================== -->
 
-				<div class="unit-card__price">
-					<span>
-					{% if item.project.starting_price is not none %}
-						Starting AED {{ item.project.starting_price | e }}
-					{% else %}
-						Starting price unavailable
-					{% endif %}
-					</span>
-				</div>
+    <h2 class="uc-heading">
+        {{ comparisons | length }} UNITS ADDED
+    </h2>
 
-				</div>
-				{% endfor %}
-			</div>
+    <div class="uc-grid">
 
-			<!-- Overview -->
-			<details class="acc" open>
-				<summary class="acc__head">
-				<h3>Overview</h3>
-				</summary>
+        {% for item in comparisons %}
 
-				<div class="acc__body">
-				{% for item in comparisons %}
-				<div class="acc__col">
+        <div class="uc-unit">
 
-					<div class="kv">
-					<span class="k">Project Name</span>
-					<span>{{ item.project.project_name | default('Not available', true) | e }}</span>
-					</div>
+            <div class="uc-select">
 
-					<div class="kv">
-					<span class="k">Location</span>
-					<span>{{ item.project.location | default('Not available', true) | e }}</span>
-					</div>
+                <div class="uc-select-label">
+                    Select Unit
+                </div>
 
-					<div class="kv">
-					<span class="k">Building Type</span>
-					<span>{{ item.project.building_type | default('Not available', true) | e }}</span>
-					</div>
+                <div class="uc-unit-name">
+                    {{ item.unit.unit_name | default('--', true) | e }}
+                </div>
 
-					<div class="kv">
-					<span class="k">Total Buildings</span>
-					<span>{{ item.project.total_buildings if item.project.total_buildings is not none else 'Not available' }}</span>
-					</div>
+            </div>
 
-					<div class="kv">
-					<span class="k">Total Floors</span>
-					<span>{{ item.project.total_floors if item.project.total_floors is not none else 'Not available' }}</span>
-					</div>
+            <div class="uc-price">
 
-				</div>
-				{% endfor %}
-				</div>
-			</details>
+                {% if item.unit.price == '--' %}
 
-			<!-- Available Inventory -->
-			<details class="acc" open>
-				<summary class="acc__head">
-				<h3>Available Inventory</h3>
-				</summary>
+                    --
 
-				<div class="acc__body">
-				{% for item in comparisons %}
-				<div class="acc__col">
+                {% else %}
 
-					<div class="kv">
-					<span class="k">Available Units (Project API)</span>
-					<span>
-						{{ item.project.total_available_units
-						if item.project.total_available_units is not none
-						else 'Not available' }}
-					</span>
-					</div>
+                    {% if item.unit.currency != '--' %}
+                        {{ item.unit.currency | e }}
+                    {% endif %}
 
-					<div class="kv">
-					<span class="k">Units Visible to You</span>
-					<span>{{ item.inventory.visible_unit_count }}</span>
-					</div>
+                    {{ item.unit.price | e }}
 
-					<div class="kv">
-					<span class="k">Unit Types</span>
-					<span>
-						{{ item.inventory.unit_types | join(', ')
-						if item.inventory.unit_types else 'Not available' }}
-					</span>
-					</div>
+                {% endif %}
 
-					<div class="kv">
-					<span class="k">Bedrooms</span>
-					<span>
-						{{ item.inventory.bedroom_types | join(', ')
-						if item.inventory.bedroom_types else 'Not available' }}
-					</span>
-					</div>
+            </div>
 
-					<div class="kv">
-					<span class="k">Total Project Units</span>
-					<span>
-						{{ item.project.total_units
-						if item.project.total_units is not none
-						else 'Not available' }}
-					</span>
-					</div>
+        </div>
 
-				</div>
-				{% endfor %}
-				</div>
-			</details>
+        {% endfor %}
 
-			<!-- Construction and Handover -->
-			<details class="acc" open>
-				<summary class="acc__head">
-				<h3>Construction & Handover</h3>
-				</summary>
+    </div>
 
-				<div class="acc__body">
-				{% for item in comparisons %}
-				<div class="acc__col">
+    <!-- =====================================
+         OVERVIEW
+    ===================================== -->
 
-					<div class="kv">
-					<span class="k">Construction Status</span>
-					<span>{{ item.project.construction_status | default('Not available', true) | e }}</span>
-					</div>
+    <details class="uc-section" open>
 
-					<div class="kv">
-					<span class="k">Handover Date</span>
-					<span>{{ item.project.handover_date | default('Not available', true) | e }}</span>
-					</div>
+        <summary>OVERVIEW</summary>
 
-					<div class="kv">
-					<span class="k">Completion Date</span>
-					<span>{{ item.project.completion_date | default('Not available', true) | e }}</span>
-					</div>
+        <div class="uc-grid">
 
-				</div>
-				{% endfor %}
-				</div>
-			</details>
+            {% for item in comparisons %}
 
-			<!-- Project Amenities -->
-			<details class="acc" open>
-				<summary class="acc__head">
-				<h3>Project Amenities</h3>
-				</summary>
+            <div>
 
-				<div class="acc__body">
-				{% for item in comparisons %}
-				<div class="acc__col">
+                <div class="uc-field">
+                    <div class="uc-label">Project Name</div>
+                    <div class="uc-value">
+                        {{ item.unit.project_name | default('--', true) | e }}
+                    </div>
+                </div>
 
-					{% if item.amenities %}
-					{% for amenity in item.amenities %}
-					<p>{{ amenity | e }}</p>
-					{% endfor %}
-					{% else %}
-					<p class="muted">Not available</p>
-					{% endif %}
+                <div class="uc-field">
+                    <div class="uc-label">Location</div>
+                    <div class="uc-value">
+                        {{ item.unit.project_location | default('--', true) | e }}
+                    </div>
+                </div>
 
-				</div>
-				{% endfor %}
-				</div>
-			</details>
+            </div>
 
-		</div>
-	{% else %}
+            {% endfor %}
 
-		<!-- Dynamic comparison: exactly two authorized units -->
-		<div class="compare">
-		<div class="compare-cards">
-			{% for item in comparisons %}
-			<div class="unit-card">
-			<div class="unit-card__media">
-				{% set project_info = item.project.project_information %}
-				{% set image_url = project_info.project_image if project_info else none %}
-				{% if image_url and (image_url.startswith('https://') or image_url.startswith('http://')) %}
-				<img
-				class="unit-card__img"
-				src="{{ image_url | e }}"
-				alt="{{ item.unit.project_name | default('Project image', true) | e }}"
-				loading="lazy"
-				referrerpolicy="no-referrer"
-				/>
-				{% else %}
-				<div class="unit-card__img" role="img" aria-label="Project image unavailable for {{ item.unit.unit_name | default('Unit', true) | e }}"></div>
-				{% endif %}
-			</div>
-			<div class="unit-card__price"><span>{{ item.unit.currency | default('AED', true) | e }} {{ item.unit.price if item.unit.price is not none else 'Not available' }}</span></div>
-			</div>
-			{% endfor %}
-		</div>
+        </div>
 
-		<details class="acc" open><summary class="acc__head"><h3>Overview</h3></summary><div class="acc__body">{% for item in comparisons %}<div class="acc__col"><div class="kv"><span class="k">Project</span><span>{{ item.unit.project_name if item.unit.project_name is not none and item.unit.project_name != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Unit</span><span>{{ item.unit.unit_name if item.unit.unit_name is not none and item.unit.unit_name != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Location</span><span>{{ item.unit.project_location if item.unit.project_location is not none and item.unit.project_location != '' else 'Not available' }}</span></div></div>{% endfor %}</div></details>
-		<details class="acc" open><summary class="acc__head"><h3>Spaces</h3></summary><div class="acc__body">{% for item in comparisons %}<div class="acc__col"><div class="kv"><span class="k">Category</span><span>{{ item.unit.category if item.unit.category is not none and item.unit.category != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Unit type</span><span>{{ item.unit.unit_type if item.unit.unit_type is not none and item.unit.unit_type != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Bedrooms</span><span>{{ item.unit.bedrooms if item.unit.bedrooms is not none and item.unit.bedrooms != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Bathrooms</span><span>{{ item.unit.bathrooms if item.unit.bathrooms is not none and item.unit.bathrooms != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Parking spots</span><span>{{ item.unit.parking_spaces if item.unit.parking_spaces is not none and item.unit.parking_spaces != '' else 'Not available' }}</span></div></div>{% endfor %}</div></details>
-		<details class="acc" open><summary class="acc__head"><h3>Unit Size</h3></summary><div class="acc__body">{% for item in comparisons %}<div class="acc__col"><div class="kv"><span class="k">Total area (sqft)</span><span>{{ item.unit.area_sqft if item.unit.area_sqft is not none and item.unit.area_sqft != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Internal area (sqft)</span><span>{{ item.unit.internal_saleable_area if item.unit.internal_saleable_area is not none and item.unit.internal_saleable_area != '' else 'Not available' }}</span></div></div>{% endfor %}</div></details>
-		<details class="acc" open><summary class="acc__head"><h3>Status</h3></summary><div class="acc__body">{% for item in comparisons %}<div class="acc__col"><div class="kv"><span class="k">Availability</span><span>{{ item.unit.status if item.unit.status is not none and item.unit.status != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Handover</span><span>{{ item.unit.handover_status if item.unit.handover_status is not none and item.unit.handover_status != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Construction</span><span>{{ item.unit.construction_status if item.unit.construction_status is not none and item.unit.construction_status != '' else 'Not available' }}</span></div><div class="kv"><span class="k">Project handover date</span><span>{{ item.project.handover_date if item.project.handover_date is not none and item.project.handover_date != '' else 'Not available' }}</span></div></div>{% endfor %}</div></details>
-		<details class="acc" open>
-			<summary class="acc__head"><h3>Project Amenities</h3></summary>
-			<div class="acc__body">
-			{% for item in comparisons %}
-			<div class="acc__col">
-				{% if item.project.amenities %}
-				{% for amenity in item.project.amenities %}<p>{{ amenity | e }}</p>{% endfor %}
-				{% else %}<p class="muted">Not available</p>{% endif %}
-			</div>
-			{% endfor %}
-			</div>
-		</details>
-		<details class="acc" open>
-			<summary class="acc__head"><h3>Payment Plans</h3></summary>
-			<div class="acc__body">
-			{% for item in comparisons %}
-			<div class="acc__col">
-				{% if item.project.payment_plans %}
-				<div class="pp">
-					{% for plan in item.project.payment_plans %}
-					<div class="pp__item">
-					<p class="pp__title">{{ plan.name | e }}</p>
-					{% if plan.installment_count is not none %}
-						<p class="pp__installments">{{ plan.installment_count }} installments</p>
-					{% else %}
-						<p class="muted">Installment count unavailable</p>
-					{% endif %}
-					{% if plan.schedule is not none %}
-					<details class="pp__details">
-						<summary class="pp__link">View Details</summary>
-						<div class="pp__schedule">
-						{% for year, installments in plan.schedule.items() %}
-							<p class="pp__year">{{ year | e }}</p>
-							{% for installment in installments %}
-							<div class="pp__installment">
-							<span>{{ installment.display_date | e }}</span>
-							<span>{{ installment.description | e }}</span>
-							<strong>{{ installment.display_percentage | e }}</strong>
-							<span>{{ installment.display_amount | e }}</span>
-							</div>
-							{% endfor %}
-						{% endfor %}
-						</div>
-					</details>
-					{% else %}
-						<p class="muted">Schedule not available</p>
-					{% endif %}
-					</div>
-					{% endfor %}
-				</div>
-				{% elif item.project.payment_error %}
-				<p class="muted">{{ item.project.payment_error | e }}</p>
-				{% else %}
-				<p class="muted">No payment plans available</p>
-				{% endif %}
-			</div>
-			{% endfor %}
-			</div>
-		</details>
-		</div>
-	{% endif %}
-	<!-- Compared Units /. -->
+    </details>
+
+    <!-- =====================================
+         SPACES
+    ===================================== -->
+
+    <details class="uc-section" open>
+
+        <summary>SPACES</summary>
+
+        <div class="uc-grid">
+
+            {% for item in comparisons %}
+
+            <div>
+
+                <div class="uc-field">
+                    <div class="uc-label">Category</div>
+                    <div class="uc-value">
+                        {{ item.unit.category | default('--', true) | e }}
+                    </div>
+                </div>
+
+                <div class="uc-field">
+                    <div class="uc-label">Unit Type</div>
+                    <div class="uc-value">
+                        {{ item.unit.unit_type | default('--', true) | e }}
+                    </div>
+                </div>
+
+                <div class="uc-field">
+                    <div class="uc-label">Bathrooms</div>
+                    <div class="uc-value">
+                        {{ item.unit.bathrooms | default('--', true) | e }}
+                    </div>
+                </div>
+
+                <div class="uc-field">
+                    <div class="uc-label">Parking</div>
+                    <div class="uc-value">
+                        {{ item.unit.parking | default('--', true) | e }}
+                    </div>
+                </div>
+
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+    </details>
+
+    <!-- =====================================
+         UNIT SIZE
+    ===================================== -->
+
+    <details class="uc-section" open>
+
+        <summary>UNIT SIZE</summary>
+
+        <div class="uc-grid">
+
+            {% for item in comparisons %}
+
+            <div>
+
+                <div class="uc-field">
+                    <div class="uc-label">Total Area</div>
+                    <div class="uc-value">
+                        {{ item.unit.total_area | default('--', true) | e }}
+                    </div>
+                </div>
+
+                <div class="uc-field">
+                    <div class="uc-label">Internal Area</div>
+                    <div class="uc-value">
+                        {{ item.unit.internal_area | default('--', true) | e }}
+                    </div>
+                </div>
+
+                <div class="uc-field">
+                    <div class="uc-label">Plot Area</div>
+                    <div class="uc-value">
+                        {{ item.unit.plot_area | default('--', true) | e }}
+                    </div>
+                </div>
+
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+    </details>
+
+    <!-- =====================================
+         STATUS
+    ===================================== -->
+
+    <details class="uc-section" open>
+
+        <summary>STATUS</summary>
+
+        <div class="uc-grid">
+
+            {% for item in comparisons %}
+
+            <div>
+
+                <div class="uc-field">
+                    <div class="uc-label">Construction Status</div>
+                    <div class="uc-value">
+                        {{ item.unit.status | default('--', true) | e }}
+                    </div>
+                </div>
+
+                <div class="uc-field">
+                    <div class="uc-label">Completion Date</div>
+                    <div class="uc-value">
+                        {{ item.unit.completion_date | default('--', true) | e }}
+                    </div>
+                </div>
+
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+    </details>
+
+    <!-- =====================================
+         PAYMENT PLANS
+    ===================================== -->
+
+    <details class="uc-section" open>
+
+        <summary>PAYMENT PLANS</summary>
+
+        <div class="uc-grid">
+
+            {% for item in comparisons %}
+
+            <div>
+
+                {% if item.payment_plans %}
+
+                    {% for plan in item.payment_plans %}
+
+                    <div class="uc-plan">
+
+                        <!-- PLAN NAME -->
+
+                        <div class="uc-plan-name">
+                            {{ plan.name | default('--', true) | e }}
+                        </div>
+
+                        <!-- INSTALLMENT COUNT -->
+
+                        <div class="uc-plan-count">
+
+                            {% if plan.installment_count is none
+                                  or plan.installment_count == '--' %}
+
+                                --
+
+                            {% else %}
+
+                                {{ plan.installment_count | e }}
+                                INSTALLMENTS
+
+                            {% endif %}
+
+                        </div>
+
+                        <!-- EXPANDABLE DETAILS -->
+
+                        {% if plan.schedule %}
+
+                        <details class="uc-plan-details">
+
+                            <summary>
+
+                                <span class="view-text">
+                                    View Details
+                                </span>
+
+                                <span class="close-text">
+                                    Close Details
+                                </span>
+
+                            </summary>
+
+                            <div class="uc-plan-expanded">
+
+                                {% for year, installments
+                                   in plan.schedule.items() %}
+
+                                <div class="uc-plan-year">
+
+                                    <div class="uc-plan-year-title">
+                                        {{ year | e }}
+                                    </div>
+
+                                    <table class="uc-installment-table">
+
+                                        <thead>
+                                            <tr>
+                                                <th>Milestone</th>
+                                                <th>Percent</th>
+                                                <th>Amount</th>
+                                            </tr>
+                                        </thead>
+
+                                        <tbody>
+
+                                            {% for installment in installments %}
+
+                                            <tr>
+
+                                                <td>
+
+                                                    <span class="uc-installment-date">
+                                                        {{ installment.display_date | default('--', true) | e }}
+                                                    </span>
+
+                                                    <span class="uc-installment-note">
+                                                        {{ installment.description | default('--', true) | e }}
+                                                    </span>
+
+                                                </td>
+
+                                                <td>
+                                                    {{ installment.display_percentage | default('--', true) | e }}
+                                                </td>
+
+                                                <td class="uc-installment-amount">
+
+                                                    {% if installment.display_amount == 'Not provided' %}
+
+                                                        --
+
+                                                    {% else %}
+
+                                                        {{ installment.display_amount | default('--', true) | e }}
+
+                                                    {% endif %}
+
+                                                </td>
+
+                                            </tr>
+
+                                            {% endfor %}
+
+                                        </tbody>
+
+                                    </table>
+
+                                </div>
+
+                                {% endfor %}
+
+                            </div>
+
+                        </details>
+
+                        {% else %}
+
+                        <div class="uc-plan-unavailable">
+                            Installment details unavailable
+                        </div>
+
+                        {% endif %}
+
+                    </div>
+
+                    {% endfor %}
+
+                {% else %}
+
+                    <div class="uc-value">--</div>
+
+                {% endif %}
+
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+    </details>
+
+</div>
+
 </body>
 </html>

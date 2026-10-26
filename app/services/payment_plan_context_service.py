@@ -92,17 +92,25 @@ def normalize_plan_name(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
+
 def match_selected_plan(
     message: str,
     plans: list[dict],
 ) -> dict | None:
     """
-    Match exact plan name or explicit option number.
+    Match a payment plan using:
+    - Exact plan name
+    - Numeric option: 1, 2, 3
+    - Option number: option 1, plan 2
+    - Ordinal words: first, second, third
+    - Ordinal numbers: 1st, 2nd, 3rd
 
-    Returns None when the selection is absent or ambiguous.
+    Returns None for invalid or ambiguous selections.
     """
+
     normalized = normalize_plan_name(message)
 
+    # 1. Exact payment plan name
     matches = [
         plan
         for plan in plans
@@ -112,8 +120,56 @@ def match_selected_plan(
     if len(matches) == 1:
         return matches[0]
 
+    if matches:
+        return None
+
+    # 2. Ordinal words
+    ordinal_words = {
+        "first": 1,
+        "second": 2,
+        "third": 3,
+        "fourth": 4,
+        "fifth": 5,
+        "sixth": 6,
+        "seventh": 7,
+        "eighth": 8,
+        "ninth": 9,
+        "tenth": 10,
+        "eleventh": 11,
+        "twelfth": 12,
+        "thirteenth": 13,
+        "fourteenth": 14,
+        "fifteenth": 15,
+        "sixteenth": 16,
+        "seventeenth": 17,
+        "eighteenth": 18,
+        "nineteenth": 19,
+        "twentieth": 20,
+        "last": len(plans),
+    }
+
+    ordinal_match = re.fullmatch(
+        r"(?:the\s+)?"
+        r"(?:option\s+|plan\s+)?"
+        r"([a-z]+)"
+        r"(?:\s+(?:option|plan))?",
+        normalized,
+    )
+
+    if ordinal_match:
+        word = ordinal_match.group(1)
+        index = ordinal_words.get(word)
+
+        if index is not None and 1 <= index <= len(plans):
+            return plans[index - 1]
+
+    # 3. Numeric selection: 1, option 2, plan 3
     numbered = re.fullmatch(
-        r"(?:option\s+|plan\s+|number\s+)?(\d+)",
+        r"(?:the\s+)?"
+        r"(?:option\s+|plan\s+|number\s+)?"
+        r"(\d+)"
+        r"(?:st|nd|rd|th)?"
+        r"(?:\s+(?:option|plan))?",
         normalized,
     )
 
@@ -124,3 +180,4 @@ def match_selected_plan(
             return plans[index]
 
     return None
+

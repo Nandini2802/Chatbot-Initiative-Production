@@ -40,6 +40,7 @@ from app.services.availability_resolver import (
 from app.services.sales_offer_state import SalesOfferState
 from app.services.walkthrough_access_service import WalkthroughEngine
 from app.observability.logger import audit_event, log_context
+from app.services.payment_plan_selection_service import interpret_payment_selection
 
 
 
@@ -234,20 +235,32 @@ async def _stream_chat_response_impl(
         )
 
         selected_payment_plan = None
+        payment_selection_decision = None
+
 
         if pending_payment_selection:
-            selected_payment_plan = match_selected_plan(
-                message=message,
-                plans=pending_payment_selection["plans"],
+            payment_selection_decision = (
+                await interpret_payment_selection(
+                    message=message,
+                    plans=pending_payment_selection["plans"],
+                    llm_client=clients.foundry_openai,
+                    model=settings.foundry_openai_model,
+                )
             )
+
+            if payment_selection_decision.status == "selected":
+                selected_payment_plan = (
+                    payment_selection_decision.plan
+                )
 
             logger.info(
                 "PAYMENT_PLAN_FOLLOWUP | session_id=%s | "
-                "pending=%s | matched=%s",
+                "status=%s",
                 session_id,
-                True,
-                selected_payment_plan is not None,
+                payment_selection_decision.status,
             )
+
+
 
 
         # Load official project names from Redis
@@ -370,6 +383,85 @@ async def _stream_chat_response_impl(
             status = "completed"
             yield format_sse("done", {"status": status})
             return
+
+        
+        if (
+            payment_selection_decision is not None
+            and payment_selection_decision.status == "clarify"
+        ):
+            clarification_text = (
+                payment_selection_decision.message
+                or "Please select one payment plan."
+            )
+
+            clarification_payload = {
+                "version": 1,
+                "html_blocks": [],
+                "files": [],
+                "followups": [],
+                "inventory_context": None,
+            }
+
+            clarification_response = ChatResponse(
+                response=clarification_text,
+                session_id=session_id,
+                correlation_id=correlation_id,
+                followups=[],
+                data={
+                    "files": [],
+                    "classification": {
+                        "intents": [{
+                            "intent": "inventory",
+                            "inventory_operation": "payment_plan",
+                        }],
+                        "payment_plan_followup": True,
+                        "requires_clarification": True,
+                    },
+                },
+            )
+
+            await persist_completed_chat(
+                clients=clients,
+                session_id=session_id,
+                user_id=user_id,
+                user_message=message,
+                assistant_message=clarification_text,
+                intents=["inventory"],
+                latency_ms=int(
+                    (time.perf_counter() - started_at) * 1000
+                ),
+                response_payload=clarification_payload,
+            )
+
+            yield format_sse(
+                "token",
+                {"text": clarification_text},
+            )
+            yield format_sse(
+                "followups",
+                {"chips": []},
+            )
+            yield format_sse(
+                "final",
+                clarification_response.model_dump(mode="json"),
+            )
+            yield format_sse(
+                "done",
+                {"status": "completed"},
+            )
+            return
+
+        if (
+            payment_selection_decision is not None
+            and payment_selection_decision.status == "new_request"
+        ):
+            await clear_pending_payment_selection(
+                redis_client=clients.redis,
+                user_id=user_id,
+                session_id=str(session_id),
+            )
+
+
 
         previous_inventory_context = await load_previous_inventory_context(
             clients=clients,
@@ -552,32 +644,55 @@ async def _stream_chat_response_impl(
             if intent.intent != "inventory":
                 continue
 
-            if not intent.project_name:
+            if intent.inventory_operation != "payment_plan":
                 continue
 
-            resolved_name = resolve_project_name(
-                requested_name=intent.project_name,
-                available_projects=active_project_names,
+            if not previous_inventory_context:
+                continue
+
+            previous_project = (
+                previous_inventory_context.get("project_name")
             )
 
-            if resolved_name:
-                intent.project_name = resolved_name
+            if (
+                intent.project_name
+                and previous_project
+                and normalize_project_name(intent.project_name)
+                != normalize_project_name(previous_project)
+            ):
+                continue
 
-                # Clear stale project-name clarification.
-                intent.missing_fields = [
-                    field
-                    for field in intent.missing_fields
-                    if field != "project_name"
-                ]
+            resolved_unit = resolve_unit_from_previous_context(
+                requested_unit=intent.unit_number,
+                previous_context=previous_inventory_context,
+            )
 
-                if not intent.missing_fields:
-                    intent.requires_clarification = False
+            if not resolved_unit:
+                continue
 
-            else:
-                intent.requires_clarification = True
+            logger.info(
+                "PAYMENT_PLAN_CONTEXT_RESOLVED | unit=%s",
+                resolved_unit,
+            )
 
-                if "project_name" not in intent.missing_fields:
-                    intent.missing_fields.append("project_name")
+            intent.unit_number = resolved_unit
+            intent.inventory_scope = "units"
+
+            if not intent.project_name and previous_project:
+                intent.project_name = previous_project
+
+            intent.missing_fields = [
+                field
+                for field in intent.missing_fields
+                if field not in {
+                    "unit_number",
+                    "unit_identifier",
+                }
+            ]
+
+            intent.requires_clarification = bool(
+                intent.missing_fields
+            )
 
 
         marketing_names = set(available_projects)

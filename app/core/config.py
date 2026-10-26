@@ -102,6 +102,10 @@ class Settings(BaseSettings):
     sales_offer_timeout_seconds: int = 45
     sales_offer_selection_ttl_seconds: int = 1800
 
+    # Unit Comparison
+    unit_comparison_api_url: str = ""
+    unit_comparison_timeout_seconds: float = 30.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

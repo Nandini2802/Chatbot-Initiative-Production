@@ -62,37 +62,73 @@ class WalkthroughEngine:
         self.approved_roles = set(self.frontend_roles.values())
         self.issues = self.validate()
 
+
     def validate(self):
         issues = []
+
         for name, guide in self.guides.items():
             if name not in self.mapping:
-                issues.append(f'Missing feature mapping: {guide.name}')
+                issues.append(
+                    f"Missing feature mapping: {guide.name}"
+                )
                 continue
+
             for source in self.tables:
                 label, key = self.mapping[name][source]
+
+                # Explicitly public features are valid.
+                if label == "public" and not key:
+                    continue
+
+                if label == "public" and key:
+                    issues.append(
+                        f"Invalid PUBLIC mapping: "
+                        f"{guide.name} ({source})"
+                    )
+                    continue
+
                 if not label and not key:
-                    issues.append(f'No mapping: {guide.name} ({source})')
+                    issues.append(
+                        f"No mapping: {guide.name} ({source})"
+                    )
+
         return issues
 
     def permission(self, name, role, source, employee_type):
         """Return (allowed, reason); never accept unknown roles or ambiguous matches."""
         name = norm(name)
-        role = self.frontend_roles.get(norm(role))
-        if source not in self.tables or employee_type not in ('direct', 'indirect', ''):
-            return False, 'invalid_context'
-        if role not in self.approved_roles:
-            return False, 'unknown_role'
+        if (
+            source not in self.tables
+            or employee_type not in ("direct", "indirect", "")
+        ):
+            return False, "invalid_context"
+
         if name not in self.guides or name not in self.mapping:
-            return False, 'unknown_feature'
-        if role in ('HOS', 'DOS', 'RM'):
+            return False, "unknown_feature"
+
+        label, key = self.mapping[name][source]
+
+        if label == "public" and not key:
+            return True, "public_feature"
+
+        role = self.frontend_roles.get(norm(role))
+
+        if role not in self.approved_roles:
+            return False, "unknown_role"
+
+        if role in ("HOS", "DOS", "RM"):
             col = TEAM_COL.get(employee_type, {}).get(role)
         else:
             col = COMMON_COL.get(role)
-        if col is None or (source == 'web_app' and col >= 23):
-            return False, 'unmapped_role'
-        label, key = self.mapping[name][source]
+
+        if col is None or (
+            source == "web_app" and col >= 23
+        ):
+            return False, "unmapped_role"
+
         if not label and not key:
-            return False, 'unmapped_feature'
+            return False, "unmapped_feature"
+        
         table = self.tables[source]
         # Prefer exact developer key; only use exact feature label if no key exists.
         mapped_keys = {
