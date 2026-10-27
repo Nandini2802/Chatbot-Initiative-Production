@@ -4,7 +4,7 @@ Google Maps utility for Danube Chatbot.
 
 Responsibilities:
 - Validate latitude and longitude.
-- Use Google Geocoding API with the configured API key.
+- Use Google Geocoding API with the provided API key.
 - Generate Google Maps URLs using coordinates.
 - Return the generated URL to the project information handler.
 
@@ -14,10 +14,18 @@ Google Maps data source:
 Note:
     OSF Portfolio is NOT used for Google Maps.
     It remains available separately for 3D tours.
+
+Security:
+    The Google Maps API key must be supplied by the caller
+    through the existing secrets-management system:
+    - Local: LocalSecrets / .env
+    - Azure: Azure Key Vault
+
+    The API key is never included in the returned Maps URL.
 """
 
-import os
 import re
+import math
 import logging
 
 from urllib.parse import urlencode
@@ -66,14 +74,12 @@ def validate_coordinates(
         latitude = float(latitude)
         longitude = float(longitude)
 
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
         raise ValueError(
             "Latitude and longitude must be numeric"
-        )
+        ) from exc
 
     # Reject NaN and infinity.
-    import math
-
     if not (
         math.isfinite(latitude)
         and math.isfinite(longitude)
@@ -119,6 +125,7 @@ def build_google_maps_url_from_coordinates(
 async def generate_map_url_from_coordinates(
     latitude: float,
     longitude: float,
+    google_api_key: str,
 ) -> str:
 
     """
@@ -127,12 +134,15 @@ async def generate_map_url_from_coordinates(
 
     Steps:
     1. Validate latitude and longitude.
-    2. Read Google API key from environment.
+    2. Validate the supplied Google API key.
     3. Call Google Geocoding API.
     4. Check Google API response.
     5. Generate Google Maps URL using original
        latitude and longitude.
     6. Return the URL.
+
+    The API key must be retrieved by the caller
+    using the application's existing secrets service.
 
     The API key is never included in the returned URL.
     """
@@ -144,17 +154,17 @@ async def generate_map_url_from_coordinates(
         longitude,
     )
 
-    # Step 2: Read Google Maps API key.
+    # Step 2: Validate supplied Google Maps API key.
 
-    google_api_key = os.getenv(
-        "GOOGLE_MAPS_API_KEY"
-    )
-
-    if not google_api_key:
+    if (
+        not isinstance(google_api_key, str)
+        or not google_api_key.strip()
+    ):
         raise ValueError(
-            "GOOGLE_MAPS_API_KEY is missing "
-            "from environment variables"
+            "Google Maps API key is missing"
         )
+
+    google_api_key = google_api_key.strip()
 
     # Step 3: Call Google Geocoding API.
 
@@ -224,6 +234,8 @@ async def generate_map_url_from_coordinates(
             f"{api_status}"
         )
 
+    # Step 5: Generate Google Maps URL.
+
     map_url = (
         build_google_maps_url_from_coordinates(
             latitude=latitude,
@@ -234,5 +246,7 @@ async def generate_map_url_from_coordinates(
     logger.info(
         "GOOGLE_MAPS_URL_GENERATED"
     )
+
+    # Step 6: Return URL.
 
     return map_url

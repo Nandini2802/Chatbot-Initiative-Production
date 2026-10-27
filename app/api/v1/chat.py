@@ -107,7 +107,7 @@ async def chat_query(
             await session_service.admit_chat_message(
                 session_id=body.session_id,
                 user_id=body.user_id,
-                inactivity_minutes=30,
+                inactivity_minutes=5,
             )
 
         except SessionResumeRequiredError:
@@ -117,7 +117,7 @@ async def chat_query(
                     "code": "SESSION_RESUME_REQUIRED",
                     "message": (
                         "Your previous conversation has been "
-                        "inactive for 30 minutes. "
+                        "inactive for 5 minutes. "
                         "Please choose Continue or New Chat."
                     ),
                     "session_id": str(body.session_id),

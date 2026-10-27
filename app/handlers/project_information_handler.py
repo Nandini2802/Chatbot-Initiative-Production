@@ -7,6 +7,7 @@ from html import unescape
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
+from app.core.keyvault import load_application_secrets
 from app.schemas.handler_result import HandlerResult
 
 from app.retrieval.project_information_connector import (
@@ -351,10 +352,13 @@ class ProjectInformationHandler:
             # Step 2: Generate Google Maps URL.
             # The paid Google API key is used inside
             # generate_map_url_from_coordinates().
+            secrets = await load_application_secrets()
+
             map_url = (
                 await generate_map_url_from_coordinates(
                     latitude=latitude,
                     longitude=longitude,
+                    google_api_key=secrets.google_maps_api_key.get_secret_value(),
                 )
             )
 
@@ -442,8 +446,6 @@ class ProjectInformationHandler:
 
                 location=project.location,
 
-                # Only URL is passed to HTML.
-                # Never pass Google API key.
                 map_url=map_url,
             )
 

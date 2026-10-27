@@ -46,88 +46,33 @@ class OSFPortfolioConnector:
                 allow_redirects=False,
             )
 
-            print("response", response, "status_code", response.status_code, "text", response.text)
 
         response.raise_for_status()
 
         try:
             payload = json.loads(response.text)
 
-            debug_file = (
-                Path(__file__).resolve().parents[2]
-                / "logs"
-                / "project_maps.txt"
-            )
+            if isinstance(payload, dict):
 
-            debug_file.parent.mkdir(parents=True, exist_ok=True)
+                projects = payload.get("data", [])
 
-            with debug_file.open("a", encoding="utf-8") as file:
+                if isinstance(projects, list):
 
-                file.write("\n========== OSF API RESPONSE ==========\n")
+                    for project in projects:
 
-                file.write(
-                    f"RESPONSE TYPE: {type(payload).__name__}\n"
-                )
+                        if not isinstance(project, dict):
+                            continue
 
-                if isinstance(payload, dict):
+                        title = str(project.get("title") or "")
+                        name = str(project.get("name") or "")
 
-                    file.write(
-                        f"TOP LEVEL KEYS: {list(payload.keys())}\n"
-                    )
+                        if not any(
+                            keyword in f"{title} {name}".casefold()
+                            for keyword in ("greenz", "shahrukhz")
+                        ):
+                            continue
 
-                    file.write(
-                        f"API STATUS: {payload.get('metaData', {}).get('status')}\n"
-                    )
-
-                    projects = payload.get("data", [])
-
-                    file.write(
-                        f"TOTAL PROJECTS: {len(projects) if isinstance(projects, list) else 'INVALID DATA TYPE'}\n"
-                    )
-
-                    if isinstance(projects, list):
-
-                        for project in projects:
-
-                            if not isinstance(project, dict):
-                                continue
-
-                            title = str(project.get("title") or "")
-                            name = str(project.get("name") or "")
-
-                            if not any(
-                                keyword in f"{title} {name}".casefold()
-                                for keyword in ("greenz", "shahrukhz")
-                            ):
-                                continue
-
-                            meta = project.get("meta") or {}
-
-                            file.write(
-                                "\n---------------------------------\n"
-                            )
-
-                            file.write(
-                                f"PROJECT TITLE: {title}\n"
-                                f"PROJECT NAME: {name}\n"
-                            )
-
-                            if isinstance(meta, dict):
-
-                                file.write(
-                                    f"META KEYS: {list(meta.keys())}\n"
-                                )
-
-                                file.write(
-                                    f"GOOGLE MAP DATA: {meta.get('danube_google_map_address')}\n"
-                                )
-
-                            else:
-                                file.write(
-                                    f"META TYPE: {type(meta).__name__}\n"
-                                )
-
-                file.write("\n========== END OSF DEBUG ==========\n")
+                        meta = project.get("meta") or {}
 
         except json.JSONDecodeError:
             raise ValueError(

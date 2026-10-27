@@ -113,6 +113,7 @@ class AvailabilityService:
         cached = await self.redis.get(
             RedisCacheKeys.CURRENCY_RATES
         )
+        
 
         if cached is None:
             raise AvailabilityValidationError(

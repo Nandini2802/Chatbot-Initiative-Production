@@ -181,7 +181,7 @@ class SessionService:
         self,
         session_id: UUID,
         user_id: str,
-        inactivity_minutes: int = 30,
+        inactivity_minutes: int = 5,
     ):
         """
         Check whether an existing session may accept
@@ -239,7 +239,7 @@ class SessionService:
                 )
 
             raise SessionResumeRequiredError(
-                "Session inactive for 30 minutes. "
+                "Session inactive for 5 minutes. "
                 "Please confirm whether to continue."
             )
 

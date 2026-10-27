@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     request_timeout_seconds: int = 10
 
     # History
-    session_inactivity_minutes: int = 30
+    session_inactivity_minutes: int = 5
 
     # Inventory API
     inventory_project_api_url: str = ""
@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     api_cache_refresh_hours: int = 12
     marketing_product_name: str = "Vendor"
     marketing_product_feature_name: str = "AMIRA"
+
+    # MAP Link
+    project_coordinates_api_url: str = ""
 
     # Portfolio API
     osf_portfolio_api_url: str = ""
@@ -140,6 +143,7 @@ class LocalSecrets(BaseSettings):
     inventory_client_secret: str = ""
     inventory_test_cookie: str = ""
     osf_portfolio_api_key: str = ""
+    google_maps_api_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
