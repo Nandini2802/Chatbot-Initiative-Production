@@ -79,6 +79,7 @@ class IntentDispatcher:
                     inventory_snapshot=inventory_snapshot,
                     access_token=access_token,
                     user_id=user_id,
+                    message=message,
                 )
 
             if access_token and user_id and session_id:

@@ -42,6 +42,8 @@ from app.services.walkthrough_access_service import WalkthroughEngine
 from app.observability.logger import audit_event, log_context
 from app.services.payment_plan_selection_service import interpret_payment_selection
 
+from app.utils.bank_debug import bank_debug
+
 
 
 logger = logging.getLogger(__name__)
@@ -897,7 +899,10 @@ async def _stream_chat_response_impl(
                 continue
 
 
-            elif intent.intent == "download_availability":
+            elif intent.intent in {
+                "download_availability",
+                "bank_details",
+            }:
 
                 valid_names = (
                     inventory_active_names
@@ -905,8 +910,6 @@ async def _stream_chat_response_impl(
                 )
 
             else:
-                # Preserve current validation behavior for
-                # other intents until their own catalogs exist.
                 valid_names = marketing_names
 
             if intent.project_name is not None:

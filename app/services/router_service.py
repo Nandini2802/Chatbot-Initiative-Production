@@ -10,6 +10,7 @@ from app.schemas.routing import (
     RoutingIntent,
 )
 from app.observability.logger import audit_event
+from app.utils.bank_debug import bank_debug
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class RouterService:
         # NEW: Add official project catalog to LLM input
         marketing_catalog = available_projects or []
         active_catalog = inventory_active_projects or []
+
         unit_catalog = inventory_unit_projects or []
 
 
@@ -201,6 +203,7 @@ class RouterService:
 
         # 5. Extract structured result
         result = response.output_parsed
+
 
         if result is None:
             raise ValueError(

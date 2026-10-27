@@ -32,6 +32,24 @@ class BankDetailsService:
         )
         return int(match.group(1)) if match else None
 
+    @staticmethod
+    def format_account_type(bank_type: str) -> str:
+        """Convert API bank type into a user-friendly label."""
+        value = (bank_type or "").strip()
+
+        match = re.fullmatch(
+            r"(escrow|corporate)\s*\(\s*(\d+)\s*\)",
+            value,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            account_type = match.group(1).capitalize()
+            account_number = match.group(2)
+            return f"{account_type} Account {account_number}"
+
+        return value
+
     async def get_accounts(
         self,
         *,
