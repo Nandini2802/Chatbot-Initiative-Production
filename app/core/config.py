@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     marketing_product_name: str = "Vendor"
     marketing_product_feature_name: str = "AMIRA"
 
+    # Portfolio API
+    osf_portfolio_api_url: str = ""
+    osf_portfolio_timeout_seconds: float = 30.0
+
     # Payment Plan
     payment_plan_api_url: str = ""
     payment_plan_timeout_seconds: float = 30.0
@@ -135,6 +139,7 @@ class LocalSecrets(BaseSettings):
     inventory_client_id: str = ""
     inventory_client_secret: str = ""
     inventory_test_cookie: str = ""
+    osf_portfolio_api_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

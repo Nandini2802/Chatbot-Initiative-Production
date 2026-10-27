@@ -1112,6 +1112,20 @@ async def _stream_chat_response_impl(
 
         # 5. BUILD RESPONSE USING LLM 2
 
+        project_details_html_only = (
+            len(routing_result.intents) == 1
+            and len(handler_results) == 1
+            and handler_results[0].intent == "project_information"
+            and handler_results[0].has_data
+            and handler_results[0].generation_context.get("operation")
+                == "details"
+            and not clarification_messages
+            and any(
+                block.get("card_type") == "project_details"
+                for block in all_html_blocks
+            )
+        )
+
         inventory_html_only = (
             len(routing_result.intents) == 1
             and routing_result.intents[0].intent == "inventory"
@@ -1139,8 +1153,13 @@ async def _stream_chat_response_impl(
         real_llm_streaming = False
         streamed_answer = ""
 
+        if project_details_html_only:
+            response_text = ""
+            followup_chips = []
+            real_llm_streaming = False
 
-        if generation_contexts:
+
+        elif generation_contexts:
 
             # Preserve the existing single-intent context.
             if len(generation_contexts) == 1:
@@ -1292,8 +1311,11 @@ async def _stream_chat_response_impl(
 
         display_response_text = response_text.strip()
 
+        if project_details_html_only:
+            display_response_text = ""
+
         # Ensure that the assistant message is never empty.
-        if not display_response_text:
+        elif not display_response_text:
             if all_html_blocks:
                 display_response_text = (
                     "I found the requested information. "
@@ -1304,8 +1326,15 @@ async def _stream_chat_response_impl(
                     "I couldn't find the requested information."
                 )
 
-        persist_response_text = display_response_text
-        response_text = display_response_text
+        if project_details_html_only:
+            persist_response_text = (
+                "Project details displayed in HTML card."
+            )
+            response_text = ""
+            display_response_text = ""
+        else:
+            persist_response_text = display_response_text
+            response_text = display_response_text
 
         if real_llm_streaming:
             if not response_text.startswith(streamed_answer):

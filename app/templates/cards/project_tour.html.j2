@@ -1,0 +1,88 @@
+
+<div style="
+    width:100%;
+    max-width:520px;
+    box-sizing:border-box;
+    background:#080808;
+    color:#ffffff;
+    border-radius:14px;
+    padding:14px;
+    font-family:Arial,sans-serif;
+">
+
+    <!-- TITLE -->
+    <div style="
+        font-size:15px;
+        font-weight:600;
+        margin-bottom:12px;
+        line-height:1.5;
+    ">
+        {{ project_name | e }}
+    </div>
+
+    <!-- VIDEO -->
+    <div style="
+        width:100%;
+        aspect-ratio:16/9;
+        background:#000000;
+        border-radius:10px;
+        overflow:hidden;
+    ">
+
+        <video
+            controls
+            playsinline
+            preload="metadata"
+            style="
+                display:block;
+                width:100%;
+                height:100%;
+                object-fit:contain;
+                background:#000000;
+            "
+        >
+            <source
+                src="{{ video_url | e }}"
+                type="video/mp4"
+            >
+
+            Your browser does not support
+            HTML5 video playback.
+        </video>
+
+    </div>
+
+    <!-- FOOTER -->
+    <div style="
+        margin-top:12px;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        flex-wrap:wrap;
+        gap:10px;
+    ">
+
+        <span style="
+            color:#aaaaaa;
+            font-size:12px;
+        ">
+            Project Tour
+        </span>
+
+        <a
+            href="{{ video_url | e }}"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="
+                color:#38bdf8;
+                font-size:12px;
+                text-decoration:none;
+                cursor:pointer;
+            "
+        >
+            Open Video ↗
+        </a>
+
+    </div>
+
+</div>

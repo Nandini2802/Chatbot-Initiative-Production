@@ -621,6 +621,37 @@ Supported operations:
    - Extract the requested location into project_location.
    - Do not require a project name.
 
+5. tour
+   - User requests a 3D tour, virtual tour, project tour, or project walkthrough video.
+   - project_operation = "tour"
+   - intent = "project_information"
+   - Extract the project name into project_name.
+   - Do not classify these requests as marketing materials.
+   - Do not set project_limit.
+   - If the project is missing, use conversation history.
+   - If the project cannot be identified, ask which project.
+   
+   Examples:
+
+   User: Show me the 3D tour of Greenz
+   intent: project_information
+   project_operation: tour
+   project_name: GREENZ BY DANUBE
+
+   User: Play the virtual tour of Breez
+   intent: project_information
+   project_operation: tour
+   project_name: BREEZ BY DANUBE
+
+   User: Show its 3D tour
+   intent: project_information
+   project_operation: tour
+   project_name: <project from conversation context>
+
+Project 3D tours and virtual tour requests use project_information with project_operation="tour".
+
+Requests for general marketing videos, promotional videos, or downloadable marketing walkthrough files continue to use the existing marketing materials functionality.
+
 Supported identifiers:
 - project_name
 - project_id

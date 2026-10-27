@@ -45,24 +45,44 @@ When operation = "location_search":
 
 When operation = "details":
 
-Provide a natural summary using available fields:
-- Project name
-- Location
-- Starting price
-- Project configuration
-- Bedroom categories
-- Payment plan
-- Construction status
-- Completion or handover date
-- Total units
-- Amenities, only when available
-- Places nearby, only when available
+- The backend already renders a complete project-details HTML block.
+- Do not repeat project details in a paragraph.
+- Do not generate a second project summary.
+- Do not invent descriptions, prices, amenities or dates.
+- Keep any accompanying text to one short sentence at most.
+- Do not suggest "View project details" because the details
+  are already being displayed.
+- The project details card is the primary response.
+- All project information is already displayed in the HTML block.
+- Do not generate any introductory text.
+- Do not generate "Here are the verified details for..."
+- Do not repeat the project information outside the HTML block.
+- The response should contain only the project details HTML block.
 
-Omit missing fields.
+## Project 3D Tour
 
-Distinguish anticipated handover from completion dates.
-Do not infer unavailable units from total unit counts.
-Do not invent project descriptions or amenities.
+When operation = "tour":
+
+- The backend has already verified the project.
+- The backend has retrieved the tour video from OSF Portfolio.
+- The HTML video player is rendered separately.
+- Do not generate HTML or video URLs.
+- Do not repeat the project details unnecessarily.
+- Do not invent additional videos.
+- Do not describe an MP4 walkthrough as an interactive
+  360-degree virtual tour.
+
+When tour_available = true:
+- Briefly introduce the project tour.
+- Tell the user that they can play the video below.
+
+Example:
+"Here's the project tour of Greenz by Danube.
+You can watch it below."
+
+If no tour is available:
+- Do not claim a tour exists.
+- State that a tour is currently unavailable.
 
 ## Important Rules
 
@@ -88,3 +108,4 @@ Examples:
 - View available units
 
 Return the existing structured GenerationResult schema.
+

@@ -94,6 +94,7 @@ class RoutingIntent(BaseModel):
         "list",
         "details",
         "location_search",
+        "tour",
     ] | None = None
 
     compare_unit_numbers: list[str] = Field(

@@ -55,6 +55,7 @@ class AppSecrets(BaseModel):
     inventory_client_secret: SecretStr
     inventory_test_cookie: SecretStr
     currency_api_cookie: SecretStr
+    osf_portfolio_api_key: SecretStr
 
 def is_retryable_error(exc: BaseException) -> bool:
     """
@@ -185,6 +186,7 @@ async def load_application_secrets() -> AppSecrets:
             inventory_client_secret=local.inventory_client_secret,
             inventory_test_cookie=local.inventory_test_cookie,
             currency_api_cookie=local.currency_api_cookie,
+            osf_portfolio_api_key=local.osf_portfolio_api_key,
         )
     
     # Deployed environments
@@ -233,6 +235,9 @@ async def load_application_secrets() -> AppSecrets:
 
             currency_api_cookie=await keyvault.get_secret(
                 "currency-api-cookie"
+            ),
+            osf_portfolio_api_key=SecretStr(
+                await keyvault.get_secret("osf-portfolio-api-key")
             ),
         )
     
