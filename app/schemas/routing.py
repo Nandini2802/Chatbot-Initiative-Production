@@ -4,6 +4,7 @@ from decimal import Decimal
 
 
 IntentType = Literal[
+    "greeting",
     "marketing",
     "inventory",
     "excel_walkthrough",

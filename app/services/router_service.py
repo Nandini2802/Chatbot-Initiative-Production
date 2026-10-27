@@ -56,6 +56,7 @@ class RouterService:
         marketing_catalog = available_projects or []
         active_catalog = inventory_active_projects or []
 
+
         unit_catalog = inventory_unit_projects or []
 
 
@@ -205,12 +206,14 @@ class RouterService:
         result = response.output_parsed
 
 
+
         if result is None:
             raise ValueError(
                 "Foundry returned no valid classification"
             )            
         # 6. Apply deterministic business rules
         result = self.validate_routing(result)
+
 
         allowed_features = set(walkthrough_features or [])
 

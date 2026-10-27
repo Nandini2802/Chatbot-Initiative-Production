@@ -9,6 +9,10 @@ import os
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.services.project_name_service import normalize_project_name
+from app.services.project_resolution_service import (
+    resolve_project,
+    match_project_reference,
+)
 from app.core.config import get_settings
 from app.core.clients import ServiceClients
 from app.schemas.chat import ChatResponse
@@ -58,6 +62,15 @@ def is_real_streaming_enabled() -> bool:
         ).strip().lower() == "true"
     )
 
+GREETING_RESPONSE = """Hi, I can help you with:
+
+- Marketing material for any project.
+- Guidance on finding features in the App and how to use videos.
+- Finding relevant inventory for your customers.
+- Project information, including 3D links, bank details, map locations, FAQs, project details, and construction updates.
+- Unit details, including layout plans and payment plans.
+- Comparing units and projects.
+- Downloading unit availability for a project and sales offers for a unit."""
 
 
 
@@ -758,6 +771,69 @@ async def _stream_chat_response_impl(
 
         for index, intent in enumerate(routing_result.intents):
 
+            # CENTRAL_PROJECT_RESOLUTION: catalog-scoped, zero extra LLM calls.
+            # Only project-name matching is corrected. Feature-specific IDs,
+            # account filters, and user permissions remain unchanged.
+            if intent.intent in {
+                "marketing", "bank_details", "inventory",
+                "download_availability", "project_information", "sales_offer",
+            } and not (
+                intent.intent == "inventory"
+                and intent.inventory_operation == "project_comparison"
+            ) and not (
+                intent.intent == "project_information"
+                and intent.project_operation in {"latest", "list", "location_search"}
+            ) and not (
+                intent.intent == "marketing" and intent.action == "company_profile"
+            ):
+                if intent.intent == "marketing":
+                    allowed_projects = marketing_names
+                elif intent.intent == "bank_details":
+                    allowed_projects = inventory_active_names
+                elif intent.intent == "inventory":
+                    allowed_projects = (
+                        inventory_active_names
+                        if intent.inventory_scope == "projects"
+                        else inventory_active_names | inventory_unit_names
+                    )
+                else:
+                    allowed_projects = inventory_active_names | inventory_unit_names
+
+                match = resolve_project(
+                    reference=intent.project_name,
+                    message=message,
+                    projects=allowed_projects,
+                    require_message_mention=(intent.intent == "bank_details"),
+                )
+
+                original_llm_project = intent.project_name
+
+
+                if match.status == "matched":
+                    intent.project_name = match.name
+                    intent.missing_fields = [
+                        field for field in intent.missing_fields
+                        if field not in {"project_name", "project_identifier"}
+                    ]
+                    intent.requires_clarification = bool(intent.missing_fields)
+                    logger.info(
+                        "PROJECT_RESOLUTION | intent=%s | method=%s",
+                        intent.intent, match.method,
+                    )
+                elif match.status == "ambiguous":
+                    intent.project_name = None
+                    intent.requires_clarification = True
+                    if "project_name" not in intent.missing_fields:
+                        intent.missing_fields.append("project_name")
+                    blocked_intents.add(index)
+                elif intent.intent == "bank_details":
+                    # A unit ID or LLM guess alone is insufficient for bank details.
+                    intent.project_name = None
+                    intent.requires_clarification = True
+                    if "project_name" not in intent.missing_fields:
+                        intent.missing_fields.append("project_name")
+                    blocked_intents.add(index)
+
             if intent.intent == "marketing":
                 
                 resolved_project = resolve_visible_unit_project(
@@ -809,19 +885,12 @@ async def _stream_chat_response_impl(
                     for requested_name in (
                         intent.compare_project_names or []
                     ):
-                        requested_key = normalize_project_name(
-                            requested_name
+                        comparison_match = match_project_reference(
+                            requested_name,
+                            inventory_active_names,
                         )
-
-                        matches = [
-                            name
-                            for name in inventory_active_names
-                            if normalize_project_name(name)
-                            == requested_key
-                        ]
-
-                        if len(matches) == 1:
-                            resolved_names.append(matches[0])
+                        if comparison_match.status == "matched":
+                            resolved_names.append(comparison_match.name)
                         else:
                             invalid_names.append(requested_name)
 
@@ -899,11 +968,10 @@ async def _stream_chat_response_impl(
                 continue
 
 
-            elif intent.intent in {
-                "download_availability",
-                "bank_details",
-            }:
+            elif intent.intent == "bank_details":
+                valid_names = inventory_active_names
 
+            elif intent.intent == "download_availability":
                 valid_names = (
                     inventory_active_names
                     | inventory_unit_names
@@ -1015,8 +1083,54 @@ async def _stream_chat_response_impl(
                 or settings.foundry_openai_model
             ),
         )
-                
-    
+
+
+        # GREETING INTENT — return fixed response without LLM 2
+        if (
+            len(routing_result.intents) == 1
+            and routing_result.intents[0].intent == "greeting"
+        ):
+            greeting_response = ChatResponse(
+                response=GREETING_RESPONSE,
+                session_id=session_id,
+                correlation_id=correlation_id,
+                followups=[],
+                data={
+                    "files": [],
+                    "classification": routing_result.model_dump(mode="json"),
+                },
+            )
+
+            response_payload = {
+                "version": 1,
+                "html_blocks": [],
+                "files": [],
+                "followups": [],
+                "inventory_context": None,
+            }
+
+            await persist_completed_chat(
+                clients=clients,
+                session_id=session_id,
+                user_id=user_id,
+                user_message=message,
+                assistant_message=GREETING_RESPONSE,
+                intents=["greeting"],
+                latency_ms=int((time.perf_counter() - started_at) * 1000),
+                response_payload=response_payload,
+            )
+
+            yield format_sse("token", {"text": GREETING_RESPONSE})
+            yield format_sse("followups", {"chips": []})
+            yield format_sse(
+                "final",
+                greeting_response.model_dump(mode="json"),
+            )
+
+            status = "completed"
+            yield format_sse("done", {"status": status})
+            return
+
         # 3. INITIALIZE INTENT DISPATCHER
 
         dispatcher = IntentDispatcher(
@@ -1045,7 +1159,12 @@ async def _stream_chat_response_impl(
             # FIX 3: Do not execute unresolved intents.
             if index in blocked_intents:
 
-                if (
+                if intent.intent == "bank_details":
+                    clarification_messages.append(
+                        "Could you please tell me the project name "
+                        "so I can share the bank details?"
+                    )
+                elif (
                     intent.intent == "inventory"
                     and intent.inventory_operation
                         == "project_comparison"

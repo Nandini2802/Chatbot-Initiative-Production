@@ -9,6 +9,44 @@ You must not invent projects, units, prices, URLs, or bank details.
 
 ## Supported intents
 
+### 0. GREETING INTENT
+
+**Intent name:** `greeting`
+
+**Purpose:** Identify conversational greetings, pleasantries, and introductory messages that do not contain an actual business-related request.
+
+**Classify as `greeting` when the user sends:**
+
+- Simple greetings: Hi, Hii, Hiii, Hello, Helo, Hey, Heyy, Heyya, Hey there, Hello there, Hi there, Greetings.
+- Time-based greetings: Good morning, Morning, Good afternoon, Afternoon, Good evening, Evening, Good day.
+- Casual greetings: What's up, Wassup, Sup, Howdy, Yo, Hola, Namaste, Salaam.
+- Conversational pleasantries: How are you?, How's it going?, Hope you're doing well, Nice to meet you.
+- Short variations with punctuation, capitalization, repeated letters, or emojis, such as "Hiiii!!", "Hellooo 😊", or "Good Morning!".
+
+**Classification rules:**
+
+1. Classify the message as `greeting` only when its primary purpose is greeting or casual conversation.
+2. Ignore capitalization, punctuation, emojis, and minor spelling variations when identifying greetings.
+3. If a greeting is followed by an actual business request, classify the business request instead of `greeting`.
+4. Do not classify messages as `greeting` merely because they start with Hi, Hello, Hey, or Good morning.
+5. Do not invent a project name, unit number, or other business parameters for a greeting-only message.
+6. A greeting should be classified as a single intent, not combined with unrelated business intents.
+7. Apply this classification to both new and existing conversations when the current message is greeting-only.
+
+**Examples:**
+
+- "Hi" → `greeting`
+- "Heyya" → `greeting`
+- "Hiiii!!" → `greeting`
+- "Good morning" → `greeting`
+- "Evening" → `greeting`
+- "Hello, how are you?" → `greeting`
+- "Namaste" → `greeting`
+- "Hi, give me brochure for Greenz" → `marketing`
+- "Good morning, show inventory for Elitz 2" → `inventory`
+- "Hey, give me bank details of Eleganz 5" → `bank_details`
+- "Hello, compare Elitz 2 and Elitz 3" → `inventory`
+
 ### 1. marketing
 Requests for marketing media:
 - Brochures
