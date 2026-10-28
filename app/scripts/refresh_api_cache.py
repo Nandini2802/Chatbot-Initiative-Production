@@ -119,6 +119,9 @@ async def refresh_currency_cache(
     Fetch latest currency rates and update Redis.
     """
 
+    settings = get_settings()
+
+
     if secrets is None:
         raise ValueError(
             "Application secrets are not initialized"
@@ -186,31 +189,19 @@ async def main():
     clients = None
 
     try:
-
-        # Step 1: Load secrets
         secrets = await load_application_secrets()
-
-
-        # Step 2: Initialize Application Insights
         setup_application_insights(
             connection_string=(
                 secrets.applicationinsights_connection_string
                 .get_secret_value()
             )
         )
+        clients = await create_service_clients(secrets)
 
-        # Step 3: Connect to Redis
-        clients = await create_service_clients(
-            secrets
-        )
-
-
-        # Step 4: Refresh Marketing API cache
-        success = await refresh_marketing_cache(
+        marketing_success = await refresh_marketing_cache(
             clients=clients,
             secrets=secrets,
         )
-
         currency_success = await refresh_currency_cache(
             clients=clients,
             secrets=secrets,
@@ -221,23 +212,21 @@ async def main():
                 "Currency API cache refresh failed"
             )
 
-        if not success:
+        if not marketing_success:
             raise RuntimeError(
                 "Marketing API cache refresh failed"
             )
 
-
-        logger.info(
-            "API_CACHE_REFRESH_JOB_SUCCESS"
-        )
+        print("ALL CACHE REFRESHES SUCCESSFUL", flush=True)
 
     except Exception as exc:
-        logger.exception(
-            "API_CACHE_REFRESH_JOB_FAILED"
-        )
+
+        logger.exception("API_CACHE_REFRESH_JOB_FAILED")
+
         raise
 
     finally:
+
         if clients is not None:
             await close_service_clients(clients)
 

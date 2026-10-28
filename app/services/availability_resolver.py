@@ -2,6 +2,9 @@ import re
 from dataclasses import dataclass
 
 from app.schemas.retrieval import InventorySnapshot
+from app.services.project_resolution_service import (
+    match_project_reference,
+)
 
 
 class AvailabilityResolutionError(ValueError):
@@ -75,11 +78,39 @@ def resolve_availability_project(
         })
 
     if intent.project_name:
-        candidate_sets.append({
-            pid for pid, project in projects.items()
-            if normalize(project["name"])
-            == normalize(intent.project_name)
-        })
+
+        # Build project name to ID mapping
+        project_names = {
+            project["name"]: pid
+            for pid, project in projects.items()
+            if project["name"]
+        }
+
+        # Reuse existing Bank Details project matching
+        resolution = match_project_reference(
+            intent.project_name,
+            project_names.keys(),
+        )
+
+        if resolution.status == "matched":
+
+            candidate_sets.append({
+                pid
+                for pid, project in projects.items()
+                if project["name"] == resolution.name
+            })
+
+        elif resolution.status == "ambiguous":
+
+            raise AvailabilityResolutionError(
+                "Multiple projects match your request: "
+                + ", ".join(resolution.candidates[:5])
+                + ". Please specify the correct project."
+            )
+
+        else:
+
+            candidate_sets.append(set())
 
     for field, attributes in (
         ("unit_id", ("unit_id",)),

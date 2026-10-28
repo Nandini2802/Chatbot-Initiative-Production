@@ -43,6 +43,8 @@ from app.services.availability_resolver import (
 )
 from app.services.sales_offer_state import SalesOfferState
 from app.services.walkthrough_access_service import WalkthroughEngine
+from app.services.download_availability_state import DownloadAvailabilityState
+from app.services.download_availability_access_service import DownloadAvailabilityAccessService
 from app.observability.logger import audit_event, log_context
 from app.services.payment_plan_selection_service import interpret_payment_selection
 
@@ -277,6 +279,40 @@ async def _stream_chat_response_impl(
 
 
 
+
+        # Download Availability pending selection (scoped to authenticated user/session).
+        availability_state = DownloadAvailabilityState(clients.redis)
+        pending_availability = await availability_state.load(
+            user_id=user_id, session_id=str(session_id),
+        )
+        availability_followup = False
+        routing_message = message
+        if pending_availability:
+            normalized_reply = message.strip().lower()
+            if normalized_reply in {"cancel", "never mind", "nevermind", "stop"}:
+                await availability_state.clear(
+                    user_id=user_id, session_id=str(session_id),
+                )
+                pending_availability = None
+            else:
+                # Preserve the ordinary router for new requests. Only clearly
+                # parameter-only answers are treated as continuations.
+                tokens = message.strip().split()
+                is_currency_reply = (
+                    len(tokens) == 1 and len(tokens[0]) == 3
+                    and tokens[0].isalpha()
+                )
+                is_format_reply = normalized_reply in {
+                    "pdf", "excel", "xls", "xlsx", "spreadsheet",
+                    "pdf instead", "excel instead",
+                }
+                if is_currency_reply or is_format_reply:
+                    availability_followup = True
+                    routing_message = (
+                        "Continue my pending download_availability request "
+                        f"for {pending_availability.get('project_name') or pending_availability.get('project_id') or 'the project'}. "
+                        f"My answer to your clarification is: {message}"
+                    )
 
         # Load official project names from Redis
         project_catalog_service = ProjectCatalogService(
@@ -536,7 +572,7 @@ async def _stream_chat_response_impl(
         
         # LLM 1 receives the official project catalog
         routing_result = await router_service.classify(
-            message=message,
+            message=routing_message,
             history=history,
             available_projects=available_projects,
             inventory_active_projects=inventory_catalogs.active_projects,
@@ -566,6 +602,45 @@ async def _stream_chat_response_impl(
             ],
         )
 
+
+        # Merge pending parameters after LLM 1; do not let LLM defaults
+        # overwrite a previously explicit user selection.
+        availability_intents = [
+            item for item in routing_result.intents
+            if item.intent == "download_availability"
+        ]
+        if pending_availability and availability_followup and not availability_intents:
+            # Do not execute an unrelated intent on an ambiguous continuation.
+            logger.warning("AVAILABILITY_FOLLOWUP_NOT_CLASSIFIED | session_id=%s", session_id)
+        if pending_availability and availability_intents and availability_followup:
+            for item in availability_intents:
+                if not any((item.project_id, item.project_name, item.project_number,
+                            item.unit_id, item.unit_name, item.unit_number)):
+                    item.project_id = pending_availability.get("project_id")
+                    item.project_name = pending_availability.get("project_name")
+                if not item.currency:
+                    item.currency = pending_availability.get("currency")
+                if not item.file_format:
+                    item.file_format = pending_availability.get("file_format")
+                # For short follow-ups, explicitly prioritize the new value.
+                value = message.strip().lower()
+                if len(value) == 3 and value.isalpha():
+                    item.currency = value.upper()
+                if value in {"pdf", "excel", "xls", "xlsx", "spreadsheet", "pdf instead", "excel instead"}:
+                    item.file_format = "pdf" if value.startswith("pdf") else "excel"
+                missing = set(item.missing_fields)
+                if item.project_id or item.project_name:
+                    missing -= {"project_name", "project_identifier"}
+                if item.currency:
+                    missing.discard("currency")
+                if item.file_format:
+                    missing.discard("file_format")
+                item.missing_fields = sorted(missing)
+                item.requires_clarification = bool(missing)
+        elif pending_availability and not availability_followup:
+            # A distinct request supersedes the pending download.
+            await availability_state.clear(user_id=user_id, session_id=str(session_id))
+            pending_availability = None
 
         pending_sales_offer = await SalesOfferState(
             clients.redis
@@ -767,9 +842,30 @@ async def _stream_chat_response_impl(
         
 
         # Tracks intents that must not execute.
+        availability_denied = set()
+        availability_access = DownloadAvailabilityAccessService(walkthrough_engine)
         blocked_intents = set()
 
         for index, intent in enumerate(routing_result.intents):
+            if intent.intent == "download_availability":
+                allowed, reason = availability_access.check(
+                    role=role, source=source, employee_type=employee_type,
+                )
+                if not allowed:
+                    availability_denied.add(index)
+                    blocked_intents.add(index)
+                    await availability_state.clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    logger.info(
+                        "AVAILABILITY_ACCESS_DENIED | reason=%s | correlation_id=%s",
+                        reason, correlation_id,
+                    )
+
+        for index, intent in enumerate(routing_result.intents):
+
+            if index in availability_denied:
+                continue
 
             # CENTRAL_PROJECT_RESOLUTION: catalog-scoped, zero extra LLM calls.
             # Only project-name matching is corrected. Feature-specific IDs,
@@ -1061,6 +1157,36 @@ async def _stream_chat_response_impl(
                         )
 
 
+            if intent.intent == "download_availability" and index not in availability_denied:
+                # Ensure all required fields are checked after project resolution.
+                missing = set(intent.missing_fields)
+                if not intent.project_id:
+                    missing.add("project_identifier")
+                else:
+                    missing -= {"project_identifier", "project_name"}
+                if not intent.currency:
+                    missing.add("currency")
+                else:
+                    missing.discard("currency")
+                if not intent.file_format:
+                    missing.add("file_format")
+                else:
+                    missing.discard("file_format")
+                intent.missing_fields = sorted(missing)
+                intent.requires_clarification = bool(missing)
+                if intent.requires_clarification:
+                    await availability_state.save(
+                        user_id=user_id,
+                        session_id=str(session_id),
+                        state={
+                            "intent": "download_availability",
+                            "project_id": intent.project_id,
+                            "project_name": intent.project_name,
+                            "currency": intent.currency,
+                            "file_format": intent.file_format,
+                        },
+                    )
+
             # Block ambiguous or incomplete requests.
             if intent.requires_clarification:
                 blocked_intents.add(index)
@@ -1159,6 +1285,31 @@ async def _stream_chat_response_impl(
             # FIX 3: Do not execute unresolved intents.
             if index in blocked_intents:
 
+                if index in availability_denied:
+                    clarification_messages.append(
+                        "Download Availability is not available for your account."
+                    )
+                    continue
+                if intent.intent == "download_availability":
+                    missing = set(intent.missing_fields)
+                    if "project_identifier" in missing or "project_name" in missing:
+                        clarification_messages.append(
+                            "Which Danube project would you like the availability report for?"
+                        )
+                    elif "currency" in missing:
+                        clarification_messages.append(
+                            "Which currency would you like for the availability report?"
+                        )
+                    elif "file_format" in missing:
+                        clarification_messages.append(
+                            "Would you like the report in PDF or Excel format?"
+                        )
+                    else:
+                        clarification_messages.append(
+                            "Please clarify the availability report details."
+                        )
+                    continue
+
                 if intent.intent == "bank_details":
                     clarification_messages.append(
                         "Could you please tell me the project name "
@@ -1182,6 +1333,11 @@ async def _stream_chat_response_impl(
                 continue
 
             result = await dispatcher.execute(intent)
+
+            if intent.intent == "download_availability" and result.has_data:
+                await availability_state.clear(
+                    user_id=user_id, session_id=str(session_id),
+                )
 
             handler_results.append(result)
 

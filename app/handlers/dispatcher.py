@@ -112,6 +112,10 @@ class IntentDispatcher:
                     inventory_snapshot=inventory_snapshot,
                     access_token=access_token,
                     user_id=user_id,
+                    walkthrough_engine=walkthrough_engine,
+                    role=role,
+                    source=source,
+                    employee_type=employee_type,
                 )
             )
 

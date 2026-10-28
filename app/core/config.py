@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     availability_api_url: str = ""
     availability_timeout_seconds: float = 60.0
     availability_app_version: str = "2.0.8"
+    download_availability_rbac_enabled: bool = True
 
     # External APIs
     request_timeout_seconds: int = 10

@@ -462,24 +462,36 @@ Support shortened project names, spelling variations, and references from previo
 If a project is ambiguous, request clarification. Never invent a Salesforce project ID.
 
 Currency:
-- Extract the currency code when explicitly requested.
-- Default to AED when omitted.
-- Preserve the previous currency for follow-up requests.
-- Currency validity is checked by the backend against Redis.
+- Extract the currency code only if explicitly provided.
+- If missing, return currency=null.
+- Do not default to AED.
+- Do not invent currency codes.
+- Currency is validated by the backend using cached Currency API data.
 
 File format:
 - PDF, pdf -> pdf
 - Excel, XLSX, XLS, spreadsheet -> excel
+- If missing, return file_format=null.
 - Default to pdf when omitted.
 - Preserve the previous format in follow-up requests.
 
+Clarification:
+- If currency is missing, include "currency" in missing_fields.
+- If format is missing, include "file_format" in missing_fields.
+- Keep requires_clarification=true while required fields are missing.
+- If all fields are available, set requires_clarification=false.
+- For a pending download request, a reply containing only a currency or format is a continuation.
+- Preserve previously verified parameters unless the user changes them.
+
+
 Examples:
 
-User: Download Greenz availability
 intent: download_availability
 project_name: GREENZ BY DANUBE
-currency: AED
-file_format: pdf
+currency: null
+file_format: null
+missing_fields: ["currency", "file_format"]
+requires_clarification: true
 
 User: Export availability for Greenz in USD Excel
 intent: download_availability

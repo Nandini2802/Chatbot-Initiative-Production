@@ -262,33 +262,49 @@ class RouterService:
             if item.intent == "download_availability":
 
                 item.currency = (
-                    item.currency or "AED"
-                ).strip().upper()
+                    item.currency.strip().upper()
+                    if item.currency
+                    else None
+                )
 
                 file_format = (
-                    item.file_format or "pdf"
-                ).strip().lower()
+                    item.file_format.strip().lower()
+                    if item.file_format
+                    else None
+                )
 
-                if file_format in {"xlsx", "xls", "spreadsheet"}:
+                if file_format in {
+                    "xlsx", "xls", "spreadsheet"
+                }:
                     file_format = "excel"
 
                 item.file_format = file_format
 
-                has_identifier = any([
+                identifiers = (
                     item.project_id,
+                    item.project_number,
+                    item.project_name,
                     item.unit_id,
                     item.unit_name,
                     item.unit_number,
-                    item.project_name,
-                    item.project_number,
-                ])
+                )
 
-                if not has_identifier:
-                    missing.add("project_identifier")
-                else:
-                    missing.discard("project_name")
+                if any(identifiers):
                     missing.discard("project_identifier")
+                    missing.discard("project_name")
+                else:
+                    missing.add("project_identifier")
 
+                if item.currency is None:
+                    missing.add("currency")
+                else:
+                    missing.discard("currency")
+
+                if item.file_format is None:
+                    missing.add("file_format")
+                else:
+                    missing.discard("file_format")
+                    
             elif item.intent == "marketing":
 
                 if (

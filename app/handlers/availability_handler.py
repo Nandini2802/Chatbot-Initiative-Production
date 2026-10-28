@@ -11,6 +11,13 @@ from app.retrieval.availability_connector import (
     AvailabilityAPIError,
 )
 from app.services.template_service import TemplateService
+from app.core.config import get_settings
+from app.services.download_availability_access_service import (
+    DownloadAvailabilityAccessService,
+)
+from app.services.walkthrough_access_service import (
+    WalkthroughEngine,
+)
 
 
 class AvailabilityHandler:
@@ -21,6 +28,10 @@ class AvailabilityHandler:
         inventory_snapshot,
         access_token: str,
         user_id: str,
+        walkthrough_engine: WalkthroughEngine | None = None,
+        role: str = "",
+        source: str = "",
+        employee_type: str = "",
     ):
         self.service = AvailabilityService(
             redis_client=redis_client,
@@ -29,12 +40,36 @@ class AvailabilityHandler:
         self.templates = TemplateService()
         self.access_token = access_token
         self.user_id = user_id
+        self.role = role
+        self.source = source
+        self.employee_type = employee_type
+
+        self.access_service = (
+            DownloadAvailabilityAccessService(walkthrough_engine)
+            if walkthrough_engine is not None
+            else None
+        )
 
     async def handle(self, intent) -> HandlerResult:
 
         result = HandlerResult(
             intent="download_availability"
         )
+
+        if self.access_service is None:
+            allowed = not get_settings().download_availability_rbac_enabled
+        else:
+            allowed, reason = self.access_service.check(
+                role=self.role,
+                source=self.source,
+                employee_type=self.employee_type,
+            )
+
+        if not allowed:
+            result.messages.append(
+                "Download Availability is not available for your account."
+            )
+            return result
 
         try:
             report = await self.service.generate(
