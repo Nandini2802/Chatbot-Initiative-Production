@@ -22,6 +22,8 @@ class ChatRequest(BaseModel):
     role: str
     source: Literal["mobile_app", "web_app"]
     employee_type: Literal["direct", "indirect", ""] = Field(...)
+    selected_payment_plan_names: list[str] | None = None
+
 
     @model_validator(mode="after")
     def validate_session(self):

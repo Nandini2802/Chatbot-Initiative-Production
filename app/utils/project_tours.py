@@ -11,11 +11,14 @@ from app.utils.google_maps import normalize_map_project_name
 
 ALLOWED_TOUR_HOSTS = {
     "3d.virtualhomes.in",
+    "danube.discoverin360.com",
+    "view.propvr.tech",
+    "virtualtour.farcomtrento.com",
 }
 
 
 def safe_tour_url(value):
-    """Accept only valid HTTPS virtual tour URLs."""
+    """Accept valid HTTPS URLs from approved tour providers."""
 
     if not isinstance(value, str):
         return None
@@ -41,7 +44,15 @@ def safe_tour_url(value):
 
 
 class VirtualTourParser(HTMLParser):
-    """Find an anchor whose text identifies a virtual tour."""
+    """Find virtual tour links in OSF HTML content."""
+
+    TOUR_LABELS = (
+        "virtual tour",
+        "3d tour",
+        "360 tour",
+        "360° tour",
+        "360 virtual tour",
+    )
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -59,21 +70,26 @@ class VirtualTourParser(HTMLParser):
             self.current_text.append(data)
 
     def handle_endtag(self, tag):
-        if tag.lower() == "a" and self.current_href:
-            label = " ".join(self.current_text).casefold()
+        if tag.lower() != "a" or self.current_href is None:
+            return
 
-            if "virtual tour" in label or "3d tour" in label:
-                url = safe_tour_url(self.current_href)
+        label = " ".join(self.current_text).casefold()
 
-                if url:
-                    self.links.append(url)
+        if any(
+            keyword in label
+            for keyword in self.TOUR_LABELS
+        ):
+            url = safe_tour_url(self.current_href)
 
-            self.current_href = None
-            self.current_text = []
+            if url:
+                self.links.append(url)
+
+        self.current_href = None
+        self.current_text = []
 
 
 def extract_virtual_tour_url(content):
-    """Extract the virtual tour URL from the content HTML."""
+    """Extract the first valid tour URL from project HTML."""
 
     if not isinstance(content, str) or not content.strip():
         return None
@@ -89,7 +105,7 @@ def build_project_tour_lookup(portfolio):
     Build:
         normalized_project_name -> virtual_tour_url
 
-    Uses OSF Portfolio title and content.
+    Uses OSF Portfolio title and HTML content.
     """
 
     lookup = {}

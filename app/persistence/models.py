@@ -1,5 +1,7 @@
 import uuid
 from datetime import datetime, timezone
+from sqlalchemy import DateTime, String, Text, func
+
 
 from sqlalchemy import (
     CheckConstraint,
@@ -211,4 +213,43 @@ class QueryLog(Base):
             "user_id",
             "created_at",
         ),
+    )
+
+class SalesOfferDocument(Base):
+    __tablename__ = "sales_offer_documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    session_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    sales_offer_doc_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    file_name: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    file_path: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )

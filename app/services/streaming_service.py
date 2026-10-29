@@ -7,6 +7,8 @@ import re
 import os
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from types import SimpleNamespace
+
 
 from app.services.project_name_service import normalize_project_name
 from app.services.project_resolution_service import (
@@ -49,6 +51,9 @@ from app.observability.logger import audit_event, log_context
 from app.services.payment_plan_selection_service import interpret_payment_selection
 
 from app.utils.bank_debug import bank_debug
+from app.schemas.routing import RoutingIntent
+from app.handlers.payment_plan_handler import PaymentPlanHandler
+
 
 
 
@@ -206,6 +211,7 @@ async def _stream_chat_response_impl(
     clients: ServiceClients,
     access_token: str,
     walkthrough_engine: WalkthroughEngine,
+    selected_payment_plan_names: list[str] | None = None,
 ):
 
     started_at = time.perf_counter()
@@ -342,8 +348,6 @@ async def _stream_chat_response_impl(
         # PAYMENT PLAN FOLLOW-UP: exact selection bypasses LLM routing.
         # Reuse the existing handler, HTML renderer, persistence, and SSE format.
         if selected_payment_plan is not None:
-            from types import SimpleNamespace
-            from app.handlers.payment_plan_handler import PaymentPlanHandler
 
             payment_handler = PaymentPlanHandler(
                 snapshot=inventory_snapshot,
@@ -582,6 +586,152 @@ async def _stream_chat_response_impl(
             walkthrough_features=walkthrough_features,
         )
 
+        
+        sales_offer_state = SalesOfferState(
+            clients.redis
+        )
+
+        pending_so = await sales_offer_state.load(
+            user_id=user_id,
+            session_id=str(session_id),
+        )
+
+        normalized_message = message.strip().casefold()
+
+        new_sales_offer_request = bool(
+            re.search(
+                r"\b(?:generate|create|make|get)\s+"
+                r"(?:a\s+|the\s+)?sales\s+offer\b"
+                r"|\bsales\s+offer\s+for\b",
+                normalized_message,
+            )
+        )
+
+        if pending_so and new_sales_offer_request:
+            await sales_offer_state.clear(
+                user_id=user_id,
+                session_id=str(session_id),
+            )
+            pending_so = None
+
+        # Explicit cancellation.
+        if pending_so and normalized_message in {
+            "cancel",
+            "cancel sales offer",
+            "stop sales offer",
+            "never mind",
+            "nevermind",
+        }:
+            await sales_offer_state.clear(
+                user_id=user_id,
+                session_id=str(session_id),
+            )
+            pending_so = None
+
+        if selected_payment_plan_names is not None:
+            if (
+                not pending_so
+                or pending_so.get("stage")
+                != "payment_plan_selection"
+            ):
+                raise ValueError(
+                    "Payment-plan selection is not active "
+                    "for this conversation."
+                )
+
+        if pending_so:
+            classified_as_new_request = any(
+                intent.intent not in {"sales_offer", "unknown", "clarification"}
+                for intent in routing_result.intents
+            )
+
+            if classified_as_new_request:
+                await sales_offer_state.clear(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+                pending_so = None
+
+        if pending_so:
+            continuation = RoutingIntent(
+                intent="sales_offer",
+                original_query=message,
+                expanded_query=message,
+                action="continue",
+                project_name=None,
+                unit_number=None,
+                bedrooms=None,
+                currency=None,
+                file_format=None,
+                bank_account_types=[],
+                marketing_assets=[],
+                missing_fields=[],
+                requires_clarification=False,
+            )
+
+            routing_result.intents = [continuation]
+            routing_result.requires_clarification = False
+
+    
+        for sales_intent in routing_result.intents:
+
+            if sales_intent.intent != "sales_offer":
+                continue
+
+            if pending_so:
+                continue
+
+            reference_match = re.search(
+                r"\bsales\s+offer\s+for\s+(.+?)\s*$",
+                message,
+                flags=re.IGNORECASE,
+            )
+
+            if not reference_match:
+                continue
+
+            reference = reference_match.group(1).strip()
+            normalized_reference = normalize_project_name(
+                reference
+            )
+
+            matching_projects = [
+                project
+                for project in inventory_snapshot.projects
+                if (
+                    project.project_id
+                    and project.project_id.casefold()
+                    == reference.casefold()
+                )
+                or (
+                    project.project_name
+                    and normalize_project_name(
+                        project.project_name
+                    ) == normalized_reference
+                )
+                or (
+                    project.project_number
+                    and str(
+                        project.project_number
+                    ).casefold() == reference.casefold()
+                )
+            ]
+
+            if len(matching_projects) == 1:
+                project = matching_projects[0]
+
+                sales_intent.project_id = project.project_id
+                sales_intent.project_name = project.project_name
+
+                sales_intent.unit_id = None
+                sales_intent.unit_name = None
+                sales_intent.unit_number = None
+
+                sales_intent.missing_fields = []
+                sales_intent.requires_clarification = False
+
+                routing_result.requires_clarification = False
+
         audit_event(
             "LLM1_COMPLETED",
             correlation_id=correlation_id,
@@ -642,45 +792,6 @@ async def _stream_chat_response_impl(
             await availability_state.clear(user_id=user_id, session_id=str(session_id))
             pending_availability = None
 
-        pending_sales_offer = await SalesOfferState(
-            clients.redis
-        ).load(
-            user_id=user_id,
-            session_id=str(session_id),
-        )
-
-        sales_intent = next(
-            (
-                item
-                for item in routing_result.intents
-                if item.intent == "sales_offer"
-            ),
-            None,
-        )
-
-        selected_numbers = (
-            sales_intent.payment_plan_numbers or []
-            if sales_intent
-            else []
-        )
-
-        if pending_sales_offer and sales_intent and selected_numbers:
-
-            sales_intent.unit_id = pending_sales_offer["unit_id"]
-            sales_intent.unit_name = pending_sales_offer["unit_name"]
-            sales_intent.currency = pending_sales_offer["currency"]
-
-            sales_intent.missing_fields = []
-            sales_intent.requires_clarification = False
-
-            routing_result.requires_clarification = False
-
-            logger.info(
-                "SALES_OFFER_SELECTION_RESTORED | "
-                "session_id=%s | selected_plans=%s",
-                session_id,
-                selected_numbers,
-            )
 
         for intent in routing_result.intents:
 
@@ -1259,55 +1370,78 @@ async def _stream_chat_response_impl(
 
         # 3. INITIALIZE INTENT DISPATCHER
 
-        dispatcher = IntentDispatcher(
-            redis_client=clients.redis,
-            inventory_snapshot=inventory_snapshot,
-            payment_client=inventory_client,
-            payment_token=access_token,
-            user_id=user_id,
-            session_id=str(session_id),
-            access_token=access_token,
-            inventory_token=inventory_token,
-            message=message,
-            walkthrough_engine=walkthrough_engine,
-            role=role,
-            source=source,
-            employee_type=employee_type,
+        sales_offer_session_factory = async_sessionmaker(
+            bind=clients.postgres,
+            expire_on_commit=False,
+            autoflush=False,
         )
 
-        handler_results = []
-        clarification_messages = []
+        async with sales_offer_session_factory() as db_session:
+
+            dispatcher = IntentDispatcher(
+                redis_client=clients.redis,
+                inventory_snapshot=inventory_snapshot,
+                payment_client=inventory_client,
+                payment_token=access_token,
+                user_id=user_id,
+                session_id=str(session_id),
+                access_token=access_token,
+                inventory_token=inventory_token,
+                message=message,
+                walkthrough_engine=walkthrough_engine,
+                role=role,
+                source=source,
+                employee_type=employee_type,
+                selected_payment_plan_names=selected_payment_plan_names,
+                db_session=db_session,
+            )
+
+            handler_results = []
+            clarification_messages = []
 
         # 4. PROCESS CLASSIFIED INTENTS
 
         for index, intent in enumerate(routing_result.intents):
 
-            # FIX 3: Do not execute unresolved intents.
             if index in blocked_intents:
 
                 if index in availability_denied:
                     clarification_messages.append(
-                        "Download Availability is not available for your account."
+                        "Download Availability is not available "
+                        "for your account."
                     )
                     continue
+
                 if intent.intent == "download_availability":
                     missing = set(intent.missing_fields)
-                    if "project_identifier" in missing or "project_name" in missing:
+
+                    if (
+                        "project_identifier" in missing
+                        or "project_name" in missing
+                    ):
                         clarification_messages.append(
-                            "Which Danube project would you like the availability report for?"
+                            "Which Danube project would you like "
+                            "the availability report for?"
                         )
+
                     elif "currency" in missing:
                         clarification_messages.append(
-                            "Which currency would you like for the availability report?"
+                            "Which currency would you like "
+                            "for the availability report?"
                         )
+
                     elif "file_format" in missing:
                         clarification_messages.append(
-                            "Would you like the report in PDF or Excel format?"
+                            "Would you like the report in PDF "
+                            "or Excel format?"
                         )
+
                     else:
                         clarification_messages.append(
-                            "Please clarify the availability report details."
+                            "Please clarify the availability "
+                            "report details."
                         )
+
                     continue
 
                 if intent.intent == "bank_details":
@@ -1315,15 +1449,17 @@ async def _stream_chat_response_impl(
                         "Could you please tell me the project name "
                         "so I can share the bank details?"
                     )
+
                 elif (
                     intent.intent == "inventory"
                     and intent.inventory_operation
-                        == "project_comparison"
+                    == "project_comparison"
                 ):
                     clarification_messages.append(
                         "Please provide two valid Danube "
                         "project names to compare."
                     )
+
                 else:
                     clarification_messages.append(
                         "Please clarify the project or "
@@ -1334,9 +1470,13 @@ async def _stream_chat_response_impl(
 
             result = await dispatcher.execute(intent)
 
-            if intent.intent == "download_availability" and result.has_data:
+            if (
+                intent.intent == "download_availability"
+                and result.has_data
+            ):
                 await availability_state.clear(
-                    user_id=user_id, session_id=str(session_id),
+                    user_id=user_id,
+                    session_id=str(session_id),
                 )
 
             handler_results.append(result)
@@ -1431,7 +1571,59 @@ async def _stream_chat_response_impl(
         real_llm_streaming = False
         streamed_answer = ""
 
-        if project_details_html_only:
+        sales_offer_success_only = (
+            len(routing_result.intents) == 1
+            and routing_result.intents[0].intent == "sales_offer"
+            and len(handler_results) == 1
+            and handler_results[0].generation_context.get("generated") is True
+            and not clarification_messages
+        )
+
+        if sales_offer_success_only:
+            offer = handler_results[0].generation_context
+
+            unit_name = (
+                offer.get("unit_name") or "the selected unit"
+            )
+            project_name = offer.get("project_name")
+            currency_code = offer.get("currency") or "AED"
+            exchange_rate = offer.get("exchange_rate")
+            document_names = offer.get("document_names") or []
+
+            response_text = (
+                f"I have generated the sales offer for "
+                f"unit {unit_name}"
+            )
+
+            if project_name:
+                response_text += f" in {project_name}"
+
+            response_text += f" in {currency_code}"
+
+            if currency_code != "AED" and exchange_rate is not None:
+                response_text += (
+                    f" (based on today's conversion rate: "
+                    f"AED 1 = {currency_code} {exchange_rate})"
+                )
+
+            response_text += ", as requested."
+
+            if document_names:
+                response_text += (
+                    "\n\nDocument: "
+                    + ", ".join(document_names)
+                )
+
+            response_text += (
+                "\n\nPlease note: Exchange rate applied is valid "
+                "for today only and subject to change "
+                "at the time of unit booking."
+            )
+
+            followup_chips = []
+            real_llm_streaming = False
+
+        elif project_details_html_only:
             response_text = ""
             followup_chips = []
             real_llm_streaming = False
@@ -1578,7 +1770,7 @@ async def _stream_chat_response_impl(
         )
 
         if sales_offer_succeeded:
-            if SALES_OFFER_DISCLAIMER not in response_text:
+            if sales_offer_succeeded and not sales_offer_success_only:
                 response_text = (
                     response_text.rstrip()
                     + "\n\n"
@@ -1869,6 +2061,7 @@ async def stream_chat_response(
     clients: ServiceClients,
     access_token: str,
     walkthrough_engine: WalkthroughEngine,
+    selected_payment_plan_names: list[str] | None = None,
 ):
     started_at = time.perf_counter()
 
@@ -1891,6 +2084,7 @@ async def stream_chat_response(
             clients=clients,
             access_token=access_token,
             walkthrough_engine=walkthrough_engine,
+            selected_payment_plan_names=selected_payment_plan_names,
         ):
             if event.startswith("event: done\n"):
                 if '"completed"' in event:

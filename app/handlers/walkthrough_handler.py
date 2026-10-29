@@ -58,8 +58,9 @@ class WalkthroughHandler:
             return HandlerResult(
                 intent="excel_walkthrough",
                 messages=[
-                    "This feature walkthrough is not available "
-                    "for your account."
+                    "Great question! While we don't offer that feature yet, "
+                    "I'd love to help you explore other features which are "
+                    "available for you."
                 ],
             )
 

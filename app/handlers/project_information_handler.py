@@ -530,10 +530,8 @@ class ProjectInformationHandler:
             )
 
         html = self.templates.render(
-            "project_tour.html.j2",
-            project_id=project.project_id,
-            project_name=project.project_name,
-            video_url=video_url,
+            "virtual_tour_file.html.j2",
+            tour_url=video_url,
         )
 
         logger.info(

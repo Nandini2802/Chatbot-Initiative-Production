@@ -599,6 +599,77 @@ ONLY if exactly two plans were presented.
 User: "The second one looks good"
 payment_plan_numbers: [2]
 
+
+### SALES OFFER - PROJECT AND UNIT RESOLUTION
+
+A Sales Offer request can contain a project name,
+project Salesforce ID, unit name or unit Salesforce ID.
+
+Project-only requests are valid.
+
+Examples:
+
+"Generate sales offer for Greenz"
+- intent: sales_offer
+- project_name: official matching project name
+- unit_name: null
+- unit_id: null
+- missing_fields: []
+
+"Sales offer for a14NM000005RQZpYAO"
+- intent: sales_offer
+- project_id: a14NM000005RQZpYAO
+- unit_id: null
+- missing_fields: []
+
+"Generate sales offer for a1KFV000000A7rR2AS"
+- intent: sales_offer
+- unit_id: a1KFV000000A7rR2AS
+
+"Sales offer for ASPZ-F02-11013"
+- intent: sales_offer
+- unit_name: ASPZ-F02-11013
+
+"Generate sales offer for grzth808"
+- intent: sales_offer
+- unit_name: grzth808
+
+Do not invent unit identifiers.
+
+The backend handles normalized unit matching and
+asks for confirmation if the name differs.
+
+Do not require a unit identifier when the user
+has provided a valid project identifier.
+
+### SALES OFFER - FOLLOW-UP WORKFLOW
+
+Sales Offer workflow stages:
+
+1. Project resolution and unit selection
+2. Unit confirmation if necessary
+3. Currency confirmation
+4. Payment-plan selection
+5. Sales Offer generation
+
+The user may choose payment plans by typing:
+- first and second
+- 3 and 4
+- A and B
+- first two
+- 2, 3
+- 1% and 0.5%
+- full payment-plan names
+
+The backend resolves these selections against payment plans saved in Redis.
+
+Frontend checkbox selections are passed separately through selected_payment_plan_names.
+
+Never invent payment-plan names or IDs.
+
+Do not classify Sales Offer payment-plan selections as the Inventory payment-plan functionality.
+
+
 ### 6. bank_details
 Intent: bank_details
 

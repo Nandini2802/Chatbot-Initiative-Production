@@ -49,6 +49,13 @@ class OSFPortfolioConnector:
 
         response.raise_for_status()
 
+        logger.warning(
+            "OSF_DEBUG_API | status=%s | content_type=%s | response_length=%s",
+            response.status_code,
+            response.headers.get("Content-Type"),
+            len(response.content),
+        )
+
         try:
             payload = json.loads(response.text)
 
@@ -74,6 +81,34 @@ class OSFPortfolioConnector:
 
                         meta = project.get("meta") or {}
 
+                        
+                        logger.warning(
+                            "OSF_DEBUG_PROJECT | title=%s | name=%s",
+                            title,
+                            name,
+                        )
+
+                        logger.warning(
+                            "OSF_DEBUG_META | %s",
+                            json.dumps(
+                                meta,
+                                indent=2,
+                                ensure_ascii=False,
+                                default=str,
+                            ),
+                        )
+
+                        logger.warning(
+                            "OSF_DEBUG_FULL_PROJECT | %s",
+                            json.dumps(
+                                project,
+                                indent=2,
+                                ensure_ascii=False,
+                                default=str,
+                            ),
+                        )
+
+
         except json.JSONDecodeError:
             raise ValueError(
                 "OSF API did not return valid JSON. "
@@ -93,6 +128,12 @@ class OSFPortfolioConnector:
             raise ValueError("OSF API unsuccessful")
 
         projects = payload.get("data")
+
+        logger.warning(
+            "OSF_DEBUG_RESPONSE | metadata=%s | total_projects=%s",
+            payload.get("metaData"),
+            len(projects) if isinstance(projects, list) else "INVALID",
+        )
 
         if not isinstance(projects, list):
             raise ValueError("OSF data is not a list")

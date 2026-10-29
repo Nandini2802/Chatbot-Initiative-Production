@@ -16,5 +16,5 @@ def resolve_walkthrough(engine: WalkthroughEngine, feature_name: Optional[str], 
         return {"status": "clarification", "message": "Which Danube One feature would you like help with?"}
     result = engine.lookup(feature_name, identity.role, identity.source, identity.employee_type)
     if result['status'] != 'ok':
-        return {"status": "denied", "message": "This feature walkthrough is not available for your account."}
+        return {"status": "denied", "message": "Great question! While we don't offer that feature yet, I'd love to help you explore other features which are available for you."}
     return {"status": "ok", "feature": result['feature'], "steps": result['steps']}

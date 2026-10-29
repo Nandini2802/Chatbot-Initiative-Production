@@ -192,9 +192,10 @@ class JSONFormatter(logging.Formatter):
             str(record.exc_info[1]) if record.exc_info else None
         )
 
-        payload["exception_traceback"] = self.formatException(
-            record.exc_info
-        )
+        if record.exc_info and record.exc_info[2] is not None:
+            payload["exception_traceback"] = self.formatException(
+                record.exc_info
+            )
 
         return json.dumps(
             payload,

@@ -1,74 +1,143 @@
 
-<div style="
-    background:#101010;
-    color:white;
-    border-radius:18px;
-    padding:18px;
-    font-family:Arial,sans-serif;
-    max-width:440px;
-">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+  .so-stack { display: flex; flex-direction: column; gap: 14px; }
 
-    <div style="
-        font-size:15px;
-        font-weight:600;
-        margin-bottom:6px;
-    ">
-        Select Payment Plans
-    </div>
+  /* Each plan is a label wrapping a native checkbox, so the whole card is tappable. */
+  .so-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    background: #16171a;
+    border: 1px solid transparent;
+    border-radius: 16px;
+    padding: 16px;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .so-card__input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .so-card__box {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    border: 1.5px solid #4a4b50;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .15s, border-color .15s;
+  }
+  .so-card__box svg { width: 14px; height: 14px; opacity: 0; transition: opacity .15s; }
+  .so-card__label {
+    flex: 1;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.35;
+    color: #fff;
+  }
 
-    <div style="
-        font-size:12px;
-        color:#aaaaaa;
-        margin-bottom:16px;
-    ">
-        Unit {{ unit_name }}
-        · {{ plans|length }} available plans
-    </div>
+  /* Checked state: gold box + checkmark, faint gold-tinted card. */
+  .so-card__input:checked ~ .so-card__box {
+    background: linear-gradient(135deg, #e0aa4a 0%, #c9963a 100%);
+    border-color: transparent;
+    color: #16171a;
+  }
+  .so-card__input:checked ~ .so-card__box svg { opacity: 1; }
+  .so-card:has(.so-card__input:checked) {
+    background: #221d12;
+    border-color: rgba(201, 150, 58, .35);
+  }
 
-    {% for plan in plans %}
+  /* Submit button under the list */
+  .so-submit-wrap { display: flex; justify-content: left;}
+  .so-submit {
+    border: 0;
+    border-radius: 20px;
+    padding: 11px 26px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    color: #16171a;
+    background: linear-gradient(135deg, #e0aa4a 0%, #c9963a 100%);
+    cursor: pointer;
+    transition: filter .18s, transform .12s;
+  }
+  .so-submit:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  .so-submit:active { transform: translateY(0); }
+</style>
+</head>
+<body>
+<div class="so-stack">
 
-    <div style="
-        display:flex;
-        align-items:center;
-        gap:12px;
-        background:#1d1d1d;
-        border-radius:14px;
-        padding:14px;
-        margin-bottom:10px;
-    ">
+  {% for plan in plans %}
 
-        <div style="
-            width:23px;
-            height:23px;
-            border:1px solid #777;
-            border-radius:6px;
-            flex-shrink:0;
-            text-align:center;
-            line-height:23px;
-            font-size:12px;
-            color:#f5c242;
-        ">
-            {{ loop.index }}
-        </div>
+  <label class="so-card">
+    <input
+      type="checkbox"
+      class="so-card__input"
+      name="sales_offer"
+      value="{{ plan.payPlanName }}"
+    >
+    <span class="so-card__box">
+      <svg viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="3"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="5 12 10 17 19 7"/>
+      </svg>
+    </span>
+    <span class="so-card__label">{{ plan.payPlanName }}</span>
+  </label>
 
-        <div style="
-            font-size:13px;
-            line-height:1.5;
-        ">
-            {{ plan.payPlanName }}
-        </div>
+  {% endfor %}
 
-    </div>
-
-    {% endfor %}
-
-    <div style="
-        font-size:12px;
-        color:#aaaaaa;
-        margin-top:14px;
-    ">
-        Reply with the plan numbers you want.
-        For example: Select plans 1 and 3.
-    </div>
+  <div class="so-submit-wrap">
+    <button type="button" class="so-submit">Submit Selected</button>
+  </div>
 
 </div>
+<script>
+  (function () {
+    var btn = document.querySelector('.so-submit');
+
+    btn.addEventListener('click', function () {
+      var picks = Array.prototype.map.call(
+        document.querySelectorAll('.so-card__input:checked'),
+        function (i) { return i.value; }
+      ).filter(Boolean);
+
+      if (!picks.length) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Submitted';
+
+      window.parent.postMessage({
+        source: 'danube-block',
+        type: 'send_message',
+        message: 'Selected payment plans',
+        extra: {
+          selected_payment_plan_names: picks
+        }
+      }, '*');
+    });
+  })();
+</script>
+</body>
+</html>

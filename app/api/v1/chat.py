@@ -161,6 +161,7 @@ async def chat_query(
             clients=clients,
             access_token=credentials.credentials.strip(),
             walkthrough_engine=request.app.state.walkthrough_engine,
+            selected_payment_plan_names=body.selected_payment_plan_names,
         ),
         media_type="text/event-stream",
         headers={

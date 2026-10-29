@@ -30,6 +30,9 @@ class IntentDispatcher:
         role: str = "",
         source: str = "",
         employee_type: str = "",
+        selected_payment_plan_names: list[str] | None = None,
+        db_session=None,
+
     ):
 
         self.handlers = {
@@ -46,6 +49,7 @@ class IntentDispatcher:
 
         self.redis_client = redis_client
         self.session_id = session_id
+        self.db_session = db_session
 
         self.payment_plan_handler = None
 
@@ -90,7 +94,10 @@ class IntentDispatcher:
                     user_id=user_id,
                     session_id=str(session_id),
                     message=message,
+                    selected_payment_plan_names=selected_payment_plan_names,
+                    db_session=self.db_session
                 )
+
 
             if inventory_token and access_token:
                 self.handlers["project_information"] = (

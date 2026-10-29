@@ -51,7 +51,7 @@ class InventoryTokenService:
                         "client_id": self.client_id,
                         "client_secret": self.client_secret,
                     },
-                    timeout=30,
+                    timeout=120,
                 )
 
             if response.status_code != 200:
