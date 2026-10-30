@@ -90,29 +90,46 @@ class InventoryHandler:
                 intent=intent,
             )
 
-        if not matches:
+            logger.info(
+                "INVENTORY_FILTER_AUDIT | "
+                "view=%r | location=%r | status=%r | "
+                "min_price=%r | max_price=%r | "
+                "total_visible=%d | filtered_matches=%d",
+                intent.view,
+                intent.project_location,
+                intent.status,
+                intent.min_price,
+                intent.max_price,
+                len(self.snapshot.units),
+                len(matches),
+            )
 
-            related_units = [
-                unit
-                for unit in self.snapshot.units
-                if (
-                    not intent.project_name
-                    or normalize_project_name(unit.project_name or "")
-                    == normalize_project_name(intent.project_name)
-                )
-            ]
+        if not matches:
 
             result.generation_context = {
                 "service": "inventory",
                 "operation": operation or "unit_search",
                 "match_status": "no_exact_matches",
                 "requested_project": intent.project_name,
+                "total_matches": 0,
                 "exact_matches": [],
-                "related_units": [
-                    self._unit_data(unit)
-                    for unit in related_units[:5]
-                ],
+                "related_units": [],
                 "related_units_are_not_exact_matches": True,
+                "applied_filters": {
+                    "project_name": intent.project_name,
+                    "project_location": intent.project_location,
+                    "view": intent.view,
+                    "typology": intent.typology,
+                    "unit_type": intent.unit_type,
+                    "category": intent.category,
+                    "status": intent.status,
+                    "handover_status": intent.handover_status,
+                    "construction_status": intent.construction_status,
+                    "bedrooms": intent.bedrooms,
+                    "min_price": intent.min_price,
+                    "max_price": intent.max_price,
+                    "currency": intent.currency,
+                },
             }
 
             result.has_data = True
@@ -180,6 +197,23 @@ class InventoryHandler:
             "total_matches": len(matches),
             "displayed_count": len(displayed),
             "units": safe_units,
+            "applied_filters": {
+                "project_name": intent.project_name,
+                "project_location": intent.project_location,
+                "view": intent.view,
+                "typology": intent.typology,
+                "unit_type": intent.unit_type,
+                "category": intent.category,
+                "status": intent.status,
+                "handover_status": intent.handover_status,
+                "construction_status": intent.construction_status,
+                "bedrooms": intent.bedrooms,
+                "min_price": intent.min_price,
+                "max_price": intent.max_price,
+                "currency": intent.currency,
+                "requires_pool": intent.requires_pool,
+                "requires_duplex": intent.requires_duplex,
+            },
         }
 
         if operation != "unit_details":

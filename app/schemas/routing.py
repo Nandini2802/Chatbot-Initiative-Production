@@ -57,6 +57,13 @@ class RoutingIntent(BaseModel):
     status: str | None = None
     floor_number: str | None = None
 
+    view: str | None = None
+    typology: str | None = None
+    handover_status: str | None = None
+    construction_status: str | None = None
+    requires_pool: bool = False
+    requires_duplex: bool = False
+
     project_number: str | None = None
     project_id: str | None = None
     unit_id: str | None = None

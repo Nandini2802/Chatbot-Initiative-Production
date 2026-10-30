@@ -53,6 +53,8 @@ from app.services.payment_plan_selection_service import interpret_payment_select
 from app.utils.bank_debug import bank_debug
 from app.schemas.routing import RoutingIntent
 from app.handlers.payment_plan_handler import PaymentPlanHandler
+from app.services.router_service import RouterService
+from app.services.inventory_extraction_service import InventoryExtractionService
 
 
 
@@ -1401,6 +1403,117 @@ async def _stream_chat_response_impl(
 
         # 4. PROCESS CLASSIFIED INTENTS
 
+        # INVENTORY EXTRACTION — dedicated LLM call.
+
+        inventory_extractor = InventoryExtractionService(
+            client=clients.foundry_openai,
+            model=settings.foundry_openai_model,
+        )
+
+        for index, intent in enumerate(routing_result.intents):
+
+            if index in blocked_intents:
+                continue
+
+            if intent.intent != "inventory":
+                continue
+
+            if intent.inventory_scope != "units":
+                continue
+
+            if intent.inventory_operation != "unit_search":
+                continue
+
+            try:
+                extracted = await inventory_extractor.extract(
+                    message=intent.original_query or message,
+                    snapshot=inventory_snapshot,
+                    history=history,
+                )
+
+                if extracted.unresolved_terms:
+                    raise ValueError(
+                        "Unresolved inventory filters: "
+                        + ", ".join(extracted.unresolved_terms)
+                    )
+
+                filter_fields = (
+                    "project_location",
+                    "view",
+                    "typology",
+                    "unit_type",
+                    "category",
+                    "status",
+                    "handover_status",
+                    "construction_status",
+                    "bedrooms",
+                    "min_price",
+                    "max_price",
+                    "min_area_sqft",
+                    "max_area_sqft",
+                    "currency",
+                    "sort_by",
+                    "requires_pool",
+                    "requires_duplex",
+                )
+
+                for field in filter_fields:
+                    setattr(
+                        intent,
+                        field,
+                        getattr(extracted, field),
+                    )
+
+                if (
+                    intent.currency
+                    and intent.currency.upper() != "AED"
+                ):
+                    raise ValueError(
+                        "Inventory search currency "
+                        "is not supported without conversion"
+                    )
+
+                if (
+                    intent.currency is None
+                    and (
+                        intent.min_price is not None
+                        or intent.max_price is not None
+                    )
+                ):
+                    intent.currency = "AED"
+
+                logger.info(
+                    "INVENTORY_EXTRACTION_APPLIED | "
+                    "session_id=%s | filters=%s",
+                    session_id,
+                    extracted.model_dump(
+                        exclude_none=True,
+                    ),
+                )
+
+            except Exception:
+                logger.exception(
+                    "INVENTORY_EXTRACTION_FAILED | "
+                    "session_id=%s",
+                    session_id,
+                )
+
+                # Never fall back to broad, unfiltered results.
+                blocked_intents.add(index)
+
+                intent.requires_clarification = True
+
+                if "inventory_filter_extraction" not in intent.missing_fields:
+                    intent.missing_fields.append(
+                        "inventory_filter_extraction"
+                    )
+
+        routing_result.requires_clarification = any(
+            item.requires_clarification
+            for item in routing_result.intents
+        )
+
+
         for index, intent in enumerate(routing_result.intents):
 
             if index in blocked_intents:
@@ -1449,6 +1562,18 @@ async def _stream_chat_response_impl(
                         "Could you please tell me the project name "
                         "so I can share the bank details?"
                     )
+
+                if (
+                    intent.intent == "inventory"
+                    and "inventory_filter_extraction"
+                    in intent.missing_fields
+                ):
+                    clarification_messages.append(
+                        "I couldn't reliably apply all your "
+                        "inventory search filters. Please try "
+                        "rephrasing your request."
+                    )
+                    continue
 
                 elif (
                     intent.intent == "inventory"
