@@ -296,7 +296,7 @@ async def _stream_chat_response_impl(
         availability_followup = False
         routing_message = message
         if pending_availability:
-            normalized_reply = message.strip().lower()
+            normalized_reply = message.strip().lower().lstrip(".")
             if normalized_reply in {"cancel", "never mind", "nevermind", "stop"}:
                 await availability_state.clear(
                     user_id=user_id, session_id=str(session_id),
@@ -306,14 +306,17 @@ async def _stream_chat_response_impl(
                 # Preserve the ordinary router for new requests. Only clearly
                 # parameter-only answers are treated as continuations.
                 tokens = message.strip().split()
-                is_currency_reply = (
-                    len(tokens) == 1 and len(tokens[0]) == 3
-                    and tokens[0].isalpha()
-                )
                 is_format_reply = normalized_reply in {
                     "pdf", "excel", "xls", "xlsx", "spreadsheet",
                     "pdf instead", "excel instead",
                 }
+
+                is_currency_reply = (
+                    len(tokens) == 1
+                    and len(tokens[0]) == 3
+                    and tokens[0].isalpha()
+                    and not is_format_reply
+                )
                 if is_currency_reply or is_format_reply:
                     availability_followup = True
                     routing_message = (
@@ -775,11 +778,26 @@ async def _stream_chat_response_impl(
                 if not item.file_format:
                     item.file_format = pending_availability.get("file_format")
                 # For short follow-ups, explicitly prioritize the new value.
-                value = message.strip().lower()
-                if len(value) == 3 and value.isalpha():
+                value = message.strip().lower().lstrip(".")
+                format_aliases = {
+                    "pdf": "pdf",
+                    "pdf instead": "pdf",
+                    "excel": "excel",
+                    "excel instead": "excel",
+                    "xls": "excel",
+                    "xlsx": "excel",
+                    "spreadsheet": "excel",
+                }
+
+                if value in format_aliases:
+                    # File format reply: preserve the previously selected currency.
+                    item.file_format = format_aliases[value]
+
+                elif len(value) == 3 and value.isalpha():
+                    # Currency reply: preserve the previously selected file format.
                     item.currency = value.upper()
-                if value in {"pdf", "excel", "xls", "xlsx", "spreadsheet", "pdf instead", "excel instead"}:
-                    item.file_format = "pdf" if value.startswith("pdf") else "excel"
+
+
                 missing = set(item.missing_fields)
                 if item.project_id or item.project_name:
                     missing -= {"project_name", "project_identifier"}
@@ -1429,6 +1447,7 @@ async def _stream_chat_response_impl(
                     message=intent.original_query or message,
                     snapshot=inventory_snapshot,
                     history=history,
+                    resolved_project_name=intent.project_name,
                 )
 
                 if extracted.unresolved_terms:
@@ -1562,6 +1581,7 @@ async def _stream_chat_response_impl(
                         "Could you please tell me the project name "
                         "so I can share the bank details?"
                     )
+                    continue
 
                 if (
                     intent.intent == "inventory"
@@ -1594,6 +1614,19 @@ async def _stream_chat_response_impl(
                 continue
 
             result = await dispatcher.execute(intent)
+
+            logger.info(
+                "PAYMENT_PLAN_DEBUG | intent=%s | operation=%s | "
+                "has_data=%s | html_blocks=%s | card_types=%s",
+                intent.intent,
+                getattr(intent, "inventory_operation", None),
+                result.has_data,
+                len(result.html_blocks),
+                [
+                    block.get("card_type")
+                    for block in result.html_blocks
+                ],
+            )
 
             if (
                 intent.intent == "download_availability"
@@ -1696,6 +1729,17 @@ async def _stream_chat_response_impl(
         real_llm_streaming = False
         streamed_answer = ""
 
+        availability_success_only = (
+            len(routing_result.intents) == 1
+            and routing_result.intents[0].intent == "download_availability"
+            and len(handler_results) == 1
+            and handler_results[0].has_data
+            and handler_results[0].generation_context.get(
+                "report_generated"
+            ) is True
+            and not clarification_messages
+        )
+
         sales_offer_success_only = (
             len(routing_result.intents) == 1
             and routing_result.intents[0].intent == "sales_offer"
@@ -1704,7 +1748,39 @@ async def _stream_chat_response_impl(
             and not clarification_messages
         )
 
-        if sales_offer_success_only:
+        if availability_success_only:
+            availability = handler_results[0].generation_context
+
+            project_name = (
+                availability.get("project_name")
+                or "the selected project"
+            )
+
+            currency = (
+                availability.get("currency")
+                or "AED"
+            ).upper()
+
+            exchange_rate_text = availability.get(
+                "exchange_rate_text"
+            )
+
+            response_text = (
+                f"I got the confirmation, I have generated "
+                f"the availability for {project_name} in {currency}"
+            )
+
+            if exchange_rate_text:
+                response_text += (
+                    f" (based on {exchange_rate_text})"
+                )
+
+            response_text += " as you requested."
+
+            followup_chips = []
+            real_llm_streaming = False
+
+        elif sales_offer_success_only:
             offer = handler_results[0].generation_context
 
             unit_name = (
@@ -1732,12 +1808,6 @@ async def _stream_chat_response_impl(
                 )
 
             response_text += ", as requested."
-
-            if document_names:
-                response_text += (
-                    "\n\nDocument: "
-                    + ", ".join(document_names)
-                )
 
             response_text += (
                 "\n\nPlease note: Exchange rate applied is valid "

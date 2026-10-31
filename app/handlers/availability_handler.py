@@ -118,6 +118,8 @@ class AvailabilityHandler:
             "project_id": report["project_id"],
             "project_name": report["project_name"],
             "total_records": report["total_records"],
+            "exchange_rate": report["exchange_rate"],
+            "exchange_rate_text": report["exchange_rate_text"],
             "disclaimer": report["disclaimer"],
         })
 
@@ -129,7 +131,10 @@ class AvailabilityHandler:
             "file_type": report["file_type"],
             "report_generated": True,
             "total_records": report["total_records"],
+            "exchange_rate": report["exchange_rate"],
+            "exchange_rate_text": report["exchange_rate_text"],
             "disclaimer": report["disclaimer"],
+
         }
 
         result.has_data = True

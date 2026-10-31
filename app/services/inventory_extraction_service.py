@@ -59,6 +59,7 @@ class InventoryExtractionService:
         message: str,
         snapshot: InventorySnapshot,
         history: list[dict] | None = None,
+        resolved_project_name: str | None = None,
     ) -> InventoryFilters:
 
         catalog = self._catalog(snapshot)
@@ -80,6 +81,27 @@ class InventoryExtractionService:
             model=self.model,
             instructions=self.system_prompt,
             input=[
+                {
+                    "role": "developer",
+                    "content": (
+                        "Project resolution context:\n"
+                        + json.dumps(
+                            {"resolved_project_name": resolved_project_name},
+                            ensure_ascii=False,
+                        )
+                        + "\nIf resolved_project_name is not null, "
+                        "the project has already been identified by "
+                        "the main router and validated by the backend. "
+                        "Do not include that project name, its short name, "
+                        "or its name without 'by Danube' in unresolved_terms. "
+                        "Do not convert it into a location, category, "
+                        "typology, or unit_type. "
+                        "Extract all other explicitly requested unit "
+                        "filters normally. "
+                        "If resolved_project_name is null, do not assume "
+                        "that an unknown project name is valid."
+                    ),
+                },
                 {
                     "role": "developer",
                     "content": (

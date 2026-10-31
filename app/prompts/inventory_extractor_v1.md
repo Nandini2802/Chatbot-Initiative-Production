@@ -20,6 +20,10 @@ Return the structured InventoryFilters schema.
 8. Do not broaden a specific request into a general search.
 9. If an explicitly requested condition cannot be represented safely, include it in unresolved_terms.
 10. Never treat unknown information as evidence of a match.
+11. Project names may already have been resolved by the main router.
+12. When a validated resolved_project_name is provided in the developer context, treat the corresponding project mention as handled by the project resolver.
+13. Do not classify that project mention as an unresolved unit filter, category, location, unit type, or typology.
+14. Continue extracting any additional conditions normally. Never discard unrelated unresolved conditions.
 
 ## Price
 

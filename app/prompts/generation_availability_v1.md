@@ -102,6 +102,18 @@ Use natural, concise language suitable for a Danube Properties broker or authent
 
 Preserve official project names and currency codes.
 
+## Exchange rate and confirmation
+
+For successful single-intent Download Availability requests, the backend generates the final confirmation text directly.
+
+For other response-generation scenarios:
+
+- Use only verified exchange rates supplied by the backend.
+- If no exchange rate is provided, omit it.
+- Never calculate or invent an exchange rate.
+- Do not duplicate the exchange-rate disclaimer.
+- Do not render exchange rates in HTML.
+
 ## Output
 
 Return structured output matching GenerationResult:

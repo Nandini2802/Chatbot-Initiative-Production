@@ -4,6 +4,11 @@ from app.persistence.redis_store import RedisCacheKeys
 from app.services.availability_resolver import resolve_availability_project
 from app.retrieval.availability_connector import AvailabilityConnector
 from app.utils.availability_debug import availability_debug
+from app.services.currency_rate_service import (
+    CurrencyRateError,
+    extract_exchange_rate,
+    format_exchange_rate,
+)
 
 
 DISCLAIMER = (
@@ -132,6 +137,24 @@ class AvailabilityService:
                 f"{currency} is not a supported currency. "
                 "Please select a valid currency."
             )
+        exchange_rate = None
+        exchange_rate_text = None
+
+
+        try:
+            exchange_rate = extract_exchange_rate(
+                cached,
+                currency,
+            )
+
+            exchange_rate_text = format_exchange_rate(
+                currency,
+                exchange_rate,
+            )
+
+        except (CurrencyRateError, ValueError, TypeError):
+            exchange_rate = None
+            exchange_rate_text = None
 
         
 
@@ -159,5 +182,11 @@ class AvailabilityService:
             "file_name": report.file_name,
             "file_url": report.file_url,
             "total_records": report.total_records,
+            "exchange_rate": (
+                str(exchange_rate)
+                if exchange_rate is not None
+                else None
+            ),
+            "exchange_rate_text": exchange_rate_text,
             "disclaimer": DISCLAIMER,
         }
