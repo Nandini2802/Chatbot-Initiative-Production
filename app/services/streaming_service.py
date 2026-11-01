@@ -15,6 +15,10 @@ from app.services.project_resolution_service import (
     resolve_project,
     match_project_reference,
 )
+from app.services.project_context_service import (
+    resolve_session_project,
+    same_project,
+)
 from app.core.config import get_settings
 from app.core.clients import ServiceClients
 from app.schemas.chat import ChatResponse
@@ -55,7 +59,7 @@ from app.schemas.routing import RoutingIntent
 from app.handlers.payment_plan_handler import PaymentPlanHandler
 from app.services.router_service import RouterService
 from app.services.inventory_extraction_service import InventoryExtractionService
-
+from app.services.project_resolution_service import ProjectResolution
 
 
 
@@ -92,6 +96,7 @@ async def persist_completed_chat(
     intents,
     latency_ms,
     response_payload: dict | None = None,
+    project_context_update: dict | None = None,
 ):
 
     save_started = time.perf_counter()
@@ -123,6 +128,7 @@ async def persist_completed_chat(
                     intents=intents,
                     latency_ms=latency_ms,
                     response_payload=response_payload,
+                    project_context_update=project_context_update,
                 )
             )
 
@@ -182,6 +188,27 @@ async def load_chat_history(
         )
 
         return history
+
+async def load_session_project_context(
+    clients,
+    session_id,
+    user_id,
+) -> dict:
+
+    session_factory = async_sessionmaker(
+        bind=clients.postgres,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+    async with session_factory() as db:
+
+        service = SessionService(db)
+
+        return await service.get_project_context(
+            session_id=session_id,
+            user_id=user_id,
+        )
 
 async def load_previous_inventory_context(
     clients,
@@ -251,6 +278,25 @@ async def _stream_chat_response_impl(
             session_id=session_id,
             user_id=user_id,
             limit=10,
+        )
+
+        session_project_context = (
+            await load_session_project_context(
+                clients=clients,
+                session_id=session_id,
+                user_id=user_id,
+            )
+        )
+
+        active_project_name = (
+            session_project_context
+            .get("active_project", {})
+            .get("name")
+            if isinstance(
+                session_project_context.get("active_project"),
+                dict,
+            )
+            else None
         )
 
         pending_payment_selection = await load_pending_payment_selection(
@@ -589,6 +635,7 @@ async def _stream_chat_response_impl(
             active_project_names=active_project_names,
             previous_inventory_context=previous_inventory_context,
             walkthrough_features=walkthrough_features,
+            active_project_context=session_project_context,
         )
 
         
@@ -875,6 +922,12 @@ async def _stream_chat_response_impl(
                 previous_inventory_context.get("project_name")
             )
 
+            if intent.project_reference_source in {
+                "explicit",
+                "uncertain",
+            }:
+                continue
+
             if (
                 intent.project_name
                 and previous_project
@@ -970,6 +1023,9 @@ async def _stream_chat_response_impl(
                 return None
 
             return matches[0].project_name
+
+        project_context_decisions: dict[int, str] = {}
+        project_context_has_unresolved_explicit = False
         
 
         # Tracks intents that must not execute.
@@ -1001,10 +1057,41 @@ async def _stream_chat_response_impl(
             # CENTRAL_PROJECT_RESOLUTION: catalog-scoped, zero extra LLM calls.
             # Only project-name matching is corrected. Feature-specific IDs,
             # account filters, and user permissions remain unchanged.
+            is_general_unit_search = (
+                intent.intent == "inventory"
+                and intent.inventory_scope == "units"
+                and intent.inventory_operation == "unit_search"
+                and intent.project_reference_source == "none"
+                and not intent.explicit_project_reference
+                and not intent.project_name
+                and not intent.project_id
+                and not intent.project_number
+                and not intent.unit_id
+                and not intent.unit_name
+                and not intent.unit_number
+            )
+
+            if is_general_unit_search:
+                intent.project_name = None
+
+                intent.missing_fields = [
+                    field
+                    for field in intent.missing_fields
+                    if field not in {
+                        "project_name",
+                        "project_identifier",
+                        "project_or_unit_identifier",
+                    }
+                ]
+
+                intent.requires_clarification = bool(
+                    intent.missing_fields
+                )
+            
             if intent.intent in {
                 "marketing", "bank_details", "inventory",
                 "download_availability", "project_information", "sales_offer",
-            } and not (
+            } and not is_general_unit_search and not (
                 intent.intent == "inventory"
                 and intent.inventory_operation == "project_comparison"
             ) and not (
@@ -1017,6 +1104,17 @@ async def _stream_chat_response_impl(
                     allowed_projects = marketing_names
                 elif intent.intent == "bank_details":
                     allowed_projects = inventory_active_names
+                    logger.info(
+                        "BANK_CATALOG_DEBUG | active_project=%s | "
+                        "catalog_contains_project=%s",
+                        active_project_name,
+                        any(
+                            normalize_project_name(name)
+                            == normalize_project_name(active_project_name)
+                            for name in inventory_active_names
+                        ) if active_project_name else False,
+                    )
+                    
                 elif intent.intent == "inventory":
                     allowed_projects = (
                         inventory_active_names
@@ -1026,11 +1124,87 @@ async def _stream_chat_response_impl(
                 else:
                     allowed_projects = inventory_active_names | inventory_unit_names
 
-                match = resolve_project(
-                    reference=intent.project_name,
+                skip_project_inheritance = (
+                    (
+                        intent.intent == "inventory"
+                        and intent.inventory_operation == "project_comparison"
+                    )
+                    or (
+                        intent.intent == "project_information"
+                        and intent.project_operation in {
+                            "latest",
+                            "list",
+                            "location_search",
+                        }
+                    )
+                    or (
+                        intent.intent == "marketing"
+                        and intent.action == "company_profile"
+                    )
+                )
+
+                # Preserve explicit identifier-based requests.
+                has_explicit_identifier = any([
+                    intent.project_id,
+                    intent.project_number,
+                    intent.unit_id,
+                    intent.unit_name,
+                    intent.unit_number,
+                ])
+
+                decision = resolve_session_project(
                     message=message,
-                    projects=allowed_projects,
-                    require_message_mention=(intent.intent == "bank_details"),
+                    router_project=intent.project_name,
+                    active_project=active_project_name,
+                    allowed_projects=allowed_projects,
+                    project_reference_source=(
+                        intent.project_reference_source
+                    ),
+                    explicit_project_reference=(
+                        intent.explicit_project_reference
+                    ),
+                    inherit=(
+                        not any([
+                            intent.project_id,
+                            intent.project_number,
+                            intent.unit_id,
+                            intent.unit_name,
+                            intent.unit_number,
+                        ])
+                    ),
+                )
+
+                logger.info(
+                    "BANK_CONTEXT_DEBUG | intent=%s | "
+                    "active_project=%s | status=%s | "
+                    "resolved_project=%s | source=%s | "
+                    "missing=%s",
+                    intent.intent,
+                    active_project_name,
+                    decision.status,
+                    decision.project_name,
+                    decision.source,
+                    intent.missing_fields,
+                )
+
+                if (
+                    decision.status == "matched"
+                    and decision.source == "explicit"
+                    and decision.should_update_session
+                    and decision.project_name
+                ):
+                    project_context_decisions[index] = decision.project_name
+
+                elif decision.status in {
+                    "ambiguous",
+                    "unresolved_explicit",
+                }:
+                    project_context_has_unresolved_explicit = True
+
+                match = ProjectResolution(
+                    status=decision.status,
+                    name=decision.project_name,
+                    method=decision.source,
                 )
 
                 original_llm_project = intent.project_name
@@ -1047,7 +1221,10 @@ async def _stream_chat_response_impl(
                         "PROJECT_RESOLUTION | intent=%s | method=%s",
                         intent.intent, match.method,
                     )
-                elif match.status == "ambiguous":
+                elif match.status in {
+                    "ambiguous",
+                    "unresolved_explicit",
+                }:
                     intent.project_name = None
                     intent.requires_clarification = True
                     if "project_name" not in intent.missing_fields:
@@ -1223,15 +1400,18 @@ async def _stream_chat_response_impl(
                 if len(matches) == 1:
                     intent.project_name = matches[0]
 
-                    # Remove stale project-name clarification.
                     intent.missing_fields = [
                         field
                         for field in intent.missing_fields
-                        if field != "project_name"
+                        if field not in {
+                            "project_name",
+                            "project_identifier",
+                        }
                     ]
 
-                    if not intent.missing_fields:
-                        intent.requires_clarification = False
+                    intent.requires_clarification = bool(
+                        intent.missing_fields
+                    )
 
                 elif len(matches) == 0:
                     intent.requires_clarification = True
@@ -1417,6 +1597,7 @@ async def _stream_chat_response_impl(
             )
 
             handler_results = []
+            project_handler_results = {}
             clarification_messages = []
 
         # 4. PROCESS CLASSIFIED INTENTS
@@ -1615,19 +1796,6 @@ async def _stream_chat_response_impl(
 
             result = await dispatcher.execute(intent)
 
-            logger.info(
-                "PAYMENT_PLAN_DEBUG | intent=%s | operation=%s | "
-                "has_data=%s | html_blocks=%s | card_types=%s",
-                intent.intent,
-                getattr(intent, "inventory_operation", None),
-                result.has_data,
-                len(result.html_blocks),
-                [
-                    block.get("card_type")
-                    for block in result.html_blocks
-                ],
-            )
-
             if (
                 intent.intent == "download_availability"
                 and result.has_data
@@ -1638,6 +1806,7 @@ async def _stream_chat_response_impl(
                 )
 
             handler_results.append(result)
+            project_handler_results[index] = result
 
             logger.info(
                 "INTENT_EXECUTED | "
@@ -2042,6 +2211,65 @@ async def _stream_chat_response_impl(
             for block in all_html_blocks
         ]
 
+        project_context_candidate = None
+
+        explicit_project_keys = {
+            normalize_project_name(project)
+            for project in project_context_decisions.values()
+            if project
+        }
+
+        # A message mentioning multiple different projects
+        # must not arbitrarily replace the active project.
+        if (
+            not project_context_has_unresolved_explicit
+            and len(explicit_project_keys) == 1
+        ):
+            successful_projects = {}
+
+            for index, project in project_context_decisions.items():
+                if index in blocked_intents:
+                    continue
+
+                result = project_handler_results.get(index)
+
+                if result is None or not result.has_data:
+                    continue
+
+                context = result.generation_context or {}
+
+                if context.get("match_status") in {
+                    "partial",
+                    "none",
+                    "no_exact_matches",
+                }:
+                    continue
+
+                # A generated report or sales offer must have
+                # completed successfully.
+                if (
+                    routing_result.intents[index].intent
+                    == "download_availability"
+                    and context.get("report_generated") is not True
+                ):
+                    continue
+
+                if (
+                    routing_result.intents[index].intent
+                    == "sales_offer"
+                    and context.get("generated") is not True
+                ):
+                    continue
+
+                successful_projects[
+                    normalize_project_name(project)
+                ] = project
+
+            if len(successful_projects) == 1:
+                project_context_candidate = next(
+                    iter(successful_projects.values())
+                )
+
         new_inventory_context = None
         for intent, result in zip(
             [
@@ -2060,6 +2288,59 @@ async def _stream_chat_response_impl(
             if candidate:
                 new_inventory_context = candidate
 
+        eligible_projects = []
+
+        for index, intent in enumerate(routing_result.intents):
+
+            if index in blocked_intents:
+                continue
+
+            if intent.requires_clarification:
+                continue
+
+            if not intent.project_name:
+                continue
+
+            if (
+                intent.intent == "inventory"
+                and intent.inventory_operation == "project_comparison"
+            ):
+                continue
+
+            if (
+                intent.intent == "project_information"
+                and intent.project_operation in {
+                    "latest",
+                    "list",
+                    "location_search",
+                }
+            ):
+                continue
+
+            if intent.intent not in {
+                "marketing",
+                "inventory",
+                "bank_details",
+                "download_availability",
+                "project_information",
+                "sales_offer",
+            }:
+                continue
+
+            eligible_projects.append(intent.project_name)
+
+        unique_projects = {}
+
+        for name in eligible_projects:
+            unique_projects[
+                normalize_project_name(name)
+            ] = name
+
+        if len(unique_projects) == 1:
+            project_context_candidate = next(
+                iter(unique_projects.values())
+            )
+
         response_payload = {
             "version": 1,
             "html_blocks": saved_html_blocks,
@@ -2074,6 +2355,16 @@ async def _stream_chat_response_impl(
             (time.perf_counter() - started_at) * 1000
         )
 
+        project_context_update = None
+
+        if project_context_candidate:
+            project_context_update = {
+                "active_project": {
+                    "name": project_context_candidate,
+                    "source": "verified_selection",
+                }
+            }
+
         saved_records = await persist_completed_chat(
             clients=clients,
             session_id=session_id,
@@ -2083,6 +2374,7 @@ async def _stream_chat_response_impl(
             intents=detected_intents,
             latency_ms=latency_ms,
             response_payload=response_payload,
+            project_context_update=project_context_update,
         )
 
 

@@ -150,6 +150,51 @@ class SessionRepository:
 
         return session
 
+    async def get_context_state(
+        self,
+        session_id: uuid.UUID,
+        user_id: str,
+    ) -> dict:
+
+        session = await self.get_session(
+            session_id=session_id,
+            user_id=user_id,
+        )
+
+        if session is None:
+            return {}
+
+        return dict(session.context_state or {})
+
+    async def set_context_state(
+        self,
+        session_id: uuid.UUID,
+        user_id: str,
+        context_state: dict,
+    ) -> ChatSession | None:
+
+        statement = (
+            select(ChatSession)
+            .where(
+                ChatSession.id == session_id,
+                ChatSession.user_id == user_id,
+            )
+            .with_for_update()
+        )
+
+        result = await self.db.execute(statement)
+        session = result.scalar_one_or_none()
+
+        if session is None:
+            return None
+
+        session.context_state = dict(context_state)
+        session.updated_at = func.now()
+
+        await self.db.flush()
+
+        return session    
+
     async def delete_session(
         self,
         session_id: uuid.UUID,

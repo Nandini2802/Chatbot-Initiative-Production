@@ -19,6 +19,15 @@ IntentType = Literal[
 class RoutingIntent(BaseModel):
     intent: IntentType
 
+    project_reference_source: Literal[
+        "explicit",
+        "context",
+        "none",
+        "uncertain",
+    ] = "none"
+
+    explicit_project_reference: str | None = None
+
     feature_name: str | None = None
 
     # Original part of the user query

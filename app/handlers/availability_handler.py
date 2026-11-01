@@ -9,6 +9,7 @@ from app.services.availability_resolver import (
 )
 from app.retrieval.availability_connector import (
     AvailabilityAPIError,
+    AvailabilityNotAvailableError
 )
 from app.services.template_service import TemplateService
 from app.core.config import get_settings
@@ -83,6 +84,36 @@ class AvailabilityHandler:
             AvailabilityResolutionError,
         ) as exc:
             result.messages.append(str(exc))
+            return result
+
+        except AvailabilityNotAvailableError:
+
+            project_name = (
+                getattr(intent, "project_name", None)
+                or "the selected project"
+            )
+
+            currency = (
+                str(getattr(intent, "currency", "") or "")
+                .strip()
+                .upper()
+            )
+
+            file_format = (
+                str(getattr(intent, "file_format", "") or "")
+                .strip()
+                .upper()
+            )
+
+            if file_format in {"XLS", "XLSX", "SPREADSHEET"}:
+                file_format = "EXCEL"
+
+            result.messages.append(
+                f"No Download Availability report is currently "
+                f"available in {currency} and {file_format} format "
+                f"for {project_name}."
+            )
+
             return result
 
         except AvailabilityAPIError:

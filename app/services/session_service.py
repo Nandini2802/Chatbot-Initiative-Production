@@ -181,7 +181,7 @@ class SessionService:
         self,
         session_id: UUID,
         user_id: str,
-        inactivity_minutes: int = 5,
+        inactivity_minutes: int = 30,
     ):
         """
         Check whether an existing session may accept
@@ -239,7 +239,7 @@ class SessionService:
                 )
 
             raise SessionResumeRequiredError(
-                "Session inactive for 5 minutes. "
+                "Session inactive for 30 minutes. "
                 "Please confirm whether to continue."
             )
 
@@ -336,6 +336,23 @@ class SessionService:
             for item in messages
         ]
 
+    async def get_project_context(
+        self,
+        session_id: UUID,
+        user_id: str,
+    ) -> dict:
+
+        await self._require_session(
+            session_id=session_id,
+            user_id=user_id,
+        )
+
+        return await self.session_repo.get_context_state(
+            session_id=session_id,
+            user_id=user_id,
+        )
+
+
     async def get_latest_inventory_context(
         self,
         session_id: UUID,
@@ -425,6 +442,7 @@ class SessionService:
         intents: list[str],
         latency_ms: int | None = None,
         response_payload: dict | None = None,
+        project_context_update: dict | None = None,
     ):
         """
         Save user message, assistant message,
@@ -463,6 +481,18 @@ class SessionService:
                 session_id,
                 user_id,
             )
+
+            if project_context_update is not None:
+
+                current_context = dict(
+                    session.context_state or {}
+                )
+
+                current_context.update(
+                    project_context_update
+                )
+
+                session.context_state = current_context
 
             user_record = (
                 await self.history_repo.add_message(

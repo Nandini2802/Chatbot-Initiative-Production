@@ -20,6 +20,9 @@ ALLOWED_REPORT_HOSTS = {
 class AvailabilityAPIError(Exception):
     pass
 
+class AvailabilityNotAvailableError(Exception):
+    """The middleware confirms there is no availability to download."""
+    pass
 
 class AvailabilityReport(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -118,6 +121,26 @@ class AvailabilityConnector:
             )
 
         data = body.get("data") or {}
+
+        file_url = data.get("file_url")
+        file_name = data.get("file_name")
+        total_records = data.get("total_records")
+
+        if (
+            total_records == 0
+            and not file_url
+            and not file_name
+        ):
+            logger.info(
+                "AVAILABILITY_NO_DATA | project_id=%s | currency=%s | file_type=%s",
+                project_id,
+                currency,
+                file_type,
+            )
+
+            raise AvailabilityNotAvailableError(
+                "No availability report exists for the selected project."
+            )
 
         try:
             report = AvailabilityReport.model_validate(data)

@@ -38,10 +38,19 @@ class BankDetailsHandler:
 
         try:
 
+            logger.info(
+                "BANK_HANDLER_CONTEXT | intent_project=%s | confirmed_project=%s",
+                getattr(intent, "project_name", None),
+                self.confirmed_project_name,
+            )
+
             resolved = resolve_bank_details_project(
                 message=self.message,
                 snapshot=self.inventory_snapshot,
-                confirmed_project_name=self.confirmed_project_name,
+                confirmed_project_name=(
+                    getattr(intent, "project_name", None)
+                    or self.confirmed_project_name
+                ),
             )
 
             project_id = resolved.project_id
