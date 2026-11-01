@@ -11,14 +11,6 @@ from types import SimpleNamespace
 
 
 from app.services.project_name_service import normalize_project_name
-from app.services.project_resolution_service import (
-    resolve_project,
-    match_project_reference,
-)
-from app.services.project_context_service import (
-    resolve_session_project,
-    same_project,
-)
 from app.core.config import get_settings
 from app.core.clients import ServiceClients
 from app.schemas.chat import ChatResponse
@@ -38,15 +30,6 @@ from app.services.inventory_token_provider import get_inventory_token_service
 from app.retrieval.project_name import resolve_project_name
 from app.services.inventory_conversation_service import *
 from app.core.keyvault import load_application_secrets
-from app.services.payment_plan_context_service import (
-    load_pending_payment_selection,
-    match_selected_plan,
-    clear_pending_payment_selection,
-)
-from app.services.availability_resolver import (
-    resolve_availability_project,
-    AvailabilityResolutionError,
-)
 from app.services.sales_offer_state import SalesOfferState
 from app.services.walkthrough_access_service import WalkthroughEngine
 from app.services.download_availability_state import DownloadAvailabilityState
@@ -60,6 +43,27 @@ from app.handlers.payment_plan_handler import PaymentPlanHandler
 from app.services.router_service import RouterService
 from app.services.inventory_extraction_service import InventoryExtractionService
 from app.services.project_resolution_service import ProjectResolution
+from app.services.project_resolution_service import (
+    resolve_project,
+    match_project_reference,
+)
+from app.services.project_context_service import (
+    resolve_session_project,
+    same_project,
+)
+from app.services.payment_plan_context_service import (
+    load_pending_payment_selection,
+    match_selected_plan,
+    clear_pending_payment_selection,
+)
+from app.services.availability_resolver import (
+    resolve_availability_project,
+    AvailabilityResolutionError,
+)
+from app.services.marketing_resolution import (
+    resolve_marketing_project,
+    resolve_assets,
+)
 
 
 
@@ -979,12 +983,6 @@ async def _stream_chat_response_impl(
             inventory_catalogs.unit_projects
         )
 
-        # Map normalized marketing names to canonical names.
-        marketing_name_lookup = {}
-
-        for name in available_projects:
-            key = normalize_project_name(name)
-            marketing_name_lookup.setdefault(key, []).append(name)
 
         def resolve_visible_unit_project(user_message: str):
             matches = []
@@ -1054,6 +1052,114 @@ async def _stream_chat_response_impl(
             if index in availability_denied:
                 continue
 
+            if (
+                intent.intent == "marketing"
+                and intent.action != "company_profile"
+            ):
+                # Correct asset names without changing other intents.
+                raw_assets = list(intent.marketing_assets or [])
+
+                corrected_assets, unresolved_assets = resolve_assets(
+                    raw_assets
+                )
+
+                if raw_assets:
+                    intent.marketing_assets = corrected_assets
+
+                if unresolved_assets:
+                    if "marketing_assets" not in intent.missing_fields:
+                        intent.missing_fields.append("marketing_assets")
+
+                elif corrected_assets:
+                    intent.missing_fields = [
+                        field for field in intent.missing_fields
+                        if field != "marketing_assets"
+                    ]
+
+                unit_project = resolve_visible_unit_project(
+                    message
+                )
+
+                reference_source = intent.project_reference_source
+
+                if reference_source in {"explicit", "uncertain"}:
+                    project_reference = (
+                        intent.explicit_project_reference
+                        or intent.project_name
+                    )
+
+                elif unit_project:
+                    project_reference = unit_project
+
+                elif reference_source == "context":
+                    project_reference = (
+                        active_project_name
+                        or intent.project_name
+                    )
+
+                elif reference_source == "none":
+                    project_reference = active_project_name
+
+                else:
+                    project_reference = None
+
+                project_match = resolve_marketing_project(
+                    project_reference,
+                    list(marketing_names),
+                )
+
+                if project_match.status == "matched":
+                    intent.project_name = project_match.name
+
+                    intent.missing_fields = [
+                        field
+                        for field in intent.missing_fields
+                        if field not in {
+                            "project_name",
+                            "project_identifier",
+                        }
+                    ]
+
+                    if (
+                        reference_source == "explicit"
+                        or unit_project
+                    ):
+                        project_context_decisions[index] = (
+                            project_match.name
+                        )
+
+                    logger.info(
+                        "MARKETING_PROJECT_RESOLVED | "
+                        "method=%s | project=%s",
+                        project_match.method,
+                        project_match.name,
+                    )
+
+                else:
+                    intent.project_name = None
+
+                    if "project_name" not in intent.missing_fields:
+                        intent.missing_fields.append("project_name")
+
+                    blocked_intents.add(index)
+
+                    if reference_source in {
+                        "explicit", "uncertain"
+                    }:
+                        project_context_has_unresolved_explicit = True
+
+                    logger.info(
+                        "MARKETING_PROJECT_UNRESOLVED | "
+                        "status=%s | candidates=%s",
+                        project_match.status,
+                        project_match.candidates,
+                    )
+
+                intent.requires_clarification = bool(
+                    intent.missing_fields
+                )
+
+
             # CENTRAL_PROJECT_RESOLUTION: catalog-scoped, zero extra LLM calls.
             # Only project-name matching is corrected. Feature-specific IDs,
             # account filters, and user permissions remain unchanged.
@@ -1089,7 +1195,7 @@ async def _stream_chat_response_impl(
                 )
             
             if intent.intent in {
-                "marketing", "bank_details", "inventory",
+                "bank_details", "inventory",
                 "download_availability", "project_information", "sales_offer",
             } and not is_general_unit_search and not (
                 intent.intent == "inventory"
@@ -1239,45 +1345,6 @@ async def _stream_chat_response_impl(
                     blocked_intents.add(index)
 
             if intent.intent == "marketing":
-                
-                resolved_project = resolve_visible_unit_project(
-                    message
-                )
-
-                if resolved_project:
-                    intent.project_name = resolved_project
-
-                if intent.project_name:
-
-                    key = normalize_project_name(
-                        intent.project_name
-                    )
-
-                    candidates = marketing_name_lookup.get(
-                        key, []
-                    )
-
-                    if len(candidates) == 1:
-                        intent.project_name = candidates[0]
-
-                        intent.missing_fields = [
-                            field
-                            for field in intent.missing_fields
-                            if field != "project_name"
-                        ]
-
-                        intent.requires_clarification = bool(
-                            intent.missing_fields
-                        )
-
-                    elif len(candidates) > 1:
-                        intent.requires_clarification = True
-
-                        if "project_name" not in intent.missing_fields:
-                            intent.missing_fields.append(
-                                "project_name"
-                            )
-
                 valid_names = marketing_names
 
             elif intent.intent == "inventory":

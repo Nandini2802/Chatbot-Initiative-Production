@@ -1,25 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+  .file-stack { display: flex; flex-direction: column; gap: 10px; }
+  .file-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    background: #16171a;
+    border-radius: 16px;
+    padding: 14px 16px;
+  }
+  .file-icon {
+    flex-shrink: 0;
+    color: #fff;
+    display: flex;
+  }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-meta {
+    font-size: 12.5px;
+    color: #8b8d92;
+    margin-top: 3px;
+  }
+  .download-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #e0aa4a 0%, #c9963a 100%);
+    color: #16171a;
+    text-decoration: none;
+    transition: transform .12s, filter .18s;
+    border: 0;
+    cursor: pointer;
+  }
+  .download-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  .download-btn:active { transform: translateY(0); }
+  .download-btn svg { width: 20px; height: 20px; }
+</style>
+</head>
+<body>
 <div class="file-stack">
+{% if zip_url %}
+  <!-- Variant: gallery / folder -->
   <div class="file-card">
+    <span class="file-icon">
+      <img src="https://d39mr55n259x6c.cloudfront.net/DPT_Container/aibot/icons/file-gallery.png" width="24" height="22" alt="">
+    </span>
     <div class="file-info">
-      <div class="file-name">
-        {{ project }} — {{ label }}
-      </div>
-      <div class="file-meta">
-        {% if total_files %}
-          {{ total_files }} files
-        {% else %}
-          Download ZIP
-        {% endif %}
-      </div>
+      <div class="file-name">{{ label | e }}</div>
+      {% if size_label or updated_at %}<div class="file-meta">{% if size_label %}{{ size_label | e }}{% endif %}{% if updated_at %}{% if size_label %} | {% endif %}Updated: {{ updated_at | e }}{% endif %}</div>{% endif %}
     </div>
-
-    {% if zip_url %}
-      <a class="download-btn"
-         href="{{ zip_url }}"
-         rel="noopener noreferrer"
-         title="Download ZIP">
-        Download
-      </a>
-    {% endif %}
+    <a class="download-btn" href="{{ zip_url | e }}" target="_blank" rel="noopener noreferrer" download title="Download">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/>
+      </svg>
+    </a>
   </div>
+{% endif %}
 </div>
+</body>
+</html>

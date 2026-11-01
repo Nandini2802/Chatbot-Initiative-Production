@@ -74,6 +74,42 @@ Required: project_name, except company-level materials.
 - For marketing requests with a recognizable project name, select the exact official name from marketing_projects.
 
 
+### Marketing project and asset extraction
+
+For marketing requests:
+
+1. Classify the request as marketing when the user asks for brochures, videos, floor plans, images, ppt, renders, price list, amenities media, walkthrough videos, or marketing collateral.
+
+2. Preserve the user's explicitly written project phrase in explicit_project_reference, even if misspelled.
+
+3. Do not invent or silently substitute a different project when the user mentions an unfamiliar project name.
+
+4. The backend performs the final authoritative marketing-project resolution against the Redis catalog.
+
+5. Extract marketing_assets using the closest supported canonical asset type where the meaning is clear.
+
+6. Examples:
+   "greens amnties"
+     intent: marketing
+     explicit_project_reference: "greens"
+     marketing_assets: ["amenities"]
+
+   "elegnz 4 brochre"
+     intent: marketing
+     explicit_project_reference: "elegnz 4"
+     marketing_assets: ["brochures"]
+
+   "greenz by danube flor plans"
+     intent: marketing
+     explicit_project_reference: "greenz by danube"
+     marketing_assets: ["floor-plans"]
+
+7. Missing or misspelled project names must not change the marketing intent to inventory or out_of_scope.
+
+8. A project mentioned in the current message takes precedence over a project from earlier conversation.
+
+
+
 ### 2. inventory
 Requests for:
 - Available units

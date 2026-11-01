@@ -57,143 +57,27 @@
   .download-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
   .download-btn:active { transform: translateY(0); }
   .download-btn svg { width: 20px; height: 20px; }
-  .download-all-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    min-height: 48px;
-    margin-top: 8px;
-    padding: 12px 18px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, #e0aa4a 0%, #c9963a 100%);
-    color: #16171a;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: .4px;
-    text-decoration: none;
-    cursor: pointer;
-  }
 </style>
 </head>
 <body>
 <div class="file-stack">
-
-  {% if files %}
-
-    {# Multiple brochures #}
-    {% for file in files %}
-    <div class="file-card">
-
-      <span class="file-icon">
-        <svg width="20" height="26" viewBox="0 0 24 24"
-             fill="none"
-             stroke="currentColor"
-             stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-        </svg>
-      </span>
-
-      <div class="file-info">
-
-        <div class="file-name">
-          {{ file.name }}
-        </div>
-
-        <div class="file-meta">
-          {% if file.file_size_bytes %}
-            {{ (file.file_size_bytes / 1048576) | round(1) }} MB
-          {% endif %}
-        </div>
-
-      </div>
-
-      <a
-        class="download-btn"
-        href="{{ file.download_url }}"
-        target="_blank"
-        rel="noopener noreferrer"
-        title="Download">
-
-        <svg viewBox="0 0 24 24"
-             fill="none"
-             stroke="currentColor"
-             stroke-width="2.2"
-             stroke-linecap="round"
-             stroke-linejoin="round">
-          <path d="M12 3v12"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <path d="M5 21h14"/>
-        </svg>
-
-      </a>
-
+{% for file in files %}
+  <!-- Variant: PDF / brochure -->
+  <div class="file-card">
+    <span class="file-icon">
+      <img src="https://d39mr55n259x6c.cloudfront.net/DPT_Container/aibot/icons/file-pdf.png" width="20" height="26" alt="">
+    </span>
+    <div class="file-info">
+      <div class="file-name">{{ file.name | e }}</div>
+      {% if file.size_label or file.updated_at %}<div class="file-meta">{% if file.size_label %}{{ file.size_label | e }}{% endif %}{% if file.updated_at %}{% if file.size_label %} | {% endif %}Updated: {{ file.updated_at | e }}{% endif %}</div>{% endif %}
     </div>
-    {% endfor %}
-
-
-    {% if zip_url %}
-    <a
-      class="download-all-btn"
-      href="{{ zip_url }}"
-      target="_blank"
-      rel="noopener noreferrer">
-
-      DOWNLOAD ALL BROCHURES
-
+    <a class="download-btn" href="{{ file.download_url | e }}" target="_blank" rel="noopener noreferrer" download title="Download">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/>
+      </svg>
     </a>
-    {% endif %}
-
-
-  {% else %}
-
-    {# Existing single language-specific brochure #}
-
-    <div class="file-card">
-
-      <div class="file-info">
-
-        <div class="file-name">
-          {{ project }} Brochure
-          {% if version_label %}
-            ({{ version_label }})
-          {% endif %}
-        </div>
-
-        <div class="file-meta">
-          {% if file_size_bytes %}
-            {{ (file_size_bytes / 1048576) | round(1) }} MB
-          {% endif %}
-        </div>
-
-      </div>
-
-      {% if download_url %}
-      <a
-        class="download-btn"
-        href="{{ download_url }}"
-        target="_blank"
-        rel="noopener noreferrer"
-        title="Download">
-
-        <svg viewBox="0 0 24 24"
-             fill="none"
-             stroke="currentColor"
-             stroke-width="2.2">
-          <path d="M12 3v12"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <path d="M5 21h14"/>
-        </svg>
-
-      </a>
-      {% endif %}
-
-    </div>
-
-  {% endif %}
-
+  </div>
+{% endfor %}
 </div>
-
 </body>
 </html>
