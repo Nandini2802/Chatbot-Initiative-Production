@@ -109,6 +109,16 @@ def match_selected_plan(
     """
 
     normalized = normalize_plan_name(message)
+    letter_match = re.fullmatch(
+        r"(?:option\s+|plan\s+)?([a-z])",
+        normalized,
+    )
+
+    if letter_match:
+        index = ord(letter_match.group(1)) - ord("a")
+
+        if 0 <= index < len(plans):
+            return plans[index]
 
     # 1. Exact payment plan name
     matches = [

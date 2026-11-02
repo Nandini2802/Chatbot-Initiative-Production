@@ -32,9 +32,9 @@ FOLDER_ALIASES = {
     "fact sheet": "factsheet",
     "other": "other",
     "all": "all",
-    "ppt": "ppt",                
-    "renders": "renders",  
-    "price list": "price-list", 
+    "ppt": "ppt",
+    "renders": "renders",
+    "price list": "price-list",
 }
 
 INDIVIDUAL_FILE_FOLDERS = {

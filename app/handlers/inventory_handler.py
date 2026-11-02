@@ -1,6 +1,6 @@
 import logging
 import asyncio
-
+import re
 
 from app.schemas.handler_result import HandlerResult
 from app.schemas.retrieval import InventorySnapshot
@@ -218,11 +218,16 @@ class InventoryHandler:
 
         if operation != "unit_details":
 
+            html_units = [
+                self._unit_data(unit)
+                for unit in matches
+            ]
+
             result.html_blocks.append({
                 "card_type": "inventory_listing",
                 "html": self.template_service.render(
                     "listing 2.html.j2",
-                    units=safe_units,
+                    units=html_units,
                     total_matches=len(matches),
                 ),
             })
@@ -293,13 +298,31 @@ class InventoryHandler:
 
         for identifier in identifiers:
 
+            requested = re.sub(
+                r"[^a-z0-9]",
+                "",
+                str(identifier or "").casefold(),
+            )
+
             matches = [
-                unit for unit in candidates
-                if norm(identifier) in {
-                    norm(unit.unit_name),
-                    norm(unit.unit_code),
-                }
+                unit
+                for unit in candidates
+                if requested
+                and any(
+                    re.sub(
+                        r"[^a-z0-9]",
+                        "",
+                        str(value).casefold(),
+                    ) == requested
+                    for value in (
+                        unit.unit_name,
+                        unit.unit_code,
+                        unit.unit_id,
+                    )
+                    if value
+                )
             ]
+
 
             if len(matches) != 1:
                 result.messages.append(

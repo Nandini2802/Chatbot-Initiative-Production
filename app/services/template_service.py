@@ -37,7 +37,12 @@ class TemplateService:
                 "brochure.html.j2",
                 project=asset.project,
                 files=[
-                    item.model_dump()
+                    {
+                        **item.model_dump(),
+                        "size_label": self.format_file_size(
+                            item.file_size_bytes
+                        ),
+                    }
                     for item in asset.files
                 ],
                 zip_url=None,
@@ -48,7 +53,12 @@ class TemplateService:
                 "video.html.j2",
                 project=asset.project,
                 files=[
-                    item.model_dump()
+                    {
+                        **item.model_dump(),
+                        "size_label": self.format_file_size(
+                            item.file_size_bytes
+                        ),
+                    }
                     for item in asset.files
                 ],
                 zip_url=None,
@@ -84,3 +94,16 @@ class TemplateService:
             total_files=asset.total_files,
             zip_url=asset.zip_url,
         )
+
+    @staticmethod
+    def format_file_size(size_bytes):
+        if size_bytes is None:
+            return None
+
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+
+        if size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.2f} KB"
+
+        return f"{size_bytes / (1024 * 1024):.2f} MB"

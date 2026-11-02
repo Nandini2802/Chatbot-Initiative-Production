@@ -214,3 +214,201 @@ def resolve_project(
     if stated.status in {"matched", "ambiguous"}:
         return stated
     return match_project_reference(reference, projects) if reference else ProjectResolution("not_found")
+
+
+def _comparison_project_parts(value: str):
+    """
+    Return (base_name, project_number).
+
+    Examples:
+    ELITZ BY DANUBE -> ("elitz", None)
+    ELITZ 2 BY DANUBE -> ("elitz", 2)
+    GLITZ RESIDENCE 1 -> ("glitz residence", 1)
+    """
+    short_name = _short(value)
+
+    match = re.fullmatch(
+        r"(.+?)\s+(\d+)",
+        short_name,
+    )
+
+    if match:
+        return match.group(1).strip(), int(match.group(2))
+
+    return short_name, None
+
+
+def resolve_comparison_project(
+    reference: str,
+    active_projects: Collection[str],
+) -> ProjectResolution:
+    """
+    Resolve a project for comparison using ONLY the
+    supplied Active Projects API names.
+
+    Selection rules:
+    1. Respect an explicitly requested number.
+    2. Prefer the unnumbered project.
+    3. Otherwise choose the lowest numbered variant.
+    4. Allow guarded spelling correction.
+    """
+    names = _names(active_projects)
+    requested_base, requested_number = (
+        _comparison_project_parts(reference)
+    )
+
+    if not requested_base:
+        return ProjectResolution("not_found")
+
+    project_entries = [
+        (name, *_comparison_project_parts(name))
+        for name in names
+    ]
+
+    # First resolve the project family, independently
+    # from the project number.
+    base_names = sorted({
+        base
+        for _, base, _ in project_entries
+        if base
+    })
+
+    # Exact base name always wins.
+    if requested_base in base_names:
+        selected_base = requested_base
+
+    else:
+        if len(requested_base) < 4:
+            return ProjectResolution("not_found")
+
+        ranked = sorted(
+            (
+                (_score(requested_base, base), base)
+                for base in base_names
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+
+        if not ranked or ranked[0][0] < 0.70:
+            return ProjectResolution("not_found")
+
+        # Guard against two unrelated project families
+        # having nearly identical scores.
+        if (
+            len(ranked) > 1
+            and ranked[0][0] - ranked[1][0] < 0.09
+        ):
+            return ProjectResolution(
+                "ambiguous",
+                candidates=tuple(
+                    base for _, base in ranked[:3]
+                ),
+            )
+
+        selected_base = ranked[0][1]
+
+    family = [
+        (name, number)
+        for name, base, number in project_entries
+        if base == selected_base
+    ]
+
+    if requested_number is not None:
+        # Never substitute a different numbered project.
+        matching = [
+            name
+            for name, number in family
+            if number == requested_number
+        ]
+
+    else:
+        # Prefer the unnumbered base project.
+        matching = [
+            name
+            for name, number in family
+            if number is None
+        ]
+
+        # If unavailable, use the lowest numbered variant.
+        if not matching:
+            numbers = [
+                number
+                for _, number in family
+                if number is not None
+            ]
+
+            if numbers:
+                lowest = min(numbers)
+
+                matching = [
+                    name
+                    for name, number in family
+                    if number == lowest
+                ]
+
+    if len(matching) == 1:
+        return ProjectResolution(
+            "matched",
+            name=matching[0],
+            method="comparison_catalog",
+        )
+
+    if len(matching) > 1:
+        return ProjectResolution(
+            "ambiguous",
+            candidates=tuple(matching),
+        )
+
+    return ProjectResolution("not_found")
+
+
+def extract_comparison_projects(
+    message: str,
+    active_projects: Collection[str],
+) -> list[str]:
+    """
+    Extract two project references from a direct
+    comparison request and resolve them against the
+    live Active Projects API catalog.
+
+    Returns two canonical project names on success,
+    otherwise an empty list.
+    """
+    text = str(message or "").strip()
+
+    match = re.fullmatch(
+        r"\s*(?:please\s+)?"
+        r"(?:compare|comparre|comparison of)\s+"
+        r"(.+?)\s+"
+        r"(?:and|with|vs\.?|versus)\s+"
+        r"(.+?)\s*[.!?]?\s*",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return []
+
+    references = [
+        match.group(1).strip(),
+        match.group(2).strip(),
+    ]
+
+    resolved = []
+
+    for reference in references:
+        result = resolve_comparison_project(
+            reference,
+            active_projects,
+        )
+
+        if result.status != "matched" or not result.name:
+            return []
+
+        resolved.append(result.name)
+
+    # Never compare a project with itself.
+    if len(set(resolved)) != 2:
+        return []
+
+    return resolved

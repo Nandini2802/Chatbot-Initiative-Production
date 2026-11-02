@@ -23,6 +23,10 @@ class ChatRequest(BaseModel):
     source: Literal["mobile_app", "web_app"]
     employee_type: Literal["direct", "indirect", ""] = Field(...)
     selected_payment_plan_names: list[str] | None = None
+    selected_payment_plan: str | None = Field(
+        default=None,
+        min_length=1,
+    )
 
 
     @model_validator(mode="after")

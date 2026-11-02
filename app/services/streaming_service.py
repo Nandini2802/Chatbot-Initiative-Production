@@ -31,11 +31,15 @@ from app.retrieval.project_name import resolve_project_name
 from app.services.inventory_conversation_service import *
 from app.core.keyvault import load_application_secrets
 from app.services.sales_offer_state import SalesOfferState
+from app.services.unit_comparison_state import UnitComparisonState
 from app.services.walkthrough_access_service import WalkthroughEngine
 from app.services.download_availability_state import DownloadAvailabilityState
 from app.services.download_availability_access_service import DownloadAvailabilityAccessService
 from app.observability.logger import audit_event, log_context
-from app.services.payment_plan_selection_service import interpret_payment_selection
+from app.services.payment_plan_selection_service import (
+    interpret_payment_selection,
+    PaymentSelectionDecision,
+)
 
 from app.utils.bank_debug import bank_debug
 from app.schemas.routing import RoutingIntent
@@ -46,6 +50,8 @@ from app.services.project_resolution_service import ProjectResolution
 from app.services.project_resolution_service import (
     resolve_project,
     match_project_reference,
+    resolve_comparison_project,
+    extract_comparison_projects,
 )
 from app.services.project_context_service import (
     resolve_session_project,
@@ -55,14 +61,19 @@ from app.services.payment_plan_context_service import (
     load_pending_payment_selection,
     match_selected_plan,
     clear_pending_payment_selection,
+    normalize_plan_name,
 )
 from app.services.availability_resolver import (
     resolve_availability_project,
     AvailabilityResolutionError,
 )
 from app.services.marketing_resolution import (
+    resolve_marketing_query,
+    extract_marketing_parts,
     resolve_marketing_project,
-    resolve_assets,
+)
+from app.services.marketing_llm_fallback import (
+    resolve_marketing_with_llm,
 )
 
 
@@ -245,6 +256,7 @@ async def _stream_chat_response_impl(
     access_token: str,
     walkthrough_engine: WalkthroughEngine,
     selected_payment_plan_names: list[str] | None = None,
+    selected_payment_plan: str | None = None,
 ):
 
     started_at = time.perf_counter()
@@ -309,11 +321,41 @@ async def _stream_chat_response_impl(
             session_id=str(session_id),
         )
 
-        selected_payment_plan = None
+        selected_payment_plan_record = None
         payment_selection_decision = None
 
 
-        if pending_payment_selection:
+        if selected_payment_plan is not None:
+            if not pending_payment_selection:
+                raise ValueError(
+                    "Payment-plan selection is not active "
+                    "for this conversation."
+                )
+
+            matched_plans = [
+                plan
+                for plan in pending_payment_selection["plans"]
+                if normalize_plan_name(plan["name"])
+                == normalize_plan_name(selected_payment_plan)
+            ]
+
+            if len(matched_plans) == 1:
+                selected_payment_plan_record = matched_plans[0]
+                payment_selection_decision = PaymentSelectionDecision(
+                    status="selected",
+                    plan=selected_payment_plan_record,
+                )
+            else:
+                payment_selection_decision = PaymentSelectionDecision(
+                    status="clarify",
+                    message=(
+                        "That payment plan is not available "
+                        "for the selected unit. Please choose "
+                        "one of the displayed plans."
+                    ),
+                )
+
+        elif pending_payment_selection:
             payment_selection_decision = (
                 await interpret_payment_selection(
                     message=message,
@@ -323,8 +365,9 @@ async def _stream_chat_response_impl(
                 )
             )
 
+        if payment_selection_decision is not None:
             if payment_selection_decision.status == "selected":
-                selected_payment_plan = (
+                selected_payment_plan_record = (
                     payment_selection_decision.plan
                 )
 
@@ -334,7 +377,6 @@ async def _stream_chat_response_impl(
                 session_id,
                 payment_selection_decision.status,
             )
-
 
 
 
@@ -402,7 +444,7 @@ async def _stream_chat_response_impl(
 
         # PAYMENT PLAN FOLLOW-UP: exact selection bypasses LLM routing.
         # Reuse the existing handler, HTML renderer, persistence, and SSE format.
-        if selected_payment_plan is not None:
+        if selected_payment_plan_record is not None:
 
             payment_handler = PaymentPlanHandler(
                 snapshot=inventory_snapshot,
@@ -420,7 +462,7 @@ async def _stream_chat_response_impl(
             )
             selection_result = await payment_handler.handle(
                 selected_intent,
-                selected_plan_id=selected_payment_plan["id"],
+                selected_plan_id=selected_payment_plan_record["id"],
             )
 
             selection_html = [
@@ -436,7 +478,7 @@ async def _stream_chat_response_impl(
             selection_text = (
                 f"Here is the selected payment plan for "
                 f"{pending_payment_selection['unit_name']}: "
-                f"{selected_payment_plan['name']}."
+                f"{selected_payment_plan_record['name']}."
                 if selection_succeeded
                 else " ".join(selection_result.messages)
                 or "The selected payment plan could not be displayed."
@@ -642,6 +684,290 @@ async def _stream_chat_response_impl(
             active_project_context=session_project_context,
         )
 
+        direct_comparison_projects = (
+            extract_comparison_projects(
+                message,
+                inventory_catalogs.active_projects,
+            )
+        )
+
+        if len(direct_comparison_projects) == 2:
+            logger.info(
+                "PROJECT_COMPARISON_RECOVERED | "
+                "projects=%s",
+                direct_comparison_projects,
+            )
+
+            routing_result.intents = [
+                RoutingIntent(
+                    intent="inventory",
+                    original_query=message,
+                    expanded_query=message,
+                    action="compare",
+                    project_name=None,
+                    unit_number=None,
+                    bedrooms=None,
+                    currency=None,
+                    file_format=None,
+                    bank_account_types=[],
+                    marketing_assets=[],
+                    inventory_scope="projects",
+                    inventory_operation="project_comparison",
+                    compare_project_names=direct_comparison_projects,
+                    missing_fields=[],
+                    requires_clarification=False,
+                    project_reference_source="none",
+                )
+            ]
+
+
+        
+        comparison_state = UnitComparisonState(clients.redis)
+        comparison_override = False
+        comparison_prompt = None
+
+        pending_comparison = await comparison_state.load(
+            user_id=user_id,
+            session_id=str(session_id),
+        )
+
+        # A new comparison without unit numbers.
+        starts_empty_comparison = bool(
+            re.fullmatch(
+                r"\s*(?:please\s+)?"
+                r"(?:compare|comparre|comparison)\s+"
+                r"(?:2|two)\s+units?\s*[.!?]?\s*",
+                message,
+                flags=re.IGNORECASE,
+            )
+        )
+
+        cancel_comparison = message.strip().casefold() in {
+            "cancel",
+            "cancel comparison",
+            "stop comparison",
+            "never mind",
+            "nevermind",
+        }
+
+        def make_comparison_intent(unit_names, *, incomplete):
+            return RoutingIntent(
+                intent="inventory",
+                original_query=message,
+                expanded_query=message,
+                action="compare",
+                project_name=None,
+                unit_number=None,
+                bedrooms=None,
+                currency=None,
+                file_format=None,
+                bank_account_types=[],
+                marketing_assets=[],
+                inventory_scope="units",
+                inventory_operation="unit_comparison",
+                compare_unit_numbers=unit_names,
+                missing_fields=(
+                    ["compare_unit_numbers"] if incomplete else []
+                ),
+                requires_clarification=incomplete,
+                project_reference_source="none",
+            )
+
+        if starts_empty_comparison:
+            # Start afresh even if an older comparison was pending.
+            await comparison_state.save(
+                user_id=user_id,
+                session_id=str(session_id),
+                unit_ids=[],
+            )
+
+            comparison_override = True
+            comparison_prompt = (
+                "Sure, which two units would you like to compare?"
+            )
+
+            routing_result.intents = [
+                make_comparison_intent([], incomplete=True)
+            ]
+
+        elif pending_comparison and cancel_comparison:
+            await comparison_state.clear(
+                user_id=user_id,
+                session_id=str(session_id),
+            )
+
+            # Leave cancellation to the normal conversation flow.
+            pending_comparison = None
+
+        elif pending_comparison:
+            # Revalidate every stored unit against current visible
+            # inventory. Redis is conversation state, not authorization.
+            saved_ids = pending_comparison.get("unit_ids", [])
+
+            selected = []
+
+            for saved_id in saved_ids:
+                matches = [
+                    unit
+                    for unit in inventory_snapshot.units
+                    if unit.unit_id
+                    and str(unit.unit_id) == saved_id
+                ]
+
+                if len(matches) != 1:
+                    selected = []
+                    break
+
+                selected.append(matches[0])
+
+            if len(selected) != len(saved_ids):
+                await comparison_state.clear(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+                pending_comparison = None
+
+            else:
+                # Accept standalone unit identifiers, including
+                # variants with spaces, hyphens, or underscores.
+                
+                candidate = message.strip()
+
+                # Support either one unit or two units in a
+                # single follow-up message.
+                unit_inputs = [
+                    part.strip()
+                    for part in re.split(
+                        r"\s*(?:,|\band\b|&)\s*",
+                        candidate,
+                        flags=re.IGNORECASE,
+                    )
+                    if part.strip()
+                ]
+
+                def normalize_identifier(value):
+                    return re.sub(
+                        r"[^a-z0-9]",
+                        "",
+                        str(value or "").casefold(),
+                    )
+
+                looks_like_units = (
+                    1 <= len(unit_inputs) <= 2
+                    and all(
+                        re.fullmatch(
+                            r"[A-Za-z0-9][A-Za-z0-9 _-]*",
+                            value,
+                        )
+                        and re.search(r"\d", value)
+                        for value in unit_inputs
+                    )
+                )
+
+                if looks_like_units:
+                    comparison_override = True
+
+                    for unit_input in unit_inputs:
+                        requested = normalize_identifier(unit_input)
+
+                        matches = [
+                            unit
+                            for unit in inventory_snapshot.units
+                            if requested
+                            and any(
+                                normalize_identifier(value) == requested
+                                for value in (
+                                    unit.unit_name,
+                                    unit.unit_code,
+                                    unit.unit_id,
+                                )
+                                if value
+                            )
+                        ]
+
+                        if len(matches) != 1:
+                            comparison_prompt = (
+                                f"Could not uniquely identify unit "
+                                f"{unit_input} in your visible inventory. "
+                                "Please check the unit number."
+                            )
+                            break
+
+                        matched_unit = matches[0]
+
+                        if any(
+                            str(unit.unit_id)
+                            == str(matched_unit.unit_id)
+                            for unit in selected
+                        ):
+                            comparison_prompt = (
+                                f"You've already selected "
+                                f"{matched_unit.unit_name}. "
+                                "Please choose a different unit."
+                            )
+                            break
+
+                        if len(selected) >= 2:
+                            comparison_prompt = (
+                                "You already selected two units."
+                            )
+                            break
+
+                        selected.append(matched_unit)
+
+                    # Persist valid selections if comparison
+                    # is still incomplete.
+                    if len(selected) < 2:
+                        await comparison_state.save(
+                            user_id=user_id,
+                            session_id=str(session_id),
+                            unit_ids=[
+                                str(unit.unit_id)
+                                for unit in selected
+                            ],
+                        )
+
+                        if comparison_prompt is None:
+                            if len(selected) == 1:
+                                comparison_prompt = (
+                                    f"Got it, {selected[0].unit_name}. "
+                                    "Which unit would you like to "
+                                    "compare it with?"
+                                )
+                            else:
+                                comparison_prompt = (
+                                    "Sure, which two units would "
+                                    "you like to compare?"
+                                )
+
+                    incomplete = len(selected) != 2
+
+                    routing_result.intents = [
+                        make_comparison_intent(
+                            [unit.unit_name for unit in selected],
+                            incomplete=incomplete,
+                        )
+                    ]
+
+                    routing_result.requires_clarification = incomplete
+
+                else:
+                    # An explicit new request may interrupt the
+                    # unfinished comparison.
+                    await comparison_state.clear(
+                        user_id=user_id,
+                        session_id=str(session_id),
+                    )
+
+        # Ensure the top-level router flag agrees with the
+        # replacement intent.
+        if comparison_override:
+            routing_result.requires_clarification = any(
+                item.requires_clarification
+                for item in routing_result.intents
+            )
+
+
         
         sales_offer_state = SalesOfferState(
             clients.redis
@@ -651,6 +977,14 @@ async def _stream_chat_response_impl(
             user_id=user_id,
             session_id=str(session_id),
         )
+
+        if comparison_override and pending_so:
+            await sales_offer_state.clear(
+                user_id=user_id,
+                session_id=str(session_id),
+            )
+            pending_so = None
+
 
         normalized_message = message.strip().casefold()
 
@@ -865,6 +1199,8 @@ async def _stream_chat_response_impl(
 
 
         for intent in routing_result.intents:
+            if comparison_override:
+                continue
 
             if intent.intent != "inventory":
                 continue
@@ -1052,37 +1388,26 @@ async def _stream_chat_response_impl(
             if index in availability_denied:
                 continue
 
+
+            
             if (
                 intent.intent == "marketing"
                 and intent.action != "company_profile"
             ):
-                # Correct asset names without changing other intents.
-                raw_assets = list(intent.marketing_assets or [])
-
-                corrected_assets, unresolved_assets = resolve_assets(
-                    raw_assets
+                reference_source = (
+                    intent.project_reference_source
                 )
-
-                if raw_assets:
-                    intent.marketing_assets = corrected_assets
-
-                if unresolved_assets:
-                    if "marketing_assets" not in intent.missing_fields:
-                        intent.missing_fields.append("marketing_assets")
-
-                elif corrected_assets:
-                    intent.missing_fields = [
-                        field for field in intent.missing_fields
-                        if field != "marketing_assets"
-                    ]
 
                 unit_project = resolve_visible_unit_project(
                     message
                 )
 
-                reference_source = intent.project_reference_source
+                # 1. Select project reference
 
-                if reference_source in {"explicit", "uncertain"}:
+                if reference_source in {
+                    "explicit",
+                    "uncertain",
+                }:
                     project_reference = (
                         intent.explicit_project_reference
                         or intent.project_name
@@ -1103,13 +1428,171 @@ async def _stream_chat_response_impl(
                 else:
                     project_reference = None
 
-                project_match = resolve_marketing_project(
-                    project_reference,
-                    list(marketing_names),
+                allow_message_project_fallback = (
+                    reference_source in {
+                        "explicit",
+                        "uncertain",
+                    }
+                    or (
+                        reference_source == "none"
+                        and not active_project_name
+                        and not unit_project
+                    )
                 )
 
+                resolution_message = (
+                    message
+                    if allow_message_project_fallback
+                    else ""
+                )
+
+                # 2. Existing deterministic resolver
+
+                
+                extracted_project, extracted_assets = (
+                    extract_marketing_parts(message)
+                )
+
+                if (
+                    allow_message_project_fallback
+                    and extracted_project
+                ):
+                    explicit_match = (
+                        resolve_marketing_project(
+                            extracted_project,
+                            list(marketing_names),
+                        )
+                    )
+
+                    if (
+                        explicit_match.status == "matched"
+                        and explicit_match.method in {
+                            "exact",
+                            "approved_family",
+                        }
+                    ):
+                        project_reference = extracted_project
+
+                    elif (
+                        reference_source in {"explicit", "uncertain"}
+                        and any(
+                            word in extracted_project.split()
+                            for word in {
+                                "residence",
+                                "residences",
+                                "residnces",
+                            }
+                        )
+                        and not any(
+                            word in (project_reference or "").casefold().split()
+                            for word in {
+                                "residence",
+                                "residences",
+                                "residnces",
+                            }
+                        )
+                    ):
+                        project_reference = (
+                            extracted_project
+                        )
+
+                router_assets = list(
+                    intent.marketing_assets or []
+                )
+
+                # Recover a missing material from
+                # the original message.
+                if (
+                    not router_assets
+                    and extracted_assets
+                ):
+                    router_assets = (
+                        extracted_assets
+                    )
+
+                resolved = resolve_marketing_query(
+                    message=resolution_message,
+                    marketing_projects=list(
+                        marketing_names
+                    ),
+                    router_project=project_reference,
+                    router_assets=router_assets,
+                )
+
+                logger.info(
+                    "MARKETING_DETERMINISTIC_RESULT | "
+                    "query=%r | status=%s | "
+                    "project=%r | assets=%r | "
+                    "unresolved_assets=%r",
+                    message,
+                    resolved.project.status,
+                    resolved.project.name,
+                    resolved.assets,
+                    resolved.unresolved_assets,
+                )
+
+                # 3. LLM fallback only if incomplete
+
+                needs_llm_fallback = (
+                    resolved.project.status != "matched"
+                    or bool(resolved.unresolved_assets)
+                    or not resolved.assets
+                )
+
+                if needs_llm_fallback:
+
+                    logger.info(
+                        "MARKETING_LLM_FALLBACK_TRIGGERED | "
+                        "query=%r",
+                        message,
+                    )
+
+                    resolved = await resolve_marketing_with_llm(
+                        message=message,
+                        marketing_projects=list(
+                            marketing_names
+                        ),
+                        current_resolution=resolved,
+                        client=clients.foundry_openai,
+                        model=settings.foundry_openai_model,
+                        project_reference=(
+                            project_reference
+                            if project_reference
+                            else None
+                        ),
+                        allow_project_recovery=(
+                            allow_message_project_fallback
+                            or bool(project_reference)
+                        ),
+                    )
+
+                # 4. Final marketing assets
+
+                intent.marketing_assets = list(
+                    resolved.assets
+                )
+
+                if (
+                    not intent.marketing_assets
+                    and not resolution_message
+                ):
+                    _, extracted_assets = (
+                        extract_marketing_parts(message)
+                    )
+
+                    intent.marketing_assets = (
+                        extracted_assets
+                    )
+
+                # 5. Final marketing project
+
+                project_match = resolved.project
+
                 if project_match.status == "matched":
-                    intent.project_name = project_match.name
+
+                    intent.project_name = (
+                        project_match.name
+                    )
 
                     intent.missing_fields = [
                         field
@@ -1136,15 +1619,20 @@ async def _stream_chat_response_impl(
                     )
 
                 else:
+
                     intent.project_name = None
 
-                    if "project_name" not in intent.missing_fields:
-                        intent.missing_fields.append("project_name")
-
-                    blocked_intents.add(index)
+                    if (
+                        "project_name"
+                        not in intent.missing_fields
+                    ):
+                        intent.missing_fields.append(
+                            "project_name"
+                        )
 
                     if reference_source in {
-                        "explicit", "uncertain"
+                        "explicit",
+                        "uncertain",
                     }:
                         project_context_has_unresolved_explicit = True
 
@@ -1155,9 +1643,82 @@ async def _stream_chat_response_impl(
                         project_match.candidates,
                     )
 
+                # 6. Recalculate missing asset fields
+
+                if resolved.unresolved_assets:
+
+                    if (
+                        "marketing_assets"
+                        not in intent.missing_fields
+                    ):
+                        intent.missing_fields.append(
+                            "marketing_assets"
+                        )
+
+                else:
+
+                    intent.missing_fields = [
+                        field
+                        for field in intent.missing_fields
+                        if field != "marketing_assets"
+                    ]
+
+
                 intent.requires_clarification = bool(
                     intent.missing_fields
                 )
+
+            
+                # 7. Final blocking decision
+            
+
+                if intent.requires_clarification:
+                    blocked_intents.add(index)
+
+                else:
+                    blocked_intents.discard(index)
+
+                logger.info(
+                    "MARKETING_RESOLUTION_FINAL | "
+                    "query=%r | project=%r | "
+                    "assets=%r | missing=%r | "
+                    "clarification=%s | blocked=%s",
+                    message,
+                    intent.project_name,
+                    intent.marketing_assets,
+                    intent.missing_fields,
+                    intent.requires_clarification,
+                    index in blocked_intents,
+                )
+
+            
+            if (
+                intent.intent == "inventory"
+                and intent.inventory_operation == "unit_comparison"
+            ):
+                intent.inventory_scope = "units"
+                intent.project_name = None
+                intent.project_reference_source = "none"
+                intent.explicit_project_reference = None
+
+                missing = set(intent.missing_fields)
+
+                missing.discard("project_name")
+                missing.discard("project_identifier")
+                missing.discard("project_or_unit_identifier")
+
+                if len(intent.compare_unit_numbers or []) != 2:
+                    missing.add("compare_unit_numbers")
+                else:
+                    missing.discard("compare_unit_numbers")
+
+                intent.missing_fields = sorted(missing)
+                intent.requires_clarification = bool(missing)
+
+                if intent.requires_clarification:
+                    blocked_intents.add(index)
+
+                continue
 
 
             # CENTRAL_PROJECT_RESOLUTION: catalog-scoped, zero extra LLM calls.
@@ -1356,10 +1917,26 @@ async def _stream_chat_response_impl(
                     for requested_name in (
                         intent.compare_project_names or []
                     ):
-                        comparison_match = match_project_reference(
+                        comparison_match = resolve_comparison_project(
                             requested_name,
                             inventory_active_names,
                         )
+                        logger.info(
+                            "PROJECT_COMPARISON_DEBUG | "
+                            "requested=%s | status=%s | "
+                            "matched=%s | candidates=%s | "
+                            "available_elitz_projects=%s",
+                            requested_name,
+                            comparison_match.status,
+                            comparison_match.name,
+                            comparison_match.candidates,
+                            [
+                                name
+                                for name in inventory_active_names
+                                if "elitz" in name.casefold()
+                            ],
+                        )
+
                         if comparison_match.status == "matched":
                             resolved_names.append(comparison_match.name)
                         else:
@@ -1792,6 +2369,17 @@ async def _stream_chat_response_impl(
                     )
                     continue
 
+                if (
+                    intent.intent == "inventory"
+                    and intent.inventory_operation == "unit_comparison"
+                    and "compare_unit_numbers" in intent.missing_fields
+                ):
+                    clarification_messages.append(
+                        comparison_prompt
+                        or "Sure, which two units would you like to compare?"
+                    )
+                    continue
+
                 if intent.intent == "download_availability":
                     missing = set(intent.missing_fields)
 
@@ -1862,6 +2450,20 @@ async def _stream_chat_response_impl(
                 continue
 
             result = await dispatcher.execute(intent)
+            if (
+                intent.intent == "inventory"
+                and intent.inventory_operation == "unit_comparison"
+                and result.has_data
+                and any(
+                    block.get("card_type") == "inventory_comparison"
+                    for block in result.html_blocks
+                )
+            ):
+                await comparison_state.clear(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+
 
             if (
                 intent.intent == "download_availability"
@@ -1984,7 +2586,24 @@ async def _stream_chat_response_impl(
             and not clarification_messages
         )
 
-        if availability_success_only:
+        payment_plan_selection_only = (
+            len(routing_result.intents) == 1
+            and routing_result.intents[0].intent == "inventory"
+            and len(handler_results) == 1
+            and any(
+                block.get("card_type") == "payment_plan_selection"
+                for block in handler_results[0].html_blocks
+            )
+        )
+
+        if payment_plan_selection_only:
+            response_text = " ".join(
+                handler_results[0].messages
+            ).strip()
+            followup_chips = []
+            real_llm_streaming = False
+
+        elif availability_success_only:
             availability = handler_results[0].generation_context
 
             project_name = (
@@ -2616,6 +3235,7 @@ async def stream_chat_response(
     access_token: str,
     walkthrough_engine: WalkthroughEngine,
     selected_payment_plan_names: list[str] | None = None,
+    selected_payment_plan: str | None = None,
 ):
     started_at = time.perf_counter()
 
@@ -2639,6 +3259,7 @@ async def stream_chat_response(
             access_token=access_token,
             walkthrough_engine=walkthrough_engine,
             selected_payment_plan_names=selected_payment_plan_names,
+            selected_payment_plan=selected_payment_plan,
         ):
             if event.startswith("event: done\n"):
                 if '"completed"' in event:

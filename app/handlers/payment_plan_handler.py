@@ -1,4 +1,5 @@
 import logging
+import re
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -102,9 +103,11 @@ class PaymentPlanHandler:
         self.session_id = session_id
 
     def _resolve_units(self, intent):
-        requested_unit = str(
-            intent.unit_number or ""
-        ).strip().casefold()
+        requested_unit = re.sub(
+            r"[^a-z0-9]",
+            "",
+            str(intent.unit_number or "").casefold(),
+        )
 
         requested_project = normalize_project_name(
             intent.project_name or ""
@@ -114,15 +117,24 @@ class PaymentPlanHandler:
             getattr(intent, "project_number", None) or ""
         ).strip()
 
+        
         if requested_unit:
             matches = [
                 unit
                 for unit in self.snapshot.units
-                if requested_unit in {
-                    str(unit.unit_id or "").strip().casefold(),
-                    str(unit.unit_name or "").strip().casefold(),
-                    str(unit.unit_code or "").strip().casefold(),
-                }
+                if any(
+                    re.sub(
+                        r"[^a-z0-9]",
+                        "",
+                        str(value).casefold(),
+                    ) == requested_unit
+                    for value in (
+                        unit.unit_id,
+                        unit.unit_name,
+                        unit.unit_code,
+                    )
+                    if value
+                )
             ]
 
             if requested_project:
@@ -448,39 +460,55 @@ class PaymentPlanHandler:
             )
             return result
 
-        
-
+    
         # No implicit selection of a plan.
+        # Multiple plans: show a single-select HTML card.
         if len(plans) > 1 and selected_plan_id is None:
+
             await save_pending_payment_selection(
                 redis_client=self.redis_client,
                 user_id=self.user_id,
                 session_id=self.session_id,
                 unit_id=unit.unit_id,
-                unit_name=unit.unit_name,
+                unit_name=unit.unit_name or unit.unit_id,
                 plans=plans,
             )
 
-            plan_names = [
-                plan["Name"]
+            plan_options = [
+                {
+                    "name": self._plan_name(plan),
+                }
                 for plan in plans
-                if plan.get("Name")
+                if plan.get("Id") and plan.get("Name")
             ]
 
-            numbered_options = "\n".join(
-                f"{index}. {name}"
-                for index, name in enumerate(plan_names, start=1)
+            if not plan_options:
+                result.messages.append(
+                    "No selectable payment plans were returned "
+                    "for this unit."
+                )
+                return result
+
+            html = self.templates.render(
+                "payment_plan_selection.html.j2",
+                plans=plan_options,
             )
 
-            return HandlerResult(
-                intent="inventory",
-                messages=[
-                    f"I found {len(plan_names)} payment plans "
-                    f"for {unit.unit_name}. "
-                    "Please choose a plan by its number or name:\n"
-                    f"{numbered_options}"
-                ],
+            result.messages.append(
+                f"I found {len(plan_options)} payment plans "
+                f"for {unit.unit_name or unit.unit_id}. "
+                "Please select one plan below, or reply "
+                "with its name or option number."
             )
+
+            result.html_blocks.append({
+                "card_type": "payment_plan_selection",
+                "html": html,
+            })
+
+            result.has_data = True
+            return result
+
 
         if selected_plan_id is not None:
             selected_matches = [

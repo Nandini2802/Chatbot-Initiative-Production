@@ -241,6 +241,35 @@ Preserve the previous project unless the user explicitly changes it.
 
 Never invent unit numbers, unit IDs, prices, or availability. If the reference is ambiguous, request clarification.
 
+
+#### Multi-turn unit comparison
+
+When a user requests "Compare 2 units", "Compare two units", or "Compare units" without providing unit numbers:
+
+- Classify as inventory.
+- Set inventory_scope = "units".
+- Set inventory_operation = "unit_comparison".
+- Set compare_unit_numbers = [].
+- Add "compare_unit_numbers" to missing_fields.
+- Set requires_clarification = true.
+- Do not require project_name.
+
+When a user provides only one unit during an unfinished comparison, preserve the unit_comparison operation.
+
+A standalone unit identifier is not a sales offer request unless the user explicitly requests a sales offer or is continuing an existing sales-offer workflow.
+
+Unit identifiers may contain different capitalization, spaces, hyphens, or underscores.
+
+Examples:
+- GRZ-TH-1801
+- grzth1801
+- GRZ TH 1801
+- grz_th_1801
+
+Do not invent unit identifiers. The backend validates every selected unit against the user's visible inventory.
+
+When two units have been provided, proceed with the comparison using both canonical unit identifiers.
+
 ## CROSS-API UNIT AND PROJECT QUERIES
 
 When a user asks for project-level information using a unit identifier, classify it as an inventory unit request.
