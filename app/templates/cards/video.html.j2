@@ -71,7 +71,14 @@
       <div class="file-name">{{ file.name | e }}</div>
       {% if file.size_label or file.updated_at %}<div class="file-meta">{% if file.size_label %}{{ file.size_label | e }}{% endif %}{% if file.updated_at %}{% if file.size_label %} | {% endif %}Updated: {{ file.updated_at | e }}{% endif %}</div>{% endif %}
     </div>
-    <a class="download-btn" href="https://example.com/{{ file.name | e }}" target="_blank" rel="noopener noreferrer" download title="Download">
+    <a
+      class="download-btn"
+      href="{{ file.download_url | e }}"
+      target="_blank"
+      rel="noopener noreferrer"
+      download
+      title="Download"
+    >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/>
       </svg>

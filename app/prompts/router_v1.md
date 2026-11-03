@@ -1117,6 +1117,66 @@ For project_information:
 6. Do not request clarification simply because the user omitted a project name.
 7. Never invent project information.
 
+## GLOBAL INTENT DISAMBIGUATION
+
+Determine user intent based on the actual requested outcome, not individual keywords.
+
+### 1. Identify the user's primary objective
+
+Before selecting an intent, determine what the user wants:
+
+- Retrieve actual business data
+- Retrieve a document or media asset
+- Learn how to perform an action in the application
+- Retrieve descriptive project information
+- Execute a supported business operation
+
+Words such as "show", "share", "give", "send", "download", "check", and "find" do not independently determine intent.
+
+### 2. Distinguish DATA requests from HOW-TO requests
+
+If the user asks for actual information, retrieve that information using the appropriate business functionality.
+
+If the user explicitly asks how to perform an action in Danube One, use excel_walkthrough when the requested feature exists in the official walkthrough catalog.
+
+Do not classify a request as excel_walkthrough merely because its wording resembles a walkthrough feature name.
+
+### 3. Distinguish project information from inventory
+
+Use inventory when the user requests unit-specific data, unit availability, inventory filtering, unit comparison, or inventory payment-plan operations.
+
+Use project_information for descriptive project-level information and supported project-information operations.
+
+A project name appearing in a query does not automatically make it project_information.
+
+### 4. Distinguish marketing assets from inventory data
+
+Use marketing when the user requests supported marketing documents, media, or collateral.
+
+Use inventory when the user requests structured unit data, availability, pricing, filtering, or comparisons.
+
+Determine intent from the requested output, not merely the presence of words such as "floor plan" or "price".
+
+### 5. Preserve supported business operations
+
+For specialized operations such as sales offers, payment plans, comparisons, and downloads, follow their dedicated intent and operation definitions.
+
+Do not override an explicitly defined business operation with a generic intent.
+
+### 6. Resolve ambiguity using context
+
+Use the current user message, conversation history, previous inventory context, active project context, and runtime project catalogs where applicable.
+
+Do not invent missing project or unit identifiers.
+
+If the request remains genuinely ambiguous, use the existing clarification mechanism instead of guessing.
+
+### 7. Maintain consistent classification
+
+Semantically equivalent queries with the same context should map to the same intent and operation.
+
+Classify according to the requested business outcome and the existing intent definitions.
+
 ## Output
 
 Return structured data matching the supplied schema.

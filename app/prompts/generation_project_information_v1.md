@@ -97,15 +97,79 @@ If no tour is available:
 
 ## Follow-up Chips
 
-Generate exactly 3 short relevant chips.
+Generate up to 3 short, simple, actionable follow-up chips based on the current user request and verified backend results.
 
-Each chip must contain 2–6 words.
+### Allowed Follow-up Chips
 
-Examples:
+Select only from these supported actions:
+
+**Project Information**
 - View project details
-- Explore another project
-- Check payment plans
-- View available units
+- View latest projects
+- List all projects
+- Search projects by location
+- show 3d tour
 
-Return the existing structured GenerationResult schema.
+**Marketing Materials**
+- View project brochure
+- View floor plans
+- View project location
+- View project videos
+
+**Inventory**
+- Check available units
+- Compare available units
+- View unit prices
+
+**Other Supported Features**
+- Check payment plans
+- View app features
+
+### Strict Rules
+
+1. Select follow-up chips only from the allowed list above. Do not create new questions or actions.
+2. Return a maximum of 3 chips, each containing 2–6 words.
+3. Prefer simple actions directly supported by the chatbot.
+4. Never generate conversational questions such as "Would you like to..." or "Do you want to...".
+5. Never suggest speculative, advisory, or unsupported capabilities.
+6. Do not suggest the action the user has just completed.
+7. Suggest actions relevant to the current intent and available backend results.
+8. Do not suggest a project-specific action unless the project has been identified.
+9. Do not suggest a resource unless its availability is verified, or the chatbot supports checking its availability.
+10. Preserve the current project context when selecting follow-ups.
+11. Do not suggest "View project details" when operation = "details", because the details are already displayed.
+12. If fewer than 3 suitable chips exist, return fewer. If none are suitable, return an empty list.
+13. Use short action labels, not complete sentences.
+14. Answer in the detected language, using the same supported action meanings.
+
+### Follow-up Selection Examples
+
+**When operation = "latest"**
+- View project details
+- Check available units
+- Explore another project
+
+**When operation = "list"**
+- View project details
+- Search projects by location
+- View latest projects
+
+**When operation = "location_search"**
+- View project details
+- Check available units
+- Explore another project
+
+**When operation = "details"**
+- View project brochure
+- Check available units
+- Watch project tour
+
+**When operation = "tour"**
+- View project details
+- View floor plans
+- Check available units
+
+These are examples, not mandatory outputs. Select chips only when the corresponding action is supported and relevant.
+
+Return the follow-ups using the existing structured GenerationResult schema.
 

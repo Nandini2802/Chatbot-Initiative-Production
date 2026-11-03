@@ -15,6 +15,10 @@ from app.services.marketing_resolution import (
     is_approved_marketing_family,
 )
 
+from app.services.marketing_resolution import (
+    MARKETING_PROJECT_ALIASES,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -183,6 +187,11 @@ marketing_assets: []
                     normalize_marketing_project(
                         original_reference
                     )
+                )
+
+                reference_key = MARKETING_PROJECT_ALIASES.get(
+                    reference_key,
+                    reference_key,
                 )
 
                 selected_key = (

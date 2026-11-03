@@ -47,6 +47,15 @@ def similarity(left: str, right: str) -> float:
 # Keep explicitly approved project families.
 MARKETING_FAMILIES = {
     "eleganz": {"1", "2", "3", "4", "5", "6"},
+    "oceanz": {"1", "2", "3"},
+    "viewz": {"1", "2"},
+    "fashionz": {"1"},
+    "oasiz": {"1"},
+}
+
+MARKETING_PROJECT_ALIASES = {
+    "jewelz residence": "jewelz",
+    "resortz residence": "resortz"
 }
 
 
@@ -190,6 +199,8 @@ def resolve_marketing_project(
         for name in marketing_projects
         if isinstance(name, str) and name.strip()
     })
+
+    query = MARKETING_PROJECT_ALIASES.get(query, query)
 
     if not query or not catalog:
         return Resolution("not_found")

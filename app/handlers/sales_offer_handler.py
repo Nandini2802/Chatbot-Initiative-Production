@@ -35,6 +35,10 @@ from app.services.sales_offer_download_service import (
     create_sales_offer_download,
 )
 
+from app.services.sales_offer_followup import (
+    resolve_sales_offer_selection,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -224,10 +228,17 @@ class SalesOfferHandler:
 
         await self.save({
             "stage": "unit_selection",
+
             "candidate_unit_ids": [
                 unit.unit_id
                 for unit in units
             ],
+
+            "displayed_unit_ids": [
+                unit.unit_id
+                for unit in displayed
+            ],
+
             "currency": (
                 getattr(intent, "currency", None)
                 or "AED"
@@ -542,22 +553,26 @@ class SalesOfferHandler:
             # 1. PROJECT -> UNIT SELECTION
             # ----------------------------------
 
+
             if (
                 pending
-                and pending.get("stage")
-                == "unit_selection"
+                and pending.get("stage") == "unit_selection"
             ):
-                requested = self.unit_from_message(
-                    self.message
+
+                selection = resolve_sales_offer_selection(
+                    message=self.message,
+                    pending=pending,
+                    snapshot=self.snapshot,
                 )
 
-                unit, needs_confirmation = find_unit(
-                    requested,
-                    self.snapshot,
-                    allowed_unit_ids=pending[
-                        "candidate_unit_ids"
-                    ],
-                )
+                if selection is None:
+                    return self.reply(
+                        "Please select a unit from the listing. "
+                        "You can say 'first one', 'second one', "
+                        "or provide the unit ID."
+                    )
+
+                unit, needs_confirmation = selection
 
                 if needs_confirmation:
                     await self.save({
@@ -581,6 +596,7 @@ class SalesOfferHandler:
                     unit,
                     pending.get("currency"),
                 )
+
 
             # ----------------------------------
             # 2. NORMALIZED UNIT CONFIRMATION

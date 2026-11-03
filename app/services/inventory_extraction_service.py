@@ -98,6 +98,16 @@ class InventoryExtractionService:
                         "typology, or unit_type. "
                         "Extract all other explicitly requested unit "
                         "filters normally. "
+                        "Distinguish requested output information from "
+                        "search constraints. For example, in 'share the "
+                        "unit location of Sharukhz', 'unit location' is "
+                        "the information being requested, not a filter. "
+                        "Do not add requested output attributes such as "
+                        "'unit location', 'unit price', 'unit area', or "
+                        "'unit details' to unresolved_terms merely "
+                        "because they are not searchable filters. "
+                        "Only add genuinely requested search constraints "
+                        "that cannot be represented or resolved. "
                         "If resolved_project_name is null, do not assume "
                         "that an unknown project name is valid."
                     ),
@@ -160,8 +170,15 @@ class InventoryExtractionService:
 
         logger.info(
             "INVENTORY_FILTER_EXTRACTION_COMPLETED | "
-            "fields=%s",
-            filters.model_fields_set,
+            "sort_by=%s | unresolved_terms=%s | "
+            "project_location=%s | status=%s | "
+            "min_area=%s | max_area=%s",
+            filters.sort_by,
+            filters.unresolved_terms,
+            filters.project_location,
+            filters.status,
+            filters.min_area_sqft,
+            filters.max_area_sqft,
         )
 
         return filters

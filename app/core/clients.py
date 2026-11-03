@@ -38,11 +38,11 @@ logger = logging.getLogger(__name__)
 def remap_redis_node_address(
     address: tuple[str, int],
     redis_hostname: str,
+    internal_hosts: frozenset[str] = frozenset({"51.11.255.75"}),
 ) -> tuple[str, int]:
-
     host, port = address
 
-    if host == "51.11.255.75" and port in (8500, 8501):
+    if host in internal_hosts:
         return redis_hostname, port
 
     return address
@@ -104,14 +104,20 @@ async def create_service_clients(
         ),
     )
 
-    await redis_client.initialize()
+    try:
+        await redis_client.initialize()
 
-    logger.info("Redis Cluster client initialized")
+        logger.info("Redis Cluster client initialized")
 
-    # Verify connection
-    redis_ping = await redis_client.ping()
+        await redis_client.ping()
 
-    logger.info("Redis client initialized")
+        logger.info("Redis client initialized")
+
+    except Exception:
+        logger.exception(
+            "REDIS_CONNECTION_FAILURE | stage=startup | status=unhealthy"
+        )
+        raise
 
     # Step 3: Initialize Pinecone
     pinecone_client = Pinecone(

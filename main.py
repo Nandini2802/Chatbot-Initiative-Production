@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -30,6 +31,8 @@ from app.middleware.exception_handlers import validation_exception_handler
 from app.services.walkthrough_access_service import WalkthroughEngine
 from app.observability.logger import setup_logging, audit_event
 
+from opentelemetry import trace
+from opentelemetry._logs import get_logger_provider
 
 load_dotenv()
 setup_logging()
@@ -59,6 +62,7 @@ async def lifespan(app: FastAPI):
                 .get_secret_value()
             )
         )
+
 
         # Step 3: Create external service clients
         clients = await create_service_clients(secrets)
@@ -231,12 +235,34 @@ async def lifespan(app: FastAPI):
             directory=walkthrough_path
         )
         # Step 8: Application starts serving requests
+
         yield
 
     except Exception:
         logger.exception(
             "Danube Chatbot startup or application lifecycle failed"
         )
+
+        await asyncio.sleep(30)
+
+
+        # Flush pending Application Insights telemetry
+        try:
+            log_provider = get_logger_provider()
+            if hasattr(log_provider, "force_flush"):
+                log_provider.force_flush(timeout_millis=10000)
+
+            tracer_provider = trace.get_tracer_provider()
+            if hasattr(tracer_provider, "force_flush"):
+                tracer_provider.force_flush(timeout_millis=10000)
+
+            logger.info(
+                "Application Insights telemetry flush attempted"
+            )
+
+        except Exception:
+            logger.exception("Failed to flush Application Insights telemetry")
+
         raise
 
     finally:

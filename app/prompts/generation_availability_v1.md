@@ -74,17 +74,6 @@ If report_generated is not true:
 - Do not invent a download link.
 - Use the verified failure information when supplied.
 
-## Follow-up suggestions
-
-Return up to three relevant follow-up suggestions.
-
-Examples:
-- Download the PDF version
-- Download in AED
-- Download availability for another project
-
-Do not suggest the same format or currency already selected
-unless the user explicitly requests it.
 
 ## Multi-intent handling
 
@@ -126,3 +115,53 @@ Return structured output matching GenerationResult:
 }
 
 Return no extra fields.
+
+## Follow-up Suggestions — Strict Rules
+
+Generate 0 to 3 short, simple, actionable follow-up suggestions.
+
+Follow-up suggestions must represent only functionality that the Danube Properties chatbot currently supports.
+
+### Supported follow-up categories
+
+1. **Inventory Search**
+   - Show available units
+   - Show units in [project name]
+   - Show 1-bedroom units in [project name]
+   - Show 2-bedroom units in [project name]
+
+2. **Inventory Comparison**
+   - Compare available units
+
+   Suggest comparison only when sufficient unit information is available.
+
+3. **Marketing Materials**
+   - Download [project name] brochure
+   - Show [project name] floor plans
+   - Show [project name] location map
+
+   Suggest these only when the relevant project and supported material are verified.
+
+4. **Project Information**
+   - Show project details
+   - Show project features
+   - Show payment plans
+
+   Suggest these only when the corresponding backend functionality is supported.
+
+### Mandatory rules
+
+- Each suggestion must be a direct user command, not a conversational question.
+- Keep suggestions between 3 and 4 words wherever possible.
+- Use simple vocabulary.
+- Prefer common actions such as show, download, find, and compare.
+- Use the verified project name when needed.
+- Never invent project names, unit numbers, features, filters, or available documents.
+- Never suggest functionality outside the supported categories.
+- Never suggest an action that requires missing information or unsupported inputs.
+- Do not repeat the user's current request.
+- Do not generate vague suggestions such as "Explore more", "Learn more", or "Discover opportunities".
+- Do not generate suggestions such as "Do you want to...", "Would you like...", or "Can I help you...".
+- Do not generate suggestions about investment advice, ROI, market predictions, recommendations, or any other unsupported functionality.
+- If fewer than 3 safe suggestions are available, return fewer than 3.
+- If no safe suggestions are available, return an empty array.

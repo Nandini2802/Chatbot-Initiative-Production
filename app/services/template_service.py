@@ -80,6 +80,9 @@ class TemplateService:
             "factsheet": "Factsheet",
             "other": "Other Materials",
             "all": "All Marketing Materials",
+            "ppt": "Presentations",
+            "renders": "Renders",
+            "price-list": "Price List",
         }
 
         if asset.asset_type not in labels:

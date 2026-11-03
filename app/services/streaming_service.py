@@ -75,6 +75,14 @@ from app.services.marketing_resolution import (
 from app.services.marketing_llm_fallback import (
     resolve_marketing_with_llm,
 )
+from app.services.sales_offer_followup import (
+    resolve_sales_offer_selection,
+    extract_ordinal,
+)
+
+from app.services.sales_offer_resolver import (
+    SalesOfferResolutionError,
+)
 
 
 
@@ -526,7 +534,7 @@ async def _stream_chat_response_impl(
 
             yield format_sse("token", {"text": selection_text})
             for block in selection_html:
-                yield format_sse("html_block", block)
+                yield format_sse("html_block", block)            
             yield format_sse("followups", {"chips": []})
             yield format_sse(
                 "final",
@@ -1029,18 +1037,117 @@ async def _stream_chat_response_impl(
                     "for this conversation."
                 )
 
+
         if pending_so:
-            classified_as_new_request = any(
-                intent.intent not in {"sales_offer", "unknown", "clarification"}
-                for intent in routing_result.intents
+
+            pending_stage = pending_so.get("stage")
+
+            routed_intents = routing_result.intents
+            inventory_switch = any(
+                intent.intent == "inventory"
+                and (
+                    intent.inventory_operation
+                    in {
+                        "unit_search",
+                        "unit_comparison",
+                        "project_comparison",
+                        "project_info",
+                    }
+                )
+                and (
+                    intent.min_price is not None
+                    or intent.max_price is not None
+                    or intent.bedrooms is not None
+                    or intent.min_area_sqft is not None
+                    or intent.max_area_sqft is not None
+                    or intent.unit_type is not None
+                    or intent.sort_by is not None
+                    or intent.inventory_operation
+                    in {
+                        "unit_comparison",
+                        "project_comparison",
+                    }
+                )
+                for intent in routed_intents
             )
 
-            if classified_as_new_request:
+            # A unit-selection message should continue
+            # the Sales Offer only if it resolves against
+            # the current authorized candidate list.
+            selection_followup = False
+
+            if (
+                pending_stage == "unit_selection"
+                and not inventory_switch
+            ):
+                try:
+                    selection = resolve_sales_offer_selection(
+                        message=message,
+                        pending=pending_so,
+                        snapshot=inventory_snapshot,
+                    )
+
+                    selection_followup = (
+                        selection is not None
+                    )
+
+                except SalesOfferResolutionError:
+                    selection_followup = (
+                        extract_ordinal(message) is not None
+                    )
+
+            classified_as_new_request = any(
+                intent.intent not in {
+                    "sales_offer",
+                    "unknown",
+                    "clarification",
+                }
+                for intent in routed_intents
+            )
+
+            explicit_other_feature = any(
+                intent.intent not in {
+                    "sales_offer",
+                    "inventory",
+                    "unknown",
+                    "clarification",
+                }
+                for intent in routed_intents
+            )
+
+            if selection_followup and not explicit_other_feature:
+
+                logger.info(
+                    "SALES_OFFER_CONTINUATION | "
+                    "session_id=%s | stage=%s",
+                    session_id,
+                    pending_stage,
+                )
+
+            elif (
+                inventory_switch
+                or classified_as_new_request
+            ):
+
+                logger.info(
+                    "SALES_OFFER_INTENT_SWITCH | "
+                    "session_id=%s | from_stage=%s | "
+                    "to_intents=%s",
+                    session_id,
+                    pending_stage,
+                    [
+                        intent.intent
+                        for intent in routed_intents
+                    ],
+                )
+
                 await sales_offer_state.clear(
                     user_id=user_id,
                     session_id=str(session_id),
                 )
+
                 pending_so = None
+
 
         if pending_so:
             continuation = RoutingIntent(
@@ -2443,8 +2550,8 @@ async def _stream_chat_response_impl(
 
                 else:
                     clarification_messages.append(
-                        "Please clarify the project or "
-                        "details for your request."
+                        "Could you please provide a little more detail about your project"
+                        "so I can help you with the right information?"
                     )
 
                 continue
@@ -2748,6 +2855,7 @@ async def _stream_chat_response_impl(
 
                 llm2_used = True
                 followup_chips = generation_result.followups
+                
                 response_text = (
                     generation_result.response or ""
                 ).strip()

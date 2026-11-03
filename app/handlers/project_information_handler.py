@@ -410,12 +410,12 @@ class ProjectInformationHandler:
         return dict(results)
 
 
+
     def render_cards(
         self,
         projects,
         map_urls=None,
     ):
-
         cards = []
 
         map_urls = map_urls or {}
@@ -423,12 +423,11 @@ class ProjectInformationHandler:
         for project in projects:
 
             # Direct project_id lookup.
-            # No project-name normalization.
-            # No hardcoded aliases.
             map_url = map_urls.get(
                 str(project.project_id)
             )
 
+            # Render the existing individual project card.
             html = self.templates.render(
                 "project_information_card.html.j2",
 
@@ -449,14 +448,28 @@ class ProjectInformationHandler:
                 map_url=map_url,
             )
 
-            cards.append({
-                "card_type": (
-                    "project_information"
-                ),
-                "html": html,
-            })
+            # Collect HTML instead of creating
+            # a separate SSE block for each project.
+            cards.append(html)
 
-        return cards
+        if not cards:
+            return []
+
+        # Combine all cards into one HTML container.
+        combined_html = (
+            '<div class="danube-project-cards">'
+            + "\n".join(cards)
+            + "</div>"
+        )
+
+        # Return exactly one HTML block.
+        return [
+            {
+                "card_type": "project_information",
+                "html": combined_html,
+            }
+        ]
+
 
     async def handle_project_tour(
         self,

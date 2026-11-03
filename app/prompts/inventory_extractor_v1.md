@@ -88,10 +88,59 @@ If the user only says "ready units", record "ready status ambiguous" in unresolv
 
 ## Sorting
 
-- cheapest -> price_asc
-- most expensive -> price_desc
-- largest -> area_desc
-- smallest -> area_asc
+Sorting is an ordering instruction, not a search filter.
+
+Supported sorting fields:
+- price
+- area
+
+Supported sort_by values:
+- price_asc
+- price_desc
+- area_asc
+- area_desc
+
+Interpret explicit ordering instructions:
+- cheapest, lowest price -> price_asc
+- most expensive, highest price -> price_desc
+- largest, biggest area -> area_desc
+- smallest, lowest area -> area_asc
+- price low to high -> price_asc
+- price high to low -> price_desc
+- area low to high -> area_asc
+- area high to low -> area_desc
+
+When the user specifies a supported sorting field but does not specify the direction, apply the application's documented default direction for that field.
+
+Never classify a supported sorting instruction as an unresolved filter solely because the direction is omitted.
+
+If the user requests sorting by an unsupported field, preserve that instruction in unresolved_terms.
+
+Do not silently replace unsupported sorting with a different supported sort.
+
+## Requested information versus constraints
+
+Distinguish these four categories:
+
+1. Filtering constraints:
+   Conditions determining which units qualify.
+
+2. Sorting instructions:
+   Conditions determining the order of matching units.
+
+3. Requested information:
+   Attributes the user wants returned or displayed.
+
+4. Unsupported constraints:
+   Explicit requirements that cannot be safely
+   represented by the supported schema or validated data.
+
+Only category 4 belongs in unresolved_terms.
+
+Do not classify ordinary requested information or
+supported sorting instructions as unresolved filters.
+
+Do not discard genuine unsupported requirements.
 
 ## Examples
 
