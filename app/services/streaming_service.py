@@ -84,6 +84,14 @@ from app.services.sales_offer_resolver import (
     SalesOfferResolutionError,
 )
 
+from app.services.project_name_service import (
+    normalize_sales_offer_project,
+)
+
+from app.services.sales_offer_project_resolver import (
+    resolve_sales_offer_project,
+)
+
 
 
 logger = logging.getLogger(__name__)
@@ -1094,7 +1102,20 @@ async def _stream_chat_response_impl(
                 except SalesOfferResolutionError:
                     selection_followup = (
                         extract_ordinal(message) is not None
+                        or bool(
+                            re.fullmatch(
+                                r"(?:(?:this one|select|choose|"
+                                r"pick|unit number|unit|number)"
+                                r"\s+)?"
+                                r"[a-z0-9_-]+"
+                                r"(?:\s+[a-z0-9_-]+)*"
+                                r"(?:\s+unit)?",
+                                message.strip(),
+                                flags=re.IGNORECASE,
+                            )
+                        )
                     )
+
 
             classified_as_new_request = any(
                 intent.intent not in {
@@ -1202,9 +1223,11 @@ async def _stream_chat_response_impl(
                 )
                 or (
                     project.project_name
-                    and normalize_project_name(
+                    and normalize_sales_offer_project(
                         project.project_name
-                    ) == normalized_reference
+                    ) == normalize_sales_offer_project(
+                        reference
+                    )
                 )
                 or (
                     project.project_number
@@ -1473,6 +1496,7 @@ async def _stream_chat_response_impl(
         availability_denied = set()
         availability_access = DownloadAvailabilityAccessService(walkthrough_engine)
         blocked_intents = set()
+        sales_offer_project_errors = {}
 
         for index, intent in enumerate(routing_result.intents):
             if intent.intent == "download_availability":
@@ -1494,6 +1518,109 @@ async def _stream_chat_response_impl(
 
             if index in availability_denied:
                 continue
+
+            if (
+                intent.intent == "sales_offer"
+                and not pending_so
+                and not any([
+                    intent.unit_id,
+                    intent.unit_name,
+                    intent.unit_number,
+                ])
+            ):
+                # Prefer the actual user-entered name
+                # over the LLM-expanded project name.
+                reference_match = re.search(
+                    r"\b(?:generate\s+)?sales\s+offer"
+                    r"\s+(?:for|of)\s+(.+?)\s*$",
+                    message,
+                    flags=re.IGNORECASE,
+                )
+
+                reference = (
+                    reference_match.group(1).strip()
+                    if reference_match
+                    else (
+                        intent.explicit_project_reference
+                        or intent.project_name
+                        or ""
+                    )
+                )
+
+                resolution = resolve_sales_offer_project(
+                    reference,
+                    inventory_snapshot,
+                )
+
+                logger.info(
+                    "SALES_OFFER_PROJECT_RESOLUTION | "
+                    "requested=%s | status=%s | "
+                    "candidates=%s",
+                    reference,
+                    resolution.status,
+                    resolution.candidates,
+                )
+
+                if resolution.status == "matched":
+                    project = resolution.project
+
+                    intent.project_id = project.project_id
+                    intent.project_name = project.project_name
+                    intent.project_number = (
+                        project.project_number
+                    )
+
+                    # Clear only project-resolution
+                    # missing fields.
+                    intent.missing_fields = [
+                        field
+                        for field in intent.missing_fields
+                        if field not in {
+                            "project_name",
+                            "project_identifier",
+                            "project_or_unit_identifier",
+                        }
+                    ]
+
+                    intent.requires_clarification = bool(
+                        intent.missing_fields
+                    )
+
+                    if intent.requires_clarification:
+                        blocked_intents.add(index)
+                    else:
+                        blocked_intents.discard(index)
+
+                    # Avoid revalidating this project
+                    # against the Marketing catalog.
+                    continue
+
+                if resolution.status == "ambiguous":
+                    options = ", ".join(
+                        resolution.candidates
+                    )
+
+                    sales_offer_project_errors[index] = (
+                        "Multiple projects match your "
+                        f"request. Please specify one: "
+                        f"{options}."
+                    )
+
+                else:
+                    sales_offer_project_errors[index] = (
+                        "I couldn't find that project "
+                        "in the current inventory "
+                        "project catalog. Please check "
+                        "the project name."
+                    )
+
+                intent.requires_clarification = True
+                blocked_intents.add(index)
+
+                # Do not continue into generic
+                # project-name validation.
+                continue
+
 
 
             
@@ -2131,6 +2258,11 @@ async def _stream_chat_response_impl(
                     inventory_active_names
                     | inventory_unit_names
                 )
+            elif intent.intent == "sales_offer":
+                valid_names = (
+                    inventory_active_names
+                    | inventory_unit_names
+                )
 
             else:
                 valid_names = marketing_names
@@ -2361,6 +2493,15 @@ async def _stream_chat_response_impl(
         )
 
         for index, intent in enumerate(routing_result.intents):
+            if (
+                intent.intent == "sales_offer"
+                and index in sales_offer_project_errors
+            ):
+                clarification_messages.append(
+                    sales_offer_project_errors[index]
+                )
+                continue
+
 
             if index in blocked_intents:
                 continue
@@ -2549,6 +2690,11 @@ async def _stream_chat_response_impl(
                     )
 
                 else:
+                    if (
+                        intent.intent == "sales_offer"
+                        and index in sales_offer_project_errors
+                    ):
+                        continue
                     clarification_messages.append(
                         "Could you please provide a little more detail about your project"
                         "so I can help you with the right information?"

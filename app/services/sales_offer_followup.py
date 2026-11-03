@@ -105,6 +105,82 @@ def extract_unit_reference(message: str, units):
     return None
 
 
+def extract_partial_unit_reference(message: str, units):
+    """
+    Additional matching for partial unit references.
+
+    Example: ASPZ-F02-11013
+    Accepts:
+      - aspz 11013 unit
+      - F02
+      - 11013
+      - unit 11013
+      - select F02
+
+    Matches complete identifier segments only.
+    Searches only the supplied authorized units.
+    """
+
+    text = message.strip().casefold()
+
+    # Remove common selection phrases.
+    text = re.sub(
+        r"^(?:this one|select|choose|pick|"
+        r"unit number|unit|number)\s+",
+        "",
+        text,
+    )
+
+    text = re.sub(
+        r"\s+unit$",
+        "",
+        text,
+    ).strip()
+
+    # Only accept identifier-like input.
+    if not re.fullmatch(r"[a-z0-9_-]+(?:\s+[a-z0-9_-]+)*", text):
+        return None
+
+    requested_parts = re.findall(r"[a-z0-9]+", text)
+
+    if not requested_parts:
+        return None
+
+    matches = {}
+
+    for unit in units:
+        if not unit.unit_id:
+            continue
+
+        for value in (unit.unit_name, unit.unit_code):
+            if not value:
+                continue
+
+            unit_parts = re.findall(
+                r"[a-z0-9]+",
+                str(value).casefold(),
+            )
+
+            if all(
+                part in unit_parts
+                for part in requested_parts
+            ):
+                matches[unit.unit_id] = unit
+                break
+
+    if len(matches) == 1:
+        return next(iter(matches))
+
+    if len(matches) > 1:
+        raise SalesOfferResolutionError(
+            "Multiple units match your reference. "
+            "Please provide a more specific unit number "
+            "or the complete unit name."
+        )
+
+    return None
+
+
 def resolve_sales_offer_selection(
     message: str,
     pending: dict,
@@ -133,6 +209,26 @@ def resolve_sales_offer_selection(
     displayed_ids = pending.get(
         "displayed_unit_ids", []
     )
+
+    if re.fullmatch(
+        r"(?:unit|unit number)\s+\d{3,}",
+        message.strip(),
+        flags=re.IGNORECASE,
+    ):
+        partial_id = extract_partial_unit_reference(
+            message,
+            units,
+        )
+
+        if partial_id:
+            unit, _ = find_unit(
+                partial_id,
+                snapshot,
+                allowed_unit_ids=allowed_ids,
+            )
+            return unit, True
+
+        return None
 
     ordinal = extract_ordinal(message)
 
@@ -182,5 +278,20 @@ def resolve_sales_offer_selection(
             snapshot,
             allowed_unit_ids=allowed_ids,
         )
+
+    partial_matched_id = extract_partial_unit_reference(
+        message,
+        units,
+    )
+
+    if partial_matched_id:
+        unit, _ = find_unit(
+            partial_matched_id,
+            snapshot,
+            allowed_unit_ids=allowed_ids,
+        )
+
+        # Partial matches require confirmation.
+        return unit, True
 
     return None
