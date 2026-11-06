@@ -33,6 +33,7 @@ class AvailabilityHandler:
         role: str = "",
         source: str = "",
         employee_type: str = "",
+        key_features: str = "",
     ):
         self.service = AvailabilityService(
             redis_client=redis_client,
@@ -44,11 +45,10 @@ class AvailabilityHandler:
         self.role = role
         self.source = source
         self.employee_type = employee_type
+        self.key_features = key_features
 
         self.access_service = (
-            DownloadAvailabilityAccessService(walkthrough_engine)
-            if walkthrough_engine is not None
-            else None
+            DownloadAvailabilityAccessService()
         )
 
     async def handle(self, intent) -> HandlerResult:
@@ -57,14 +57,9 @@ class AvailabilityHandler:
             intent="download_availability"
         )
 
-        if self.access_service is None:
-            allowed = not get_settings().download_availability_rbac_enabled
-        else:
-            allowed, reason = self.access_service.check(
-                role=self.role,
-                source=self.source,
-                employee_type=self.employee_type,
-            )
+        allowed, reason = self.access_service.check(
+            key_features=self.key_features,
+        )
 
         if not allowed:
             result.messages.append(

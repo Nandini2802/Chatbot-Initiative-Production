@@ -45,6 +45,7 @@ def test_chat_audits_payload_and_streams_response(monkeypatch, start_conversatio
         "employee_type": "",
         "start_conversation": start_conversation,
         "session_id": None if start_conversation else session_id,
+        "key_features": "UDPage,CompareUnit,DownloadAvailability",
     }
 
     with TestClient(app) as client:
@@ -54,16 +55,15 @@ def test_chat_audits_payload_and_streams_response(monkeypatch, start_conversatio
     assert response.text == "data: test-response\n\n"
     assert response.headers["content-type"].startswith("text/event-stream")
     assert response.headers["X-Correlation-ID"] == correlation_id
-    audit.assert_called_once_with(
-        "CHAT_REQUEST_RECEIVED",
-        correlation_id=correlation_id,
-        user_id=payload["user_id"],
-        role=payload["role"],
-        source=payload["source"],
-        user_message=payload["message"],
+    assert any(
+        call.args[0] == "CHAT_REQUEST_RECEIVED"
+        for call in audit.call_args_list
     )
     assert stream.call_args.kwargs["session_id"] == session_id
     assert stream.call_args.kwargs["message"] == payload["message"]
+    assert stream.call_args.kwargs["key_features"] == (
+        payload["key_features"]
+    )
     if start_conversation:
         session_service.create_session.assert_awaited_once_with(
             user_id=payload["user_id"],

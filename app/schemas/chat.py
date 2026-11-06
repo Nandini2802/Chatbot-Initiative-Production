@@ -30,6 +30,11 @@ class ChatRequest(BaseModel):
     role: str
     source: Literal["mobile_app", "web_app"]
     employee_type: Literal["direct", "indirect", ""] = Field(...)
+    key_features: str | None = Field(
+        default=None,
+        description="Comma-separated feature keys available to the user."
+    )
+
     selected_payment_plan_names: list[str] | None = None
     selected_payment_plan: str | None = Field(
         default=None,

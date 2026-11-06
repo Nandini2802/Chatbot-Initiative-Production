@@ -30,6 +30,7 @@ class IntentDispatcher:
         role: str = "",
         source: str = "",
         employee_type: str = "",
+        key_features: str = "",
         selected_payment_plan_names: list[str] | None = None,
         db_session=None,
 
@@ -42,9 +43,7 @@ class IntentDispatcher:
         if walkthrough_engine is not None:
             self.handlers["excel_walkthrough"] = WalkthroughHandler(
                 engine=walkthrough_engine,
-                role=role,
-                source=source,
-                employee_type=employee_type,
+                key_features=key_features,
             )
 
         self.redis_client = redis_client
@@ -123,6 +122,7 @@ class IntentDispatcher:
                     role=role,
                     source=source,
                     employee_type=employee_type,
+                    key_features=key_features,
                 )
             )
 

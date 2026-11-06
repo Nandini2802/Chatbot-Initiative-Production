@@ -307,6 +307,7 @@ async def _stream_chat_response_impl(
     clients: ServiceClients,
     access_token: str,
     walkthrough_engine: WalkthroughEngine,
+    key_features: str,
     selected_payment_plan_names: list[str] | None = None,
     selected_payment_plan: str | None = None,
     action: BankAccountSelection | None = None,
@@ -1899,7 +1900,7 @@ async def _stream_chat_response_impl(
 
         # Tracks intents that must not execute.
         availability_denied = set()
-        availability_access = DownloadAvailabilityAccessService(walkthrough_engine)
+        availability_access = DownloadAvailabilityAccessService()
         blocked_intents = set()
         sales_offer_project_errors = {}
         comparison_clarifications: dict[int, str] = {}
@@ -1907,7 +1908,7 @@ async def _stream_chat_response_impl(
         for index, intent in enumerate(routing_result.intents):
             if intent.intent == "download_availability":
                 allowed, reason = availability_access.check(
-                    role=role, source=source, employee_type=employee_type,
+                    key_features=key_features,
                 )
                 if not allowed:
                     availability_denied.add(index)
@@ -3084,6 +3085,7 @@ async def _stream_chat_response_impl(
                 role=role,
                 source=source,
                 employee_type=employee_type,
+                key_features=key_features,
                 selected_payment_plan_names=selected_payment_plan_names,
                 db_session=db_session,
             )
@@ -4073,6 +4075,7 @@ async def stream_chat_response(
     clients: ServiceClients,
     access_token: str,
     walkthrough_engine: WalkthroughEngine,
+    key_features: str,
     selected_payment_plan_names: list[str] | None = None,
     selected_payment_plan: str | None = None,
     action: BankAccountSelection | None = None,
@@ -4098,6 +4101,7 @@ async def stream_chat_response(
             clients=clients,
             access_token=access_token,
             walkthrough_engine=walkthrough_engine,
+            key_features=key_features,
             selected_payment_plan_names=selected_payment_plan_names,
             selected_payment_plan=selected_payment_plan,
             action=action,

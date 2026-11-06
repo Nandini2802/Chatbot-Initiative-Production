@@ -1,35 +1,29 @@
-from app.core.config import get_settings
-from app.services.walkthrough_access_service import (
-    WalkthroughEngine,
+
+from app.services.feature_access_service import (
+    has_key_feature,
 )
 
 
-DOWNLOAD_AVAILABILITY_FEATURE = (
-    "Project Details Page – Download Availability"
-)
+DOWNLOAD_AVAILABILITY_KEY = "DownloadAvailability"
 
 
 class DownloadAvailabilityAccessService:
 
-    def __init__(self, engine: WalkthroughEngine):
-        self.engine = engine
-
     def check(
         self,
         *,
-        role: str,
-        source: str,
-        employee_type: str,
+        key_features: str | None,
     ) -> tuple[bool, str]:
 
-        settings = get_settings()
-
-        if not settings.download_availability_rbac_enabled:
-            return True, "feature_rbac_disabled"
-
-        return self.engine.permission(
-            name=DOWNLOAD_AVAILABILITY_FEATURE,
-            role=role,
-            source=source,
-            employee_type=employee_type,
+        allowed = has_key_feature(
+            key_features=key_features,
+            required_key=DOWNLOAD_AVAILABILITY_KEY,
         )
+
+        if not allowed:
+            return (
+                False,
+                "download_availability_key_missing",
+            )
+
+        return True, "feature_key_verified"
