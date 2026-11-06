@@ -417,7 +417,16 @@ class PaymentPlanHandler:
             )
             return result
 
-        if len(matches) > 1:
+        requested_unit = any(
+            getattr(intent, field, None)
+            for field in (
+                "unit_id",
+                "unit_name",
+                "unit_number",
+            )
+        )
+
+        if len(matches) > 1 and requested_unit:
             unit_names = sorted({
                 unit.unit_name or unit.unit_id
                 for unit in matches
@@ -433,7 +442,37 @@ class PaymentPlanHandler:
             )
             return result
 
+        if not requested_unit:
+            matches = sorted(
+                (
+                    candidate
+                    for candidate in matches
+                    if candidate.unit_id
+                ),
+                key=lambda candidate: (
+                    str(candidate.unit_name or "").casefold(),
+                    str(candidate.unit_id).casefold(),
+                ),
+            )
+
+            if not matches:
+                result.messages.append(
+                    "No authorized unit with a valid "
+                    "Salesforce ID was found for this project."
+                )
+                return result
+
         unit = matches[0]
+
+        if not requested_unit:
+            logger.info(
+                "PAYMENT_PLAN_AUTO_UNIT_SELECTED | "
+                "user_id=%s | project=%s | unit_id=%s",
+                self.user_id,
+                unit.project_name,
+                unit.unit_id,
+            )
+
 
         if not unit.unit_id:
             result.messages.append(

@@ -123,6 +123,10 @@ class BankDetailsHandler:
 
                 account_data["projectName"] = project_name
 
+                account_data["accountIndex"] = (
+                    self.service.account_index(account)
+                )
+
                 display_accounts.append(account_data)
 
             if len(display_accounts) == 1:
@@ -138,6 +142,7 @@ class BankDetailsHandler:
                 html = self.templates.render(
                     "bank_details.html.j2",
                     project=project_name,
+                    project_id=project_id,
                     accounts=display_accounts,
                 )
             result.html_blocks.append(

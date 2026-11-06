@@ -1,16 +1,30 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont,
+      'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     background: transparent;
     -webkit-font-smoothing: antialiased;
   }
-  .bank-stack { display: flex; flex-direction: column; gap: 14px; }
+
+  .bank-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
   .bank-card {
     display: flex;
     align-items: center;
@@ -20,7 +34,20 @@
     border-radius: 16px;
     padding: 16px;
     cursor: pointer;
+    border: 0;
+    text-align: left;
+    font: inherit;
   }
+
+  .bank-card:hover {
+    background: #202126;
+  }
+
+  .bank-card:focus-visible {
+    outline: 2px solid #8b8d92;
+    outline-offset: 2px;
+  }
+
   .bank-card__logo {
     flex-shrink: 0;
     width: 40px;
@@ -32,8 +59,18 @@
     justify-content: center;
     overflow: hidden;
   }
-  .bank-card__logo img { width: 100%; height: 100%; object-fit: contain; }
-  .bank-card__info { flex: 1; min-width: 0; }
+
+  .bank-card__logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .bank-card__info {
+    flex: 1;
+    min-width: 0;
+  }
+
   .bank-card__title {
     font-size: 15px;
     font-weight: 600;
@@ -42,6 +79,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
   .bank-card__name {
     font-size: 13px;
     color: #8b8d92;
@@ -50,142 +88,169 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .bank-card__acct { font-size: 13px; color: #8b8d92; margin-top: 3px; }
-  .bank-card__chev { flex-shrink: 0; color: #8b8d92; display: flex; }
 
-  /* Per-card popup — markup lives inside each card (hidden); position:fixed floats it
-     centered in the middle of the bot over a dark backdrop. */
-  .bank-modal {
-    position: fixed; inset: 0; z-index: 50; display: none;
-    align-items: center; justify-content: center; padding: 20px;
-    background: rgba(0,0,0,.6); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
-    cursor: default;
+  .bank-card__acct {
+    font-size: 13px;
+    color: #8b8d92;
+    margin-top: 3px;
   }
-  .bank-modal.is-open { display: flex; }
-  .bank-modal__box {
-    position: relative; width: 100%; max-height: 80vh; overflow-y: auto;
-    background: #1c1d21; border: 1px solid rgba(255,255,255,.1); border-radius: 16px;
-    padding: 24px 20px; box-shadow: 0 12px 30px rgba(0,0,0,.5);
-    display: flex; flex-direction: column; gap: 20px;
-  }
-  .bank-modal__close {
-    position: absolute; top: 12px; right: 12px; width: 32px; height: 32px;
-    display: flex; align-items: center; justify-content: center;
-    border: 0; border-radius: 50%; background: rgba(255,255,255,.08);
-    color: #fff; cursor: pointer; font-size: 18px; line-height: 1;
-  }
-  .bank-modal__close:hover { background: rgba(255,255,255,.16); }
-  .bank-field:first-child { padding-right: 32px; }
-  .bank-field__label { font-size: 14px; font-weight: 600; color: #fff; }
-  .bank-field__value { font-size: 13px; color: #8b8d92; margin-top: 6px; word-break: break-word; }
 
-  /* Share / Copy actions inside the popup */
-  .bank-actions { display: flex; gap: 12px; margin-top: 4px; }
-  .bank-btn {
-    flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
-    height: 44px; border: 0; border-radius: 40px;
-    background: #26272b; color: #fff;
-    font-size: 14px; font-weight: 500; font-family: inherit;
-    cursor: pointer; transition: filter .18s;
+  .bank-card__chev {
+    flex-shrink: 0;
+    color: #8b8d92;
+    display: flex;
   }
-  .bank-btn:hover { filter: brightness(1.15); }
-  .bank-btn svg { width: 18px; height: 18px; }
 </style>
 </head>
+
 <body>
-<div class="bank-stack">
+
+<div class="bank-stack"
+     data-project-id="{{ project_id | e }}">
 
   {% for account in accounts %}
-  <div class="bank-card" onclick="bankOpen(this)">
-    <span class="bank-card__logo"><img src="{{ account.bankLogo or "" }}" alt="" /></span>
+
+  <button
+    type="button"
+    class="bank-card"
+    data-account-type="{{ account.bankType | e }}"
+    data-account-index="{{ account.accountIndex if account.accountIndex is not none else '' }}"
+    onclick="bankSendCard(this)">
+
+    <span class="bank-card__logo">
+      <img
+        src="{{ account.bankLogo | default('', true) | e }}"
+        alt=""
+      />
+    </span>
+
     <div class="bank-card__info">
-      <div class="bank-card__title">{{ account.displayBankType }}</div>
-      <div class="bank-card__name">{{ account.bankName }}</div>
-      <div class="bank-card__acct">{{ account.accountNumber if account.accountNumber is not none else "Not available" }}</div>
-    </div>
-    <span class="bank-card__chev"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>
-    <div class="bank-modal">
-      <div class="bank-modal__box" onclick="event.stopPropagation()">
-        <button type="button" class="bank-modal__close" onclick="bankClose(this)" aria-label="Close">&times;</button>
-        <div class="bank-field"><div class="bank-field__label">Project Name</div><div class="bank-field__value">{{ account.projectName }}</div></div>
-        <div class="bank-field"><div class="bank-field__label">Bank Name</div><div class="bank-field__value">{{ account.bankName }}</div></div>
-        <div class="bank-field"><div class="bank-field__label">Account No.</div><div class="bank-field__value">{{ account.accountNumber if account.accountNumber is not none else "Not available" }}</div></div>
-        <div class="bank-field"><div class="bank-field__label">IBAN Number</div><div class="bank-field__value">AE90035{{ account.accountNumber if account.accountNumber is not none else "Not available" }}</div></div>
-        <div class="bank-field"><div class="bank-field__label">Account Name</div><div class="bank-field__value">{{ account.beneficiaryName if account.beneficiaryName is not none else "Not available" }}</div></div>
-        <div class="bank-field"><div class="bank-field__label">Swift Code</div><div class="bank-field__value">{{ account.swiftCode if account.swiftCode is not none else "Not available" }}</div></div>
-        <div class="bank-field"><div class="bank-field__label">Branch Name</div><div class="bank-field__value">{{ account.branch if account.branch is not none else "Not available" }}</div></div>
-        <div class="bank-actions">
-          <button type="button" class="bank-btn" onclick="bankShare(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>Share</button>
-          <button type="button" class="bank-btn" onclick="bankCopy(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>Copy</button>
-        </div>
+
+      <div class="bank-card__title">
+        {{ account.displayBankType | e }}
       </div>
+
+      <div class="bank-card__name">
+        {{ account.bankName | e }}
+      </div>
+
+      <div class="bank-card__acct">
+        {{ account.accountNumber | default('Not available', true) | e }}
+      </div>
+
     </div>
-  </div>
+
+    <span class="bank-card__chev">
+      <svg
+        viewBox="0 0 24 24"
+        width="22"
+        height="22"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round">
+
+        <polyline points="9 6 15 12 9 18"/>
+      </svg>
+    </span>
+
+  </button>
+
   {% endfor %}
 
 </div>
 
 <script>
-  // Open the popup that lives inside the clicked card (floats centered via CSS).
-  function bankOpen(card) {
-    card.querySelector('.bank-modal').classList.add('is-open');
-  }
-  // Close from the ✕.
-  function bankClose(btn) {
-    btn.closest('.bank-modal').classList.remove('is-open');
-  }
-  // Click the dark backdrop (outside the box) closes too.
-  document.querySelectorAll('.bank-modal').forEach(function (m) {
-    m.addEventListener('click', function (e) { if (e.target === m) m.classList.remove('is-open'); });
-  });
+function bankSendCard(card) {
 
-  // Build "Label: Value" text from the popup box that owns the clicked button.
-  function bankText(btn) {
-    var box = btn.closest('.bank-modal__box');
-    return [].map.call(box.querySelectorAll('.bank-field'), function (f) {
-      return f.querySelector('.bank-field__label').textContent + ': ' + f.querySelector('.bank-field__value').textContent;
-    }).join('\n');
-  }
-  // Brief button feedback.
-  function bankFlash(btn, msg) {
-    var old = btn.getAttribute('data-label') || btn.textContent.trim();
-    if (!btn.getAttribute('data-label')) btn.setAttribute('data-label', old);
-    btn.lastChild.textContent = msg;
-    setTimeout(function () { btn.lastChild.textContent = btn.getAttribute('data-label'); }, 1500);
-  }
-  // Copy → clipboard (async API, fallback to execCommand for older WebViews).
-  function bankCopy(btn) {
-    var text = bankText(btn);
-    var done = function () { bankFlash(btn, 'Copied'); };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, function () { legacyCopy(text); done(); });
-    } else { legacyCopy(text); done(); }
-  }
-  function legacyCopy(text) {
-    var ta = document.createElement('textarea');
-    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); } catch (e) {}
-    document.body.removeChild(ta);
-  }
-  /* SHARE NATIVE AND FALLBACK */
-  function bankShare(btn) {
-    var text = bankText(btn);
-    if (navigator.share) {
-      navigator.share({ text: text }).catch(function (err) {
-        if (err && err.name === 'AbortError') return;   // user dismissed the sheet
-        shareFallback(btn, text);
-      });
-    } else {
-      shareFallback(btn, text);
+    // Prevent rapid double-clicks.
+    if (card.dataset.sent === "1") {
+        return;
     }
-  }
-  function shareFallback(btn, text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).catch(function () { legacyCopy(text); });
-    } else { legacyCopy(text); }
-    bankFlash(btn, 'Copied to share');
-  }
+
+    const stack = card.closest(".bank-stack");
+
+    const projectId = stack
+        ? stack.dataset.projectId
+        : null;
+
+    const rawAccountType = (
+        card.dataset.accountType || ""
+    ).trim();
+
+    const accountType = rawAccountType
+        .split("(")[0]
+        .trim()
+        .toUpperCase();
+
+    const accountIndex = Number(
+        card.dataset.accountIndex
+    );
+
+    const labelElement = card.querySelector(
+        ".bank-card__title"
+    );
+
+    const label = labelElement
+        ? labelElement.textContent.trim()
+        : "";
+
+    // Validate selection before sending.
+    if (
+        !projectId ||
+        !["ESCROW", "CORPORATE"].includes(accountType) ||
+        !Number.isInteger(accountIndex) ||
+        accountIndex < 1
+    ) {
+        console.error(
+            "Invalid bank account selection",
+            {
+                projectId,
+                accountType,
+                accountIndex
+            }
+        );
+        return;
+    }
+
+    const action = {
+        type: "bank_account_selection",
+        project_id: projectId,
+        account_type: accountType,
+        account_index: accountIndex
+    };
+
+    card.dataset.sent = "1";
+
+    try {
+
+        window.parent.postMessage(
+            {
+                source: "danube-bank",
+                type: "send_message",
+                message: label,
+                extra: {
+                    action: action
+                }
+            },
+            "*"
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Bank account click failed",
+            error
+        );
+
+    }
+
+    setTimeout(function () {
+        delete card.dataset.sent;
+    }, 1500);
+}
 </script>
+
 </body>
 </html>

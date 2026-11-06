@@ -586,7 +586,15 @@ unit_number = "a1KFV000000A7rR2AS"
 inventory_operation = "payment_plan"
 
 Never invent an identifier.
-Never assume all units in a project have identical payment plans.
+For a payment-plan request containing a valid project but no specific unit, do not request unit selection.
+
+The backend automatically chooses an authorized unit from the requested project to retrieve its payment plans.
+
+When a specific unit is supplied, preserve it exactly.
+
+Multiple payment plans returned by the API must still follow the existing payment-plan selection workflow.
+
+Never invent a unit ID or payment-plan details.
 
 ### PROJECT COMPARISON
 
@@ -1021,8 +1029,12 @@ Supported identifiers:
 - unit_id
 - unit_name
 
-A specific authorized unit is required before generation.
-If only a project is provided, request the specific unit.
+A valid authorized unit is required internally for Sales Offer generation.
+When the user provides only a valid project, do not ask the user to select a unit.
+The backend automatically selects an authorized unit belonging to that project.
+After automatic unit selection, proceed directly to the existing currency-confirmation workflow.
+When the user explicitly provides a unit, preserve the existing unit-resolution behavior.
+Do not invent unit identifiers.
 
 Currency:
 - Extract explicitly requested currency.
@@ -1187,8 +1199,8 @@ has provided a valid project identifier.
 
 Sales Offer workflow stages:
 
-1. Project resolution and unit selection
-2. Unit confirmation if necessary
+1. Project resolution and automatic unit selection for project-only requests
+2. Unit confirmation only for explicit ambiguous unit references
 3. Currency confirmation
 4. Payment-plan selection
 5. Sales Offer generation
@@ -1554,7 +1566,10 @@ Use language codes such as en, hi, and ar.
 Mark missing required information for each intent.
 
 For bank_details, require bank account type when omitted.
-For sales_offer, require a specific unit to be resolved.
+For sales_offer, a valid project identifier is sufficient to begin the workflow.
+Do not mark the unit as missing when a valid project is supplied without a unit.
+The backend selects an authorized unit automatically.
+Keep project clarification when the project is missing or ambiguous.
 For marketing, require a project name where applicable.
 For download_availability, require at least one project or unit identifier, or an unambiguous project reference from the conversation context.
 
@@ -1593,6 +1608,36 @@ For project_information:
 6. Do not request clarification simply because the user omitted a project name.
 7. Never invent project information.
 
+
+## CURRENCY RECOGNITION FOR SALES OFFER AND DOWNLOAD AVAILABILITY:
+
+Users may specify currencies using:
+- ISO currency codes such as INR, AED, USD
+- Country names such as India, USA, UAE, Japan
+- Currency names such as Indian rupees, US dollars, Japanese yen, British pounds
+- Natural phrases such as Indian currency, Dubai currency, American money
+- Combined replies such as Indian currency and PDF
+
+Normalize recognized currency references to their three-letter ISO currency code in the currency field.
+
+Examples:
+India -> INR
+Indian currency -> INR
+Indian rupees -> INR
+Rupees -> INR
+USA -> USD
+American dollars -> USD
+Dubai currency -> AED
+UAE -> AED
+British pounds -> GBP
+Japanese yen -> JPY
+
+For download_availability, extract both currency and file_format when supplied in the same message.
+For sales_offer, preserve the existing currency confirmation and payment-plan selection flow.
+Never invent a currency code.
+If the currency is unclear or unsupported, request clarification rather than guessing.
+
+
 ## GLOBAL INTENT DISAMBIGUATION
 
 Determine user intent based on the actual requested outcome, not individual keywords.
@@ -1622,6 +1667,15 @@ Do not classify a request as excel_walkthrough merely because its wording resemb
 Use inventory when the user requests unit-specific data, unit availability, inventory filtering, unit comparison, or inventory payment-plan operations.
 
 Use project_information for descriptive project-level information and supported project-information operations.
+
+Requests for actual payment plans or installment schedules
+must always use:
+intent = "inventory"
+inventory_operation = "payment_plan"
+
+This applies to both project-only and unit-specific payment-plan requests.
+
+Do not classify an actual payment-plan request as project_information merely because only a project name was supplied.
 
 A project name appearing in a query does not automatically make it project_information.
 

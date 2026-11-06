@@ -3,9 +3,7 @@ import logging
 import re
 
 from app.schemas.handler_result import HandlerResult
-
 from app.handlers.inventory_handler import InventoryHandler
-
 from app.services.template_service import TemplateService
 from app.services.sales_offer_state import SalesOfferState
 
@@ -39,6 +37,7 @@ from app.services.sales_offer_followup import (
     resolve_sales_offer_selection,
 )
 
+from app.utils.currency_normalizer import resolve_currency
 
 logger = logging.getLogger(__name__)
 
@@ -140,30 +139,22 @@ class SalesOfferHandler:
             "not this one",
         }
 
+
     @staticmethod
     def currency_from_message(message):
         """
-        Accept:
-        AED
-        USD
-        INR
-        use USD
-        in AED
-        currency USD
+        Recognize currency codes, countries, and names.
+
+        Examples:
+        INR -> INR
+        India -> INR
+        Indian currency -> INR
+        Rupees -> INR
+        USA -> USD
+        American dollars -> USD
+        Dubai currency -> AED
         """
-
-        match = re.fullmatch(
-            r"(?:use\s+|in\s+|currency\s+)?"
-            r"([a-zA-Z]{3})",
-            message.strip(),
-            flags=re.IGNORECASE,
-        )
-
-        return (
-            match.group(1).upper()
-            if match
-            else None
-        )
+        return resolve_currency(message)
 
     @staticmethod
     def unit_from_message(message):
@@ -763,16 +754,57 @@ class SalesOfferHandler:
                 )
             )
 
+            
             if not requested_unit:
                 if has_project:
-                    return await self.show_project_units(
-                        intent
+                    units = find_project_units(
+                        intent,
+                        self.snapshot,
+                    )
+
+                    # Select only authorized units
+                    # that have a valid Salesforce ID.
+                    valid_units = sorted(
+                        (
+                            unit
+                            for unit in units
+                            if unit.unit_id
+                        ),
+                        key=lambda unit: (
+                            str(unit.unit_name or "").casefold(),
+                            str(unit.unit_id).casefold(),
+                        ),
+                    )
+
+                    if not valid_units:
+                        return self.reply(
+                            "No authorized units were found "
+                            "for that project."
+                        )
+
+                    unit = valid_units[0]
+
+                    logger.info(
+                        "SALES_OFFER_AUTO_UNIT_SELECTED | "
+                        "user_id=%s | project=%s | unit_id=%s",
+                        self.user_id,
+                        unit.project_name,
+                        unit.unit_id,
+                    )
+
+                    # Existing currency-confirmation flow.
+                    # ask_currency() saves the selected
+                    # unit into Redis session state.
+                    return await self.ask_currency(
+                        unit,
+                        getattr(intent, "currency", None),
                     )
 
                 return self.reply(
                     "Please specify a project or unit "
                     "for the sales offer."
                 )
+
 
             allowed_unit_ids = None
 

@@ -13,7 +13,10 @@ from types import SimpleNamespace
 from app.services.project_name_service import normalize_project_name
 from app.core.config import get_settings
 from app.core.clients import ServiceClients
-from app.schemas.chat import ChatResponse
+from app.schemas.chat import (
+    ChatResponse,
+    BankAccountSelection,
+)
 from app.schemas.streaming import HTMLBlockEvent
 from app.schemas.errors import ErrorResponse, ErrorDetail
 from app.services.router_service import RouterService
@@ -91,6 +94,13 @@ from app.services.project_name_service import (
 
 from app.services.sales_offer_project_resolver import (
     resolve_sales_offer_project,
+)
+
+from app.services.bank_details_service import BankDetailsService
+from app.services.template_service import TemplateService
+from app.utils.currency_normalizer import (
+    resolve_currency,
+    extract_currency_and_format,
 )
 
 
@@ -299,6 +309,7 @@ async def _stream_chat_response_impl(
     walkthrough_engine: WalkthroughEngine,
     selected_payment_plan_names: list[str] | None = None,
     selected_payment_plan: str | None = None,
+    action: BankAccountSelection | None = None,
 ):
 
     started_at = time.perf_counter()
@@ -427,37 +438,70 @@ async def _stream_chat_response_impl(
         pending_availability = await availability_state.load(
             user_id=user_id, session_id=str(session_id),
         )
+
         availability_followup = False
         routing_message = message
+
         if pending_availability:
             normalized_reply = message.strip().lower().lstrip(".")
-            if normalized_reply in {"cancel", "never mind", "nevermind", "stop"}:
+
+            if normalized_reply in {
+                "cancel",
+                "never mind",
+                "nevermind",
+                "stop",
+            }:
                 await availability_state.clear(
-                    user_id=user_id, session_id=str(session_id),
+                    user_id=user_id,
+                    session_id=str(session_id),
                 )
                 pending_availability = None
-            else:
-                # Preserve the ordinary router for new requests. Only clearly
-                # parameter-only answers are treated as continuations.
-                tokens = message.strip().split()
-                is_format_reply = normalized_reply in {
-                    "pdf", "excel", "xls", "xlsx", "spreadsheet",
-                    "pdf instead", "excel instead",
-                }
 
-                is_currency_reply = (
-                    len(tokens) == 1
-                    and len(tokens[0]) == 3
-                    and tokens[0].isalpha()
-                    and not is_format_reply
+            else:
+                detected_currency, detected_format = (
+                    extract_currency_and_format(message)
                 )
-                if is_currency_reply or is_format_reply:
-                    availability_followup = True
-                    routing_message = (
-                        "Continue my pending download_availability request "
-                        f"for {pending_availability.get('project_name') or pending_availability.get('project_id') or 'the project'}. "
-                        f"My answer to your clarification is: {message}"
+
+                is_parameter_reply = (
+                    bool(detected_currency or detected_format)
+                    and len(message.split()) <= 10
+                    and not re.search(
+                        r"\b(?:download|generate|create|get|show)\s+"
+                        r"(?:availability|sales\s+offer|brochure|"
+                        r"payment\s+plan)\b",
+                        message,
+                        flags=re.IGNORECASE,
                     )
+                )
+
+                if is_parameter_reply:
+                    availability_followup = True
+
+                    project_reference = (
+                        pending_availability.get("project_name")
+                        or pending_availability.get("project_id")
+                        or "the project"
+                    )
+
+                    routing_message = (
+                        "Continue my pending "
+                        "download_availability request "
+                        f"for {project_reference}. "
+                        "My answer to the pending "
+                        f"clarification is: {message}. "
+                    )
+
+                    if detected_currency:
+                        routing_message += (
+                            "Selected currency code: "
+                            f"{detected_currency}. "
+                        )
+
+                    if detected_format:
+                        routing_message += (
+                            "Selected file format: "
+                            f"{detected_format}. "
+                        )
 
         # Load official project names from Redis
         project_catalog_service = ProjectCatalogService(
@@ -483,6 +527,216 @@ async def _stream_chat_response_impl(
                 user_id=user_id,
             )
         )
+        
+        # BANK ACCOUNT CLICK SELECTION
+
+        if (
+            action is not None
+            and action.type == "bank_account_selection"
+        ):
+            bank_service = BankDetailsService()
+
+            logger.info(
+                "BANK_ACCOUNT_CLICK_RECEIVED | "
+                "project_id=%s | account_type=%s | "
+                "account_index=%s",
+                action.project_id,
+                action.account_type,
+                action.account_index,
+            )
+
+            # 1. Validate project against user's inventory.
+
+            matching_projects = [
+                project
+                for project in inventory_snapshot.projects
+                if (
+                    project.project_id is not None
+                    and str(project.project_id)
+                    == action.project_id
+                )
+            ]
+
+            selected_account = None
+            selected_project = None
+
+            # 2. Fetch and filter bank accounts.
+
+            if len(matching_projects) == 1:
+
+                selected_project = matching_projects[0]
+
+                accounts = await bank_service.get_accounts(
+                    project_id=action.project_id,
+                    access_token=access_token,
+                    user_id=user_id,
+                    account_types=[
+                        action.account_type.lower()
+                    ],
+                    account_index=action.account_index,
+                )
+
+                # Only accept exactly one matching account.
+                if len(accounts) == 1:
+                    selected_account = accounts[0]
+
+                else:
+                    logger.warning(
+                        "BANK_ACCOUNT_CLICK_NO_UNIQUE_MATCH | "
+                        "project_id=%s | account_type=%s | "
+                        "account_index=%s | matches=%s",
+                        action.project_id,
+                        action.account_type,
+                        action.account_index,
+                        len(accounts),
+                    )
+
+            else:
+                logger.warning(
+                    "BANK_ACCOUNT_CLICK_PROJECT_NOT_ACCESSIBLE | "
+                    "project_id=%s | matches=%s",
+                    action.project_id,
+                    len(matching_projects),
+                )
+
+            # 3. Render single-account HTML.
+
+            html_blocks = []
+
+            if selected_account is not None:
+
+                project_name = (
+                    selected_project.project_name
+                    or "the selected project"
+                )
+
+                account_data = selected_account.model_dump()
+
+                account_data["projectName"] = project_name
+
+                account_data["displayBankType"] = (
+                    bank_service.format_account_type(
+                        selected_account.bankType
+                    )
+                )
+
+                html = TemplateService().render(
+                    "bank_details_single.html.j2",
+                    project=project_name,
+                    account=account_data,
+                )
+
+                html_blocks = [
+                    HTMLBlockEvent(
+                        card_type="bank_details",
+                        html=html,
+                    ).model_dump(mode="json")
+                ]
+
+                response_text = (
+                    f"Here are the details for "
+                    f"{account_data['displayBankType']} "
+                    f"of {project_name}."
+                )
+
+                logger.info(
+                    "BANK_ACCOUNT_CLICK_SUCCESS | "
+                    "project_id=%s | account_type=%s | "
+                    "account_index=%s",
+                    action.project_id,
+                    action.account_type,
+                    action.account_index,
+                )
+
+            else:
+
+                response_text = (
+                    "The selected bank account could not "
+                    "be found for this project."
+                )
+
+            # 4. Prepare response payload.
+
+            response_payload = {
+                "version": 1,
+                "html_blocks": html_blocks,
+                "files": [],
+                "followups": [],
+                "inventory_context": None,
+            }
+
+            final_response = ChatResponse(
+                response=response_text,
+                session_id=session_id,
+                correlation_id=correlation_id,
+                followups=[],
+                data={
+                    "files": [],
+                    "html_blocks": html_blocks,
+                    "classification": {
+                        "intents": [
+                            {
+                                "intent": "bank_details"
+                            }
+                        ],
+                    },
+                },
+            )
+
+            # 5. Save conversation to PostgreSQL.
+
+            latency_ms = int(
+                (time.perf_counter() - started_at) * 1000
+            )
+
+            await persist_completed_chat(
+                clients=clients,
+                session_id=session_id,
+                user_id=user_id,
+                user_message=message,
+                assistant_message=response_text,
+                intents=["bank_details"],
+                latency_ms=latency_ms,
+                response_payload=response_payload,
+            )
+
+            # 6. Stream response using existing SSE format.
+
+            yield format_sse(
+                "token",
+                {
+                    "text": response_text
+                },
+            )
+
+            for block in html_blocks:
+
+                yield format_sse(
+                    "html_block",
+                    block,
+                )
+
+            yield format_sse(
+                "followups",
+                {
+                    "chips": []
+                },
+            )
+
+            yield format_sse(
+                "final",
+                final_response.model_dump(mode="json"),
+            )
+
+            yield format_sse(
+                "done",
+                {
+                    "status": "completed"
+                },
+            )
+
+            # Stop further LLM processing.
+            return
 
         # PAYMENT PLAN FOLLOW-UP: exact selection bypasses LLM routing.
         # Reuse the existing handler, HTML renderer, persistence, and SSE format.
@@ -725,6 +979,59 @@ async def _stream_chat_response_impl(
             walkthrough_features=walkthrough_features,
             active_project_context=session_project_context,
         )
+
+        
+        for intent in routing_result.intents:
+            is_payment_plan = (
+                intent.intent == "inventory"
+                and intent.inventory_operation == "payment_plan"
+            )
+            is_sales_offer = (
+                intent.intent == "sales_offer"
+            )
+
+            if not (is_payment_plan or is_sales_offer):
+                continue
+
+            has_unit = any(
+                getattr(intent, field, None)
+                for field in (
+                    "unit_id",
+                    "unit_name",
+                    "unit_number",
+                )
+            )
+
+            has_project = any(
+                getattr(intent, field, None)
+                for field in (
+                    "project_id",
+                    "project_name",
+                    "project_number",
+                )
+            )
+
+            if has_project and not has_unit:
+                intent.missing_fields = [
+                    field
+                    for field in intent.missing_fields
+                    if field not in {
+                        "unit_id",
+                        "unit_name",
+                        "unit_number",
+                        "unit_identifier",
+                    }
+                ]
+
+                intent.requires_clarification = bool(
+                    intent.missing_fields
+                )
+
+        routing_result.requires_clarification = any(
+            intent.requires_clarification
+            for intent in routing_result.intents
+        )
+
 
         for intent in routing_result.intents:
             if (
@@ -1348,6 +1655,31 @@ async def _stream_chat_response_impl(
             ],
         )
 
+        
+        if pending_availability and availability_followup:
+            has_availability_intent = any(
+                item.intent == "download_availability"
+                for item in routing_result.intents
+            )
+
+            if not has_availability_intent:
+                continuation = RoutingIntent(
+                    intent="download_availability",
+                    original_query=message,
+                    expanded_query=routing_message,
+                    action="download",
+                    project_id=pending_availability.get("project_id"),
+                    project_name=pending_availability.get("project_name"),
+                    currency=None,
+                    file_format=None,
+                    missing_fields=[],
+                    requires_clarification=False,
+                )
+
+                routing_result.intents = [continuation]
+                routing_result.requires_clarification = False
+
+
 
         # Merge pending parameters after LLM 1; do not let LLM defaults
         # overwrite a previously explicit user selection.
@@ -1355,9 +1687,11 @@ async def _stream_chat_response_impl(
             item for item in routing_result.intents
             if item.intent == "download_availability"
         ]
+
         if pending_availability and availability_followup and not availability_intents:
             # Do not execute an unrelated intent on an ambiguous continuation.
             logger.warning("AVAILABILITY_FOLLOWUP_NOT_CLASSIFIED | session_id=%s", session_id)
+
         if pending_availability and availability_intents and availability_followup:
             for item in availability_intents:
                 if not any((item.project_id, item.project_name, item.project_number,
@@ -1368,25 +1702,18 @@ async def _stream_chat_response_impl(
                     item.currency = pending_availability.get("currency")
                 if not item.file_format:
                     item.file_format = pending_availability.get("file_format")
+
                 # For short follow-ups, explicitly prioritize the new value.
-                value = message.strip().lower().lstrip(".")
-                format_aliases = {
-                    "pdf": "pdf",
-                    "pdf instead": "pdf",
-                    "excel": "excel",
-                    "excel instead": "excel",
-                    "xls": "excel",
-                    "xlsx": "excel",
-                    "spreadsheet": "excel",
-                }
 
-                if value in format_aliases:
-                    # File format reply: preserve the previously selected currency.
-                    item.file_format = format_aliases[value]
+                detected_currency, detected_format = (
+                    extract_currency_and_format(message)
+                )
 
-                elif len(value) == 3 and value.isalpha():
-                    # Currency reply: preserve the previously selected file format.
-                    item.currency = value.upper()
+                if detected_currency:
+                    item.currency = detected_currency
+
+                if detected_format:
+                    item.file_format = detected_format
 
 
                 missing = set(item.missing_fields)
@@ -1398,6 +1725,8 @@ async def _stream_chat_response_impl(
                     missing.discard("file_format")
                 item.missing_fields = sorted(missing)
                 item.requires_clarification = bool(missing)
+
+
         elif pending_availability and not availability_followup:
             # A distinct request supersedes the pending download.
             await availability_state.clear(user_id=user_id, session_id=str(session_id))
@@ -2584,6 +2913,60 @@ async def _stream_chat_response_impl(
             if intent.requires_clarification:
                 blocked_intents.add(index)
 
+        for index, intent in enumerate(routing_result.intents):
+            is_payment_plan = (
+                intent.intent == "inventory"
+                and intent.inventory_operation == "payment_plan"
+            )
+            is_sales_offer = intent.intent == "sales_offer"
+
+            if not (is_payment_plan or is_sales_offer):
+                continue
+
+            has_project = any(
+                getattr(intent, field, None)
+                for field in (
+                    "project_id",
+                    "project_name",
+                    "project_number",
+                )
+            )
+
+            has_unit = any(
+                getattr(intent, field, None)
+                for field in (
+                    "unit_id",
+                    "unit_name",
+                    "unit_number",
+                )
+            )
+
+            if not has_project or has_unit:
+                continue
+
+            intent.missing_fields = [
+                field
+                for field in intent.missing_fields
+                if field not in {
+                    "unit_id",
+                    "unit_name",
+                    "unit_number",
+                    "unit_identifier",
+                }
+            ]
+
+            intent.requires_clarification = bool(
+                intent.missing_fields
+            )
+
+            if (
+                not intent.requires_clarification
+                and index not in sales_offer_project_errors
+                and index not in availability_denied
+            ):
+                blocked_intents.discard(index)
+
+
         routing_result.requires_clarification = any(
             item.requires_clarification
             for item in routing_result.intents
@@ -3692,6 +4075,7 @@ async def stream_chat_response(
     walkthrough_engine: WalkthroughEngine,
     selected_payment_plan_names: list[str] | None = None,
     selected_payment_plan: str | None = None,
+    action: BankAccountSelection | None = None,
 ):
     started_at = time.perf_counter()
 
@@ -3716,6 +4100,7 @@ async def stream_chat_response(
             walkthrough_engine=walkthrough_engine,
             selected_payment_plan_names=selected_payment_plan_names,
             selected_payment_plan=selected_payment_plan,
+            action=action,
         ):
             if event.startswith("event: done\n"):
                 if '"completed"' in event:

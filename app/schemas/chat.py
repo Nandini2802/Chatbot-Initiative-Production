@@ -8,6 +8,14 @@ NonEmptyString = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1),
 ]
 
+class BankAccountSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["bank_account_selection"]
+    project_id: NonEmptyString
+    account_type: Literal["ESCROW", "CORPORATE"]
+    account_index: int = Field(ge=1)
+
 
 class ChatRequest(BaseModel):
     model_config = ConfigDict(
@@ -27,6 +35,7 @@ class ChatRequest(BaseModel):
         default=None,
         min_length=1,
     )
+    action: BankAccountSelection | None = None
 
 
     @model_validator(mode="after")

@@ -107,6 +107,15 @@ PROJECT_UNIT_PREFIXES = {
     "sparklz": ("splz",),
 }
 
+for _project_alias, _unit_prefixes in list(
+    PROJECT_UNIT_PREFIXES.items()
+):
+    for _unit_prefix in _unit_prefixes:
+        PROJECT_UNIT_PREFIXES.setdefault(
+            _unit_prefix,
+            (_unit_prefix,),
+        )
+
 
 def _unit_segments(value):
     """
@@ -241,6 +250,16 @@ def _matches_reference(requested, unit):
                 continue
 
             if _suffix_matches(tail, parts):
+                return True
+
+            tail_parts = _unit_segments(tail)
+
+            if (
+                len(tail_parts) == 1
+                and tail_parts[0].isdigit()
+                and len(parts) >= 3
+                and parts[-1] == tail_parts[0]
+            ):
                 return True
 
             # Optional trailing unit variant:

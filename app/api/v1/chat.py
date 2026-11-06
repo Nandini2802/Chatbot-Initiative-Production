@@ -163,6 +163,7 @@ async def chat_query(
             walkthrough_engine=request.app.state.walkthrough_engine,
             selected_payment_plan_names=body.selected_payment_plan_names,
             selected_payment_plan=body.selected_payment_plan,
+            action=body.action,
         ),
         media_type="text/event-stream",
         headers={

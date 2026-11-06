@@ -11,6 +11,7 @@ from app.schemas.routing import (
 )
 from app.observability.logger import audit_event
 from app.utils.bank_debug import bank_debug
+from app.utils.currency_normalizer import resolve_currency
 
 logger = logging.getLogger(__name__)
 
@@ -387,10 +388,49 @@ class RouterService:
 
             missing = set(item.missing_fields)
 
+            is_project_payment_plan = (
+                item.intent == "inventory"
+                and item.inventory_operation == "payment_plan"
+            )
+
+            is_project_sales_offer = (
+                item.intent == "sales_offer"
+            )
+
+            has_project = any(
+                getattr(item, field, None)
+                for field in (
+                    "project_id",
+                    "project_name",
+                    "project_number",
+                )
+            )
+
+            has_unit = any(
+                getattr(item, field, None)
+                for field in (
+                    "unit_id",
+                    "unit_name",
+                    "unit_number",
+                )
+            )
+
+            if (
+                (is_project_payment_plan or is_project_sales_offer)
+                and has_project
+                and not has_unit
+            ):
+                missing -= {
+                    "unit_id",
+                    "unit_name",
+                    "unit_number",
+                    "unit_identifier",
+                }
+
             if item.intent == "download_availability":
 
                 item.currency = (
-                    item.currency.strip().upper()
+                    resolve_currency(item.currency)
                     if item.currency
                     else None
                 )
@@ -497,7 +537,10 @@ class RouterService:
                 missing.discard("payment_plan_ids")
                 missing.discard("offer_id")
 
-                item.currency = (item.currency or "AED").upper()
+                item.currency = (
+                    resolve_currency(item.currency)
+                    or "AED"
+                )
 
             elif item.intent == "project_information":
 
