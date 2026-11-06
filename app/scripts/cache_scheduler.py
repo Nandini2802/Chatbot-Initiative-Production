@@ -43,7 +43,26 @@ def create_cache_scheduler(clients, secrets):
 
     logger.info(
         "API_CACHE_SCHEDULES_CONFIGURED | "
-        "marketing=12h | currency=24h"
+        "marketing=12h | currency=24h | how_to_videos=24h"
     )
+
+    # How To Videos API: every 24 hours
+    scheduler.add_job(
+        refresh_how_to_videos_cache,
+        trigger="cron",
+        hour=0,
+        minute=30,
+        args=[clients, secrets],
+        id="how_to_videos_cache_refresh",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    logger.info(
+        "HOW_TO_VIDEOS_CACHE_SCHEDULED | every_24_hours"
+    )
+
 
     return scheduler

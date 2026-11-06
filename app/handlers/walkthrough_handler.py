@@ -2,7 +2,16 @@
 import logging
 
 from app.schemas.handler_result import HandlerResult
-from app.services.walkthrough_access_service import WalkthroughEngine
+from app.services.walkthrough_access_service import (
+    WalkthroughEngine,
+    norm,
+)
+from app.services.how_to_video_service import (
+    HowToVideoService,
+)
+from app.services.template_service import (
+    TemplateService,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -15,18 +24,23 @@ WALKTHROUGH_FALLBACK = (
 
 
 class WalkthroughHandler:
-    """
-    Handles Excel walkthroughs using request-scoped
-    feature keys instead of role-based Excel RBAC.
-    """
 
     def __init__(
         self,
         engine: WalkthroughEngine,
-        key_features: str,
+        key_features: str | None,
+        role: str,
+        redis_client,
     ):
         self.engine = engine
         self.key_features = key_features
+        self.role = role
+
+        self.video_service = HowToVideoService(
+            redis_client
+        )
+
+        self.templates = TemplateService()
 
     async def handle(self, intent) -> HandlerResult:
 
@@ -40,11 +54,12 @@ class WalkthroughHandler:
             return HandlerResult(
                 intent="excel_walkthrough",
                 messages=[
-                    "Which Danube One feature would you "
-                    "like help with?"
+                    "Which Danube One feature would "
+                    "you like help with?"
                 ],
             )
 
+        # First authorize the Excel walkthrough.
         result = self.engine.lookup(
             feature=feature_name,
             key_features=self.key_features,
@@ -64,14 +79,9 @@ class WalkthroughHandler:
                 messages=[WALKTHROUGH_FALLBACK],
             )
 
-        logger.info(
-            "WALKTHROUGH_ACCESS_GRANTED | feature=%s",
-            feature_name,
-        )
-
         approved_steps = result["steps"]
 
-        # Suggest only features available to this user.
+        # Existing authorized follow-up suggestions.
         allowed_followup_features = []
 
         for guide in self.engine.guides.values():
@@ -89,6 +99,46 @@ class WalkthroughHandler:
                     guide.name
                 )
 
+        # Video is optional; it must never block steps.
+        html_blocks = []
+
+        try:
+            guide = self.engine.guides[
+                norm(result["feature"])
+            ]
+
+            videos = await self.video_service.find_videos(
+                feature_name=guide.name,
+                excel_feature_key=guide.key,
+                key_features=self.key_features,
+                role=self.role,
+            )
+
+            if videos:
+                html = self.templates.render(
+                    "how_to_video.html.j2",
+                    videos=videos,
+                )
+
+                html_blocks.append({
+                    "card_type": "walkthrough_video",
+                    "html": html,
+                })
+
+                logger.info(
+                    "WALKTHROUGH_VIDEO_ATTACHED | "
+                    "feature=%s | count=%s",
+                    guide.name,
+                    len(videos),
+                )
+
+        except Exception:
+            logger.exception(
+                "WALKTHROUGH_VIDEO_LOOKUP_FAILED | "
+                "feature=%s",
+                result["feature"],
+            )
+
         return HandlerResult(
             intent="excel_walkthrough",
             generation_context={
@@ -100,6 +150,7 @@ class WalkthroughHandler:
                 ),
                 "match_status": "exact",
             },
+            html_blocks=html_blocks,
             messages=[],
             has_data=True,
         )

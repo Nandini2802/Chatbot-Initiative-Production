@@ -1,0 +1,196 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .vid-stack { display: flex; flex-direction: column; gap: 14px; }
+
+  .vid-card {
+    width: 100%;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #16171a;
+  }
+
+  /* Thumbnail / player area */
+  .vid-frame {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    background: #0d0e10 center/cover no-repeat;
+  }
+
+  .vid-el {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    background: #0d0e10;
+  }
+
+  .vid-poster {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* Centered play button (uploaded icon). */
+  .vid-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    background: rgba(0,0,0,.12);
+  }
+
+  .vid-play {
+    width: 54px;
+    height: 54px;
+    display: block;
+    transition: transform .12s;
+  }
+
+  .vid-overlay:hover .vid-play { transform: scale(1.05); }
+
+  .vid-card.is-playing .vid-poster,
+  .vid-card.is-playing .vid-overlay { display: none; }
+
+  /* Data section below the thumbnail */
+  .vid-data { padding: 14px 16px 16px; }
+
+  .vid-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: #fff;
+    line-height: 1.3;
+  }
+
+  .vid-duration {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: #8b8d92;
+  }
+
+  .vid-duration svg { width: 15px; height: 15px; flex-shrink: 0; }
+</style>
+</head>
+
+<body>
+<div class="vid-stack">
+
+{% for video in videos %}
+
+  <div class="vid-card">
+    <div class="vid-frame">
+
+      {% if video.kind == "youtube" %}
+
+      <iframe
+        class="vid-el"
+        src="{{ video.player_url | e }}"
+        title="{{ video.title | e }}"
+        loading="lazy"
+        referrerpolicy="strict-origin-when-cross-origin"
+        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen>
+      </iframe>
+
+      {% elif video.kind == "mp4" %}
+
+      <video class="vid-el"
+             playsinline webkit-playsinline preload="none"
+             poster="https://d39mr55n259x6c.cloudfront.net/DPT_Container/aibot/icons/video-poster.png">
+        <source src="{{ video.player_url | e }}" type="video/mp4">
+      </video>
+
+      <img class="vid-poster" alt=""
+           src="https://d39mr55n259x6c.cloudfront.net/DPT_Container/aibot/icons/video-poster.png">
+
+      <button type="button" class="vid-overlay"
+              onclick="vidPlay(this)" aria-label="Play video">
+        <img class="vid-play"
+             src="https://d39mr55n259x6c.cloudfront.net/DPT_Container/aibot/icons/play.png"
+             alt="">
+      </button>
+
+      {% endif %}
+
+    </div>
+
+    <div class="vid-data">
+      <div class="vid-title">{{ video.title | e }}</div>
+
+      <div class="vid-duration">
+        <svg viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/>
+          <polyline points="12 7 12 12 15 14"/>
+        </svg>
+
+        <span>{{ video.duration | e }}</span>
+      </div>
+    </div>
+  </div>
+
+{% endfor %}
+
+</div>
+
+
+<script>
+function vidPlay(btn) {
+    const card = btn.closest(".vid-card");
+
+    if (!card) {
+        return;
+    }
+
+    const video = card.querySelector("video.vid-el");
+
+    if (!video) {
+        return;
+    }
+
+    video.setAttribute("controls", "controls");
+
+    card.classList.add("is-playing");
+
+    const playPromise = video.play();
+
+    if (playPromise !== undefined) {
+        playPromise.catch(function(error) {
+            console.error("Video playback failed:", error);
+        });
+    }
+}
+</script>
+
+
+</body>
+</html>

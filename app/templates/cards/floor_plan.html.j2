@@ -68,8 +68,21 @@
       </svg>
     </span>
     <div class="file-info">
-      <div class="file-name">{{ project }} Floor Plans</div>
-      <div class="file-meta">{{ total_images }} plans</div>
+      <div class="file-name">
+        {{ project | e }} Floor Plans
+      </div>
+
+      <div class="file-meta">
+        {{ total_images }} plans
+
+        {% if size_label %}
+          | Total source size: {{ size_label | e }}
+        {% endif %}
+
+        {% if updated_at %}
+          | Updated: {{ updated_at | e }}
+        {% endif %}
+      </div>
     </div>
     {% if zip_url %}
     <a class="download-btn" href="{{ zip_url }}" target="_blank" rel="noopener noreferrer" download title="Download">

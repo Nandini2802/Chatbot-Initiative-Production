@@ -10,7 +10,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from app.services.feature_access_service import (
-    has_key_feature,
+    parse_key_features,
 )
 
 
@@ -114,9 +114,20 @@ class WalkthroughEngine:
         if not guide.key:
             return False, "missing_excel_feature_key"
 
-        if not has_key_feature(
-            key_features=key_features,
-            required_key=guide.key,
+        required_keys = [
+            key.strip().casefold()
+            for key in re.split(r"[/,|]", guide.key)
+            if key.strip()
+        ]
+
+        granted_keys = parse_key_features(key_features)
+
+        if (
+            not required_keys
+            or not all(
+                key in granted_keys
+                for key in required_keys
+            )
         ):
             return False, "feature_key_not_granted"
 

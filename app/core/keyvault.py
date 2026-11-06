@@ -57,6 +57,7 @@ class AppSecrets(BaseModel):
     currency_api_cookie: SecretStr
     osf_portfolio_api_key: SecretStr
     google_maps_api_key: SecretStr
+    how_to_videos_api_key: SecretStr
 
 
 def is_retryable_error(exc: BaseException) -> bool:
@@ -190,6 +191,9 @@ async def load_application_secrets() -> AppSecrets:
             currency_api_cookie=local.currency_api_cookie,
             osf_portfolio_api_key=local.osf_portfolio_api_key,
             google_maps_api_key=local.google_maps_api_key,
+            how_to_videos_api_key=SecretStr(
+                local.how_to_videos_api_key
+            ),
         )
     
     # Deployed environments
@@ -244,6 +248,9 @@ async def load_application_secrets() -> AppSecrets:
             ),
             google_maps_api_key=SecretStr(
                 await keyvault.get_secret("google-maps-api-key")
+            ),
+            how_to_videos_api_key=SecretStr(
+                await keyvault.get_secret("how-to-videos-api-key")
             ),
         )
     

@@ -23,6 +23,7 @@ from app.scripts.cache_scheduler import create_cache_scheduler
 from app.scripts.refresh_api_cache import (
     refresh_marketing_cache,
     refresh_currency_cache,
+    refresh_how_to_videos_cache,
 )
 from app.persistence.redis_store import RedisCacheKeys
 from app.templates.dev.chat_harness import router as dev_router
@@ -202,6 +203,20 @@ async def lifespan(app: FastAPI):
         else:
             logger.info(
                 "CURRENCY_CACHE_ALREADY_AVAILABLE"
+            )
+
+        videos_cache_exists = await clients.redis.exists(
+            RedisCacheKeys.HOW_TO_VIDEOS
+        )
+
+        if not videos_cache_exists:
+            logger.info(
+                "HOW_TO_VIDEOS_CACHE_MISSING"
+            )
+
+            await refresh_how_to_videos_cache(
+                clients=clients,
+                secrets=secrets,
             )
 
         scheduler = create_cache_scheduler(

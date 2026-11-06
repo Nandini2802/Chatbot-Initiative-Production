@@ -69,7 +69,25 @@
     </span>
     <div class="file-info">
       <div class="file-name">{{ label | e }}</div>
-      {% if size_label or updated_at %}<div class="file-meta">{% if size_label %}{{ size_label | e }}{% endif %}{% if updated_at %}{% if size_label %} | {% endif %}Updated: {{ updated_at | e }}{% endif %}</div>{% endif %}
+      {% if size_label or updated_at or total_files %}
+      <div class="file-meta">
+
+        {% if total_files %}
+          {{ total_files }} files
+        {% endif %}
+
+        {% if size_label %}
+          {% if total_files %} | {% endif %}
+          Total source size: {{ size_label | e }}
+        {% endif %}
+
+        {% if updated_at %}
+          {% if total_files or size_label %} | {% endif %}
+          Updated: {{ updated_at | e }}
+        {% endif %}
+
+      </div>
+      {% endif %}
     </div>
     <a class="download-btn" href="{{ zip_url | e }}" target="_blank" rel="noopener noreferrer" download title="Download">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">

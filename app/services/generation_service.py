@@ -595,6 +595,7 @@ class GenerationService:
             )
 
         # Preserve Excel Walkthrough RBAC behavior
+        
         if (
             service_results.get("service")
             == "excel_walkthrough"
@@ -604,34 +605,60 @@ class GenerationService:
                 "allowed_followup_features", []
             )
 
+            current_feature = str(
+                service_results.get("feature_name") or ""
+            ).strip().casefold()
+
+            simple_followups = [
+                (
+                    "Change Password",
+                    "How to change password?"
+                ),
+                (
+                    "Unit Details Page",
+                    "How to view unit details?"
+                ),
+                (
+                    "Add a Unit to Compare",
+                    "How to compare units?"
+                ),
+                (
+                    "Create Lead",
+                    "How to create a lead?"
+                ),
+                (
+                    "Opportunities",
+                    "How to view opportunities?"
+                ),
+            ]
+
             allowed_lookup = {
-                feature.casefold(): feature
+                str(feature).strip().casefold()
                 for feature in allowed_features
+                if isinstance(feature, str)
             }
 
-            validated_features = []
+            chips = []
 
-            for suggestion in generated.followups:
-                if not isinstance(suggestion, str):
+            for feature_name, question in simple_followups:
+
+                normalized_name = feature_name.casefold()
+
+                # Only suggest authorized Excel features.
+                if normalized_name not in allowed_lookup:
                     continue
 
-                feature = allowed_lookup.get(
-                    suggestion.strip().casefold()
-                )
+                # Don't suggest the current feature.
+                if normalized_name == current_feature:
+                    continue
 
-                if (
-                    feature
-                    and feature not in validated_features
-                ):
-                    validated_features.append(feature)
+                chips.append(question)
 
-                if len(validated_features) == 3:
+                if len(chips) == 3:
                     break
 
-            generated.followups = [
-                f"How do I use {feature}?"
-                for feature in validated_features
-            ]
+            generated.followups = chips
+
 
         else:
             generated.followups = [

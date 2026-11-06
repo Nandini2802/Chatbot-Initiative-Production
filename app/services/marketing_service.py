@@ -81,6 +81,65 @@ def safe_url(value: str | None, hosts: set[str]) -> str | None:
     return value.strip()
 
 
+
+def get_marketing_file_metadata(groups, folder=None):
+    """
+    Return file count, total source size, and
+    latest upload timestamp from Marketing API.
+
+    If any matching file has an unknown size,
+    total_size_bytes remains None.
+
+    The result is not the compressed ZIP size.
+    """
+    count = 0
+    total_size = 0
+    missing_size = False
+    latest_upload = None
+
+    for group in groups or []:
+        if not isinstance(group, list):
+            continue
+
+        for item in group:
+            if not isinstance(item, dict):
+                continue
+
+            if folder is not None:
+                if item.get("folder_key") != folder:
+                    continue
+
+            count += 1
+
+            size = item.get("size")
+
+            if type(size) is int and size >= 0:
+                total_size += size
+            else:
+                missing_size = True
+
+            uploaded_at = item.get("uploaded_at")
+
+            if isinstance(uploaded_at, str):
+                uploaded_at = uploaded_at.strip()
+
+                if uploaded_at:
+                    if (
+                        latest_upload is None
+                        or uploaded_at > latest_upload
+                    ):
+                        latest_upload = uploaded_at
+
+    return {
+        "total_files": count,
+        "total_size_bytes": (
+            None if missing_size or count == 0
+            else total_size
+        ),
+        "updated_at": latest_upload,
+    }
+
+
 class MarketingService:
 
     def __init__(self, redis_client):
@@ -153,6 +212,7 @@ class MarketingService:
                 "download_urls", {}
             ) or {}
 
+            
             if folder == "all":
                 zip_url = safe_url(
                     (
@@ -164,15 +224,28 @@ class MarketingService:
                 )
 
                 if zip_url:
+                    metadata = get_marketing_file_metadata(
+                        project.get(
+                            "marketing_collateral_row_assets",
+                            [],
+                        )
+                    )
+
                     result.append(
                         MarketingAsset(
                             project=project["project_title"],
                             asset_type="all",
                             zip_url=zip_url,
+                            total_files=metadata["total_files"],
+                            total_size_bytes=metadata[
+                                "total_size_bytes"
+                            ],
+                            updated_at=metadata["updated_at"],
                         )
                     )
 
                 continue
+
 
             files = []
 
@@ -206,20 +279,30 @@ class MarketingService:
                         or "Download"
                     )
 
+                    
                     files.append(
                         MarketingFile(
                             name=name,
                             download_url=url,
                             file_size_bytes=(
                                 item.get("size")
-                                if isinstance(
-                                    item.get("size"), int
+                                if (
+                                    type(item.get("size")) is int
+                                    and item["size"] >= 0
                                 )
-                                and item["size"] >= 0
+                                else None
+                            ),
+                            updated_at=(
+                                item.get("uploaded_at")
+                                if isinstance(
+                                    item.get("uploaded_at"),
+                                    str,
+                                )
                                 else None
                             ),
                         )
                     )
+
 
             # Explicit language filtering requires
             # verified language metadata. The API
@@ -238,6 +321,15 @@ class MarketingService:
                 ALLOWED_ZIP_HOSTS,
             )
 
+
+            metadata = get_marketing_file_metadata(
+                project.get(
+                    "marketing_collateral_row_assets",
+                    [],
+                ),
+                folder=folder,
+            )
+
             if folder in INDIVIDUAL_FILE_FOLDERS:
                 # Individual brochure/video links
                 if not files:
@@ -252,6 +344,7 @@ class MarketingService:
                     )
                 )
 
+            
             else:
                 # Other assets use ZIP downloads
                 if not zip_url:
@@ -262,7 +355,11 @@ class MarketingService:
                         project=project["project_title"],
                         asset_type=folder,
                         zip_url=zip_url,
-                        total_files=len(files),
+                        total_files=metadata["total_files"],
+                        total_size_bytes=metadata[
+                            "total_size_bytes"
+                        ],
+                        updated_at=metadata["updated_at"],
                     )
                 )
 

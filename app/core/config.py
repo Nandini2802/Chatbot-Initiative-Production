@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # History
     session_inactivity_minutes: int = 5
 
+    # HowToVideos
+    how_to_videos_api_url: str = ""
+    how_to_videos_timeout_seconds: float = 30.0
+    how_to_videos_cache_ttl_seconds: int = 90000
+
     # Inventory API
     inventory_project_api_url: str = ""
     inventory_units_api_url: str = ""
@@ -146,6 +151,8 @@ class LocalSecrets(BaseSettings):
     inventory_test_cookie: str = ""
     osf_portfolio_api_key: str = ""
     google_maps_api_key: str = ""
+    how_to_videos_api_key: str = ""
+
 
     model_config = SettingsConfigDict(
         env_file=".env",

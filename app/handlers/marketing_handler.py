@@ -106,9 +106,22 @@ class MarketingHandler:
                         "file_size_bytes": (
                             file.file_size_bytes
                         ),
+                        "file_size_display": (
+                            self.template_service.format_file_size(
+                                file.file_size_bytes
+                            )
+                        ),
+                        "updated_at": (
+                            self.template_service.format_uploaded_at(
+                                file.updated_at
+                            )
+                        ),
                     }
                 )
 
+            # 7. ADD ZIP FILE IF AVAILABLE
+
+            
             # 7. ADD ZIP FILE IF AVAILABLE
 
             if asset.zip_url:
@@ -121,6 +134,20 @@ class MarketingHandler:
                         "type": asset.asset_type,
                         "format": "zip",
                         "download_url": asset.zip_url,
+                        "total_files": asset.total_files,
+                        "total_source_size_bytes": (
+                            asset.total_size_bytes
+                        ),
+                        "total_source_size_display": (
+                            self.template_service.format_file_size(
+                                asset.total_size_bytes
+                            )
+                        ),
+                        "updated_at": (
+                            self.template_service.format_uploaded_at(
+                                asset.updated_at
+                            )
+                        ),
                     }
                 )
 

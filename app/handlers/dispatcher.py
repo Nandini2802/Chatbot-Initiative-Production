@@ -44,7 +44,10 @@ class IntentDispatcher:
             self.handlers["excel_walkthrough"] = WalkthroughHandler(
                 engine=walkthrough_engine,
                 key_features=key_features,
+                role=role,
+                redis_client=redis_client,
             )
+
 
         self.redis_client = redis_client
         self.session_id = session_id

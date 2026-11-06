@@ -14,6 +14,9 @@ from app.retrieval.marketing_api_client import MarketingAPIClient
 from app.services.api_cache_service import APICacheService
 from app.persistence.redis_store import RedisCacheKeys
 from app.retrieval.currency_api_client import CurrencyAPIClient
+from app.retrieval.how_to_videos_client import (
+    HowToVideosAPIClient,
+)
 
 
 
@@ -180,6 +183,56 @@ async def refresh_currency_cache(
     except Exception:
         logger.exception(
             "CURRENCY_CACHE_REFRESH_FAILED"
+        )
+        return False
+
+
+async def refresh_how_to_videos_cache(
+    clients,
+    secrets,
+) -> bool:
+
+    settings = get_settings()
+
+    cache = APICacheService(
+        redis_client=clients.redis
+    )
+
+    client = HowToVideosAPIClient(
+        api_key=(
+            secrets.how_to_videos_api_key
+            .get_secret_value()
+        )
+    )
+
+    try:
+        logger.info(
+            "HOW_TO_VIDEOS_CACHE_REFRESH_STARTED"
+        )
+
+        payload = await client.fetch_videos()
+
+        await cache.set(
+            key=RedisCacheKeys.HOW_TO_VIDEOS,
+            data={
+                "refreshed_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
+                "data": payload["data"],
+            },
+            ttl_seconds=(
+                settings.how_to_videos_cache_ttl_seconds
+            ),
+        )
+
+        logger.info(
+            "HOW_TO_VIDEOS_CACHE_REFRESH_SUCCESS"
+        )
+        return True
+
+    except Exception:
+        logger.exception(
+            "HOW_TO_VIDEOS_CACHE_REFRESH_FAILED"
         )
         return False
 
