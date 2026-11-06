@@ -16,22 +16,8 @@ Rules:
 When generated=true:
 - Confirm that the sales offer was generated.
 - Mention the document name when available.
-- Include this exact disclaimer in the response:
-
-Disclaimer: Exchange rate applied is valid for today
-only and subject to change at the time of unit booking.
 
 Return the existing structured GenerationResult.
-
-
-## Mandatory Disclaimer
-
-When a sales offer is successfully generated, include this exact disclaimer at the end of the response:
-
-Disclaimer: Exchange rate applied is valid for today only and subject to change at the time of unit booking.
-
-Do not include the disclaimer for failed generations.
-Do not generate HTML for the disclaimer.
 
 ### Follow-up Chips — Strict Capability-Based Generation
 

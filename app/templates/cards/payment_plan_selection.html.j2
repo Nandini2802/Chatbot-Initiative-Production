@@ -12,6 +12,8 @@
     -webkit-font-smoothing: antialiased;
   }
   .so-stack { display: flex; flex-direction: column; gap: 14px; }
+
+  /* Each plan is a label wrapping a native checkbox, so the whole card is tappable. */
   .so-card {
     display: flex;
     align-items: center;
@@ -51,6 +53,8 @@
     line-height: 1.35;
     color: #fff;
   }
+
+  /* Checked state: gold box + checkmark, faint gold-tinted card. */
   .so-card__input:checked ~ .so-card__box {
     background: linear-gradient(135deg, #e0aa4a 0%, #c9963a 100%);
     border-color: transparent;
@@ -61,7 +65,15 @@
     background: #221d12;
     border-color: rgba(201, 150, 58, .35);
   }
-  .so-submit-wrap { display: flex; justify-content: left; }
+  /* Disabled checkbox (single-select: the non-chosen cards) — dim + not clickable. */
+  .so-card:has(.so-card__input:disabled) {
+    opacity: .4;
+    cursor: default;
+    pointer-events: none;
+  }
+
+  /* Submit button under the list */
+  .so-submit-wrap { display: flex; justify-content: left;}
   .so-submit {
     border: 0;
     border-radius: 20px;
@@ -82,11 +94,12 @@
 <div class="so-stack">
 
   {% for plan in plans %}
+
   <label class="so-card">
     <input
-      type="radio"
+      type="checkbox"
       class="so-card__input"
-      name="payment_plan"
+      name="sales_offer"
       value="{{ plan.name | e }}"
     >
     <span class="so-card__box">
@@ -96,8 +109,9 @@
         <polyline points="5 12 10 17 19 7"/>
       </svg>
     </span>
-    <span class="so-card__label">{{ plan.name }}</span>
+    <span class="so-card__label">{{ plan.name | e }}</span>
   </label>
+
   {% endfor %}
 
   <div class="so-submit-wrap">
@@ -106,15 +120,33 @@
 
 </div>
 <script>
+  // Single-select: once one plan is chosen, the rest become uncheckable (disabled).
+  // Unchecking the chosen one re-enables all. Also normalizes multi-checked defaults.
+  (function () {
+    var inputs = document.querySelectorAll('.so-card__input');
+    // Keep at most one checked on load (defaults may ship several checked).
+    var seen = false;
+    [].forEach.call(inputs, function (i) {
+      if (i.checked) { if (seen) i.checked = false; else seen = true; }
+    });
+    function enforce() {
+      var chosen = [].filter.call(inputs, function (i) { return i.checked; })[0];
+      [].forEach.call(inputs, function (i) { i.disabled = chosen ? i !== chosen : false; });
+    }
+    [].forEach.call(inputs, function (i) { i.addEventListener('change', enforce); });
+    enforce();
+  })();
+
   (function () {
     var btn = document.querySelector('.so-submit');
 
     btn.addEventListener('click', function () {
-      var selected = document.querySelector(
-        '.so-card__input:checked'
-      );
+      var picks = Array.prototype.map.call(
+        document.querySelectorAll('.so-card__input:checked'),
+        function (i) { return i.value; }
+      ).filter(Boolean);
 
-      if (!selected) return;
+      if (!picks.length) return;
 
       btn.disabled = true;
       btn.textContent = 'Submitted';
@@ -122,9 +154,9 @@
       window.parent.postMessage({
         source: 'danube-block',
         type: 'send_message',
-        message: 'Selected payment plan',
+        message: 'Selected payment plans',
         extra: {
-          selected_payment_plan: selected.value
+          selected_payment_plan_names: picks
         }
       }, '*');
     });

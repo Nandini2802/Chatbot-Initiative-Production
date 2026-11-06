@@ -26,12 +26,13 @@ from app.services.sales_offer_local_storage import (
     readable_size,
 )
 
+from app.core.config import get_settings
+
+
 logger = logging.getLogger(__name__)
 
-DOWNLOAD_API = (
-    "https://middleware-uat.danubeproperties.com"
-    "/api/downloadGenericDoc"
-)
+settings = get_settings()
+
 
 DOWNLOAD_TTL_SECONDS = 600
 MAX_PDF_BYTES = 10 * 1024 * 1024
@@ -104,9 +105,21 @@ async def fetch_sales_offer_pdf(
         document_id,
     )
 
+    download_api_url = settings.sales_offer_download_api.strip()
+
+    if not download_api_url:
+        raise ValueError(
+            "SALES_OFFER_DOWNLOAD_API is not configured"
+        )
+
+    if not download_api_url.startswith("https://"):
+        raise ValueError(
+            "SALES_OFFER_DOWNLOAD_API must use HTTPS"
+        )
+
     async with CurlAsyncSession(timeout=45) as session:
         response = await session.post(
-            DOWNLOAD_API,
+            download_api_url,
             headers={
                 "salesforce_access_token": access_token,
                 "user_id": str(user_id),

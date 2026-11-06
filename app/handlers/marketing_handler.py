@@ -63,7 +63,15 @@ class MarketingHandler:
                 {
                     "project": asset.project,
                     "asset_type": asset.asset_type,
-                    "file_count": len(asset.files),
+                    "available": bool(
+                        asset.files or asset.zip_url
+                    ),
+                    "delivery_type": (
+                        "individual_files"
+                        if asset.files and not asset.zip_url
+                        else "zip_download"
+                    ),
+                    "file_count": asset.total_files,
                     "has_zip": bool(asset.zip_url),
                     "file_names": [
                         file.name

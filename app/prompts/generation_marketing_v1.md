@@ -192,3 +192,14 @@ Return structured output containing:
 - followups
 
 Do not return any additional fields.
+
+## Marketing Asset Availability Rules
+
+1. Trust the verified backend availability status.
+2. If available=true, the requested marketing asset is available for download.
+3. If has_zip=true, the asset is available as a ZIP download even when file_count=0 or file_names=[].
+4. file_count=0 does not indicate unavailability when has_zip=true.
+5. If delivery_type="zip_download", tell the user that the download is available below.
+6. Never say that files were not found when available=true or has_zip=true.
+7. Do not invent individual filenames or file counts.
+8. Only report an asset as unavailable when the backend explicitly indicates it was not found.

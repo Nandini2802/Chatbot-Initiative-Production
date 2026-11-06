@@ -51,7 +51,7 @@ from app.services.project_resolution_service import (
     resolve_project,
     match_project_reference,
     resolve_comparison_project,
-    extract_comparison_projects,
+    format_project_comparison_clarification,
 )
 from app.services.project_context_service import (
     resolve_session_project,
@@ -82,6 +82,7 @@ from app.services.sales_offer_followup import (
 
 from app.services.sales_offer_resolver import (
     SalesOfferResolutionError,
+    extract_explicit_sales_offer_unit_reference,
 )
 
 from app.services.project_name_service import (
@@ -91,7 +92,6 @@ from app.services.project_name_service import (
 from app.services.sales_offer_project_resolver import (
     resolve_sales_offer_project,
 )
-
 
 
 logger = logging.getLogger(__name__)
@@ -115,6 +115,32 @@ GREETING_RESPONSE = """Hi, I can help you with:
 - Unit details, including layout plans and payment plans.
 - Comparing units and projects.
 - Downloading unit availability for a project and sales offers for a unit."""
+
+
+GENERAL_CONVERSATION_RESPONSES = {
+    "greeting": GREETING_RESPONSE,
+
+    "thanks": (
+        "You're welcome! Let me know if you need anything else."
+    ),
+
+    "goodbye": (
+        "Goodbye! Come back any time you need project details, "
+        "units or marketing materials."
+    ),
+
+    "acknowledgement": (
+        "Okay. Let me know what you need next."
+    ),
+
+    "about_assistant": GREETING_RESPONSE.replace(
+        "Hi, I can help you with:",
+        "I'm the Danube One assistant, an automated assistant. "
+        "I can help you with:",
+        1,
+    ),
+}
+
 
 
 
@@ -700,42 +726,17 @@ async def _stream_chat_response_impl(
             active_project_context=session_project_context,
         )
 
-        direct_comparison_projects = (
-            extract_comparison_projects(
-                message,
-                inventory_catalogs.active_projects,
-            )
-        )
-
-        if len(direct_comparison_projects) == 2:
-            logger.info(
-                "PROJECT_COMPARISON_RECOVERED | "
-                "projects=%s",
-                direct_comparison_projects,
-            )
-
-            routing_result.intents = [
-                RoutingIntent(
-                    intent="inventory",
-                    original_query=message,
-                    expanded_query=message,
-                    action="compare",
-                    project_name=None,
-                    unit_number=None,
-                    bedrooms=None,
-                    currency=None,
-                    file_format=None,
-                    bank_account_types=[],
-                    marketing_assets=[],
-                    inventory_scope="projects",
-                    inventory_operation="project_comparison",
-                    compare_project_names=direct_comparison_projects,
-                    missing_fields=[],
-                    requires_clarification=False,
-                    project_reference_source="none",
+        for intent in routing_result.intents:
+            if (
+                intent.intent == "inventory"
+                and intent.inventory_operation == "project_comparison"
+            ):
+                logger.info(
+                    "PROJECT_COMPARISON_FROM_LLM1 | "
+                    "message=%s | projects=%s",
+                    message,
+                    intent.compare_project_names,
                 )
-            ]
-
 
         
         comparison_state = UnitComparisonState(clients.redis)
@@ -748,14 +749,12 @@ async def _stream_chat_response_impl(
         )
 
         # A new comparison without unit numbers.
-        starts_empty_comparison = bool(
-            re.fullmatch(
-                r"\s*(?:please\s+)?"
-                r"(?:compare|comparre|comparison)\s+"
-                r"(?:2|two)\s+units?\s*[.!?]?\s*",
-                message,
-                flags=re.IGNORECASE,
-            )
+        starts_empty_comparison = any(
+            intent.intent == "inventory"
+            and intent.inventory_scope == "units"
+            and intent.inventory_operation == "unit_comparison"
+            and len(intent.compare_unit_numbers or []) == 0
+            for intent in routing_result.intents
         )
 
         cancel_comparison = message.strip().casefold() in {
@@ -1122,6 +1121,11 @@ async def _stream_chat_response_impl(
                     "sales_offer",
                     "unknown",
                     "clarification",
+                    "greeting",
+                    "thanks",
+                    "goodbye",
+                    "acknowledgement",
+                    "about_assistant",
                 }
                 for intent in routed_intents
             )
@@ -1132,9 +1136,15 @@ async def _stream_chat_response_impl(
                     "inventory",
                     "unknown",
                     "clarification",
+                    "greeting",
+                    "thanks",
+                    "goodbye",
+                    "acknowledgement",
+                    "about_assistant",
                 }
                 for intent in routed_intents
             )
+
 
             if selection_followup and not explicit_other_feature:
 
@@ -1170,7 +1180,11 @@ async def _stream_chat_response_impl(
                 pending_so = None
 
 
-        if pending_so:
+        if pending_so and not (
+            len(routing_result.intents) == 1
+            and routing_result.intents[0].intent
+            in GENERAL_CONVERSATION_RESPONSES
+        ):
             continuation = RoutingIntent(
                 intent="sales_offer",
                 original_query=message,
@@ -1190,13 +1204,75 @@ async def _stream_chat_response_impl(
             routing_result.intents = [continuation]
             routing_result.requires_clarification = False
 
+        sales_offer_unit_indices = set()
     
-        for sales_intent in routing_result.intents:
+        for sales_index, sales_intent in enumerate(
+            routing_result.intents
+        ):
 
             if sales_intent.intent != "sales_offer":
                 continue
 
             if pending_so:
+                continue
+
+            explicit_unit_reference = (
+                extract_explicit_sales_offer_unit_reference(
+                    message,
+                    inventory_snapshot,
+                )
+            )
+
+            if explicit_unit_reference:
+
+                sales_offer_unit_indices.add(sales_index)
+
+                logger.info(
+                    "SALES_OFFER_UNIT_REFERENCE | "
+                    "reference=%s",
+                    explicit_unit_reference,
+                )
+
+                sales_intent.unit_id = None
+                sales_intent.unit_name = (
+                    explicit_unit_reference
+                )
+                sales_intent.unit_number = None
+
+                sales_intent.project_id = None
+                sales_intent.project_name = None
+                sales_intent.project_number = None
+
+                sales_intent.project_reference_source = (
+                    "none"
+                )
+                sales_intent.explicit_project_reference = (
+                    None
+                )
+
+                sales_intent.missing_fields = [
+                    field
+                    for field in sales_intent.missing_fields
+                    if field not in {
+                        "project_name",
+                        "project_identifier",
+                        "project_or_unit_identifier",
+                        "unit_number",
+                        "unit_name",
+                        "unit_id",
+                    }
+                ]
+
+                sales_intent.requires_clarification = (
+                    bool(sales_intent.missing_fields)
+                )
+
+                routing_result.requires_clarification = any(
+                    item.requires_clarification
+                    for item in routing_result.intents
+                )
+
+                # Skip the project-only override below.
                 continue
 
             reference_match = re.search(
@@ -1497,6 +1573,7 @@ async def _stream_chat_response_impl(
         availability_access = DownloadAvailabilityAccessService(walkthrough_engine)
         blocked_intents = set()
         sales_offer_project_errors = {}
+        comparison_clarifications: dict[int, str] = {}
 
         for index, intent in enumerate(routing_result.intents):
             if intent.intent == "download_availability":
@@ -1517,6 +1594,21 @@ async def _stream_chat_response_impl(
         for index, intent in enumerate(routing_result.intents):
 
             if index in availability_denied:
+                continue
+
+            if (
+                intent.intent == "sales_offer"
+                and index in sales_offer_unit_indices
+            ):
+                intent.requires_clarification = bool(
+                    intent.missing_fields
+                )
+
+                if intent.requires_clarification:
+                    blocked_intents.add(index)
+                else:
+                    blocked_intents.discard(index)
+
                 continue
 
             if (
@@ -1954,6 +2046,21 @@ async def _stream_chat_response_impl(
 
                 continue
 
+            if (
+                intent.intent == "sales_offer"
+                and index in sales_offer_unit_indices
+            ):
+                intent.requires_clarification = bool(
+                    intent.missing_fields
+                )
+
+                if intent.requires_clarification:
+                    blocked_intents.add(index)
+                else:
+                    blocked_intents.discard(index)
+
+                continue
+
 
             # CENTRAL_PROJECT_RESOLUTION: catalog-scoped, zero extra LLM calls.
             # Only project-name matching is corrected. Feature-specific IDs,
@@ -2143,39 +2250,81 @@ async def _stream_chat_response_impl(
                 valid_names = marketing_names
 
             elif intent.intent == "inventory":
+                
                 if intent.inventory_operation == "project_comparison":
 
-                    resolved_names = []
-                    invalid_names = []
+                    requested_names = [
+                        name.strip()
+                        for name in (intent.compare_project_names or [])
+                        if isinstance(name, str) and name.strip()
+                    ]
 
-                    for requested_name in (
-                        intent.compare_project_names or []
-                    ):
+                    logger.warning(
+                        "COMPARISON_DEBUG_LLM1 | "
+                        "message=%s | "
+                        "requested_names=%s",
+                        message,
+                        requested_names,
+                    )
+
+                    logger.info(
+                        "PROJECT_COMPARISON_LLM1_REFERENCES | "
+                        "requested_names=%s | count=%s",
+                        requested_names,
+                        len(requested_names),
+                    )
+
+                    resolved_names = []
+                    resolutions = []
+
+                    # Backend verifies the names using the
+                    # Active Projects API catalog.
+                    for requested_name in requested_names:
+
                         comparison_match = resolve_comparison_project(
                             requested_name,
                             inventory_active_names,
                         )
+
+                        resolutions.append(comparison_match)
+
                         logger.info(
-                            "PROJECT_COMPARISON_DEBUG | "
+                            "PROJECT_COMPARISON_RESOLUTION | "
                             "requested=%s | status=%s | "
-                            "matched=%s | candidates=%s | "
-                            "available_elitz_projects=%s",
+                            "matched=%s | candidates=%s",
                             requested_name,
                             comparison_match.status,
                             comparison_match.name,
                             comparison_match.candidates,
-                            [
-                                name
-                                for name in inventory_active_names
-                                if "elitz" in name.casefold()
-                            ],
                         )
 
-                        if comparison_match.status == "matched":
-                            resolved_names.append(comparison_match.name)
-                        else:
-                            invalid_names.append(requested_name)
+                        if (
+                            comparison_match.status == "matched"
+                            and comparison_match.name
+                        ):
+                            resolved_names.append(
+                                comparison_match.name
+                            )
 
+                    logger.warning(
+                        "COMPARISON_DEBUG_RESOLUTION | "
+                        "requested_names=%s | "
+                        "resolved_names=%s | "
+                        "resolutions=%s",
+                        requested_names,
+                        resolved_names,
+                        [
+                            {
+                                "status": result.status,
+                                "name": result.name,
+                                "candidates": result.candidates,
+                            }
+                            for result in resolutions
+                        ],
+                    )
+                    
+                    # Only verified project names reach
+                    # the inventory comparison handler.
                     intent.compare_project_names = resolved_names
 
                     intent.missing_fields = [
@@ -2189,14 +2338,63 @@ async def _stream_chat_response_impl(
                         }
                     ]
 
-                    if (
-                        len(resolved_names) != 2
-                        or len(set(resolved_names)) != 2
-                        or invalid_names
-                    ):
+                    comparison_is_valid = (
+                        len(requested_names) == 2
+                        and len(resolved_names) == 2
+                        and len(set(resolved_names)) == 2
+                        and all(
+                            result.status == "matched"
+                            for result in resolutions
+                        )
+                    )
+
+                    if not comparison_is_valid:
+
                         intent.missing_fields.append(
                             "compare_project_names"
                         )
+
+                        # No project names supplied.
+                        if len(requested_names) == 0:
+                            comparison_clarifications[index] = (
+                                "Which two Danube projects "
+                                "would you like to compare?"
+                            )
+
+                        # One project supplied.
+                        elif len(requested_names) == 1:
+                            comparison_clarifications[index] = (
+                                "Which other Danube project "
+                                "would you like to compare with "
+                                f"{requested_names[0]}?"
+                            )
+
+                        # Too many projects supplied.
+                        elif len(requested_names) > 2:
+                            comparison_clarifications[index] = (
+                                "Please specify which two "
+                                "Danube projects you would "
+                                "like to compare."
+                            )
+
+                        # Both references resolve to same project.
+                        elif (
+                            len(resolved_names) == 2
+                            and len(set(resolved_names)) == 1
+                        ):
+                            comparison_clarifications[index] = (
+                                "Please select two different "
+                                "Danube projects to compare."
+                            )
+
+                        # Two references, at least one unresolved.
+                        else:
+                            comparison_clarifications[index] = (
+                                format_project_comparison_clarification(
+                                    requested_names,
+                                    resolutions,
+                                )
+                            )
 
                     intent.requires_clarification = bool(
                         intent.missing_fields
@@ -2206,6 +2404,7 @@ async def _stream_chat_response_impl(
                         blocked_intents.add(index)
 
                     continue
+
 
                 if intent.inventory_scope == "projects":
                     valid_names = inventory_active_names
@@ -2406,18 +2605,29 @@ async def _stream_chat_response_impl(
 
 
         # GREETING INTENT — return fixed response without LLM 2
+
         if (
             len(routing_result.intents) == 1
-            and routing_result.intents[0].intent == "greeting"
+            and routing_result.intents[0].intent
+            in GENERAL_CONVERSATION_RESPONSES
+            and not routing_result.requires_clarification
         ):
-            greeting_response = ChatResponse(
-                response=GREETING_RESPONSE,
+            general_intent = routing_result.intents[0].intent
+
+            general_response_text = (
+                GENERAL_CONVERSATION_RESPONSES[general_intent]
+            )
+
+            general_response = ChatResponse(
+                response=general_response_text,
                 session_id=session_id,
                 correlation_id=correlation_id,
                 followups=[],
                 data={
                     "files": [],
-                    "classification": routing_result.model_dump(mode="json"),
+                    "classification": (
+                        routing_result.model_dump(mode="json")
+                    ),
                 },
             )
 
@@ -2434,22 +2644,38 @@ async def _stream_chat_response_impl(
                 session_id=session_id,
                 user_id=user_id,
                 user_message=message,
-                assistant_message=GREETING_RESPONSE,
-                intents=["greeting"],
-                latency_ms=int((time.perf_counter() - started_at) * 1000),
+                assistant_message=general_response_text,
+                intents=[general_intent],
+                latency_ms=int(
+                    (time.perf_counter() - started_at) * 1000
+                ),
                 response_payload=response_payload,
             )
 
-            yield format_sse("token", {"text": GREETING_RESPONSE})
-            yield format_sse("followups", {"chips": []})
+            yield format_sse(
+                "token",
+                {"text": general_response_text},
+            )
+
+            yield format_sse(
+                "followups",
+                {"chips": []},
+            )
+
             yield format_sse(
                 "final",
-                greeting_response.model_dump(mode="json"),
+                general_response.model_dump(mode="json"),
             )
 
             status = "completed"
-            yield format_sse("done", {"status": status})
+
+            yield format_sse(
+                "done",
+                {"status": status},
+            )
+
             return
+
 
         # 3. INITIALIZE INTENT DISPATCHER
 
@@ -2678,15 +2904,18 @@ async def _stream_chat_response_impl(
                         "rephrasing your request."
                     )
                     continue
-
+                
                 elif (
                     intent.intent == "inventory"
                     and intent.inventory_operation
                     == "project_comparison"
                 ):
                     clarification_messages.append(
-                        "Please provide two valid Danube "
-                        "project names to compare."
+                        comparison_clarifications.get(
+                            index,
+                            "Please provide two valid Danube "
+                            "project names to compare.",
+                        )
                     )
 
                 else:
@@ -2917,12 +3146,6 @@ async def _stream_chat_response_impl(
 
             response_text += ", as requested."
 
-            response_text += (
-                "\n\nPlease note: Exchange rate applied is valid "
-                "for today only and subject to change "
-                "at the time of unit booking."
-            )
-
             followup_chips = []
             real_llm_streaming = False
 
@@ -3059,27 +3282,6 @@ async def _stream_chat_response_impl(
 
             followup_chips = []
 
-
-        # 5.1 ENSURE SALES OFFER DISCLAIMER
-
-        SALES_OFFER_DISCLAIMER = (
-            "Disclaimer: Exchange rate applied is valid for today "
-            "only and subject to change at the time of unit booking."
-        )
-
-        sales_offer_succeeded = any(
-            result.intent == "sales_offer"
-            and result.generation_context.get("generated") is True
-            for result in handler_results
-        )
-
-        if sales_offer_succeeded:
-            if sales_offer_succeeded and not sales_offer_success_only:
-                response_text = (
-                    response_text.rstrip()
-                    + "\n\n"
-                    + SALES_OFFER_DISCLAIMER
-                )
 
         # 5A. PREPARE TEXT FOR DATABASE PERSISTENCE
 

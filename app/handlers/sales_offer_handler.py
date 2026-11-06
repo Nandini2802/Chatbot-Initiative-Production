@@ -711,7 +711,7 @@ class SalesOfferHandler:
 
                     result.messages.insert(
                         0,
-                        f"{prefix}\n\n{disclaimer}",
+                        prefix,
                     )
 
                 return result

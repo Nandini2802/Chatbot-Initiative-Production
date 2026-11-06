@@ -216,26 +216,36 @@ def resolve_project(
     return match_project_reference(reference, projects) if reference else ProjectResolution("not_found")
 
 
-def _comparison_project_parts(value: str):
+def _comparison_project_parts(
+    value: str,
+) -> tuple[str, int | None]:
     """
-    Return (base_name, project_number).
+    Extract the project family and project number.
 
-    Examples:
-    ELITZ BY DANUBE -> ("elitz", None)
-    ELITZ 2 BY DANUBE -> ("elitz", 2)
+    ELITZ3             -> ("elitz", 3)
+    ELITZ 3            -> ("elitz", 3)
+    ELITZ 3 BY DANUBE  -> ("elitz", 3)
+    OASIZ2             -> ("oasiz", 2)
+    VIEWZ1             -> ("viewz", 1)
+    ELITZ BY DANUBE    -> ("elitz", None)
     GLITZ RESIDENCE 1 -> ("glitz residence", 1)
     """
     short_name = _short(value)
 
+    # Support both attached and spaced numeric suffixes.
     match = re.fullmatch(
-        r"(.+?)\s+(\d+)",
+        r"(.+?[a-z])\s*(\d+)",
         short_name,
     )
 
     if match:
-        return match.group(1).strip(), int(match.group(2))
+        return (
+            match.group(1).strip(),
+            int(match.group(2)),
+        )
 
     return short_name, None
+
 
 
 def resolve_comparison_project(
@@ -265,6 +275,16 @@ def resolve_comparison_project(
         for name in names
     ]
 
+    if requested_number is not None:
+        project_entries = [
+            (name, base, number)
+            for name, base, number in project_entries
+            if number == requested_number
+        ]
+
+        if not project_entries:
+            return ProjectResolution("not_found")
+
     # First resolve the project family, independently
     # from the project number.
     base_names = sorted({
@@ -289,11 +309,22 @@ def resolve_comparison_project(
             key=lambda item: (-item[0], item[1]),
         )
 
-        if not ranked or ranked[0][0] < 0.70:
+        if not ranked:
             return ProjectResolution("not_found")
 
-        # Guard against two unrelated project families
-        # having nearly identical scores.
+        best_score, best_base = ranked[0]
+
+        threshold = 0.90 if len(requested_base) <= 6 else 0.85
+
+        if best_score < threshold:
+            return ProjectResolution("not_found")
+
+        if (
+            len(requested_base) <= 6
+            and requested_base[0] != best_base[0]
+        ):
+            return ProjectResolution("not_found")
+
         if (
             len(ranked) > 1
             and ranked[0][0] - ranked[1][0] < 0.09
@@ -362,23 +393,26 @@ def resolve_comparison_project(
     return ProjectResolution("not_found")
 
 
-def extract_comparison_projects(
-    message: str,
-    active_projects: Collection[str],
-) -> list[str]:
+def parse_comparison_references(message: str) -> list[str]:
     """
-    Extract two project references from a direct
-    comparison request and resolve them against the
-    live Active Projects API catalog.
+    Extract two project names exactly as supplied by the user.
 
-    Returns two canonical project names on success,
-    otherwise an empty list.
+    Supports:
+    - OASIZ vs OCEANZ
+    - OASIZ versus OCEANZ
+    - Compare OASIZ and OCEANZ
+    - Compare OASIZ with OCEANZ
+    - Compare OASIZ vs OCEANZ
+    - Comparison of OASIZ and OCEANZ
+
+    Do not validate against the catalog here.
+    Preserve both names even if one is invalid.
     """
     text = str(message or "").strip()
 
     match = re.fullmatch(
-        r"\s*(?:please\s+)?"
-        r"(?:compare|comparre|comparison of)\s+"
+        r"\s*(?:(?:please\s+)?"
+        r"(?:compare|comparre|comparison of)\s+)?"
         r"(.+?)\s+"
         r"(?:and|with|vs\.?|versus)\s+"
         r"(.+?)\s*[.!?]?\s*",
@@ -394,6 +428,28 @@ def extract_comparison_projects(
         match.group(2).strip(),
     ]
 
+    if not all(references):
+        return []
+
+    return references
+
+
+
+def extract_comparison_projects(
+    message: str,
+    active_projects: Collection[str],
+) -> list[str]:
+    """
+    Preserve existing behavior:
+    return two canonical names only when both resolve.
+
+    Return [] when the comparison cannot be completed.
+    """
+    references = parse_comparison_references(message)
+
+    if len(references) != 2:
+        return []
+
     resolved = []
 
     for reference in references:
@@ -407,8 +463,142 @@ def extract_comparison_projects(
 
         resolved.append(result.name)
 
-    # Never compare a project with itself.
     if len(set(resolved)) != 2:
         return []
 
     return resolved
+
+
+
+def format_project_comparison_clarification(
+    references: list[str],
+    resolutions: list[ProjectResolution],
+    active_projects: Collection[str] = (),
+) -> str:
+    if len(references) != 2 or len(resolutions) != 2:
+        return "Please provide two Danube projects to compare."
+
+    missing = []
+    ambiguous = []
+    valid = []
+
+    for reference, result in zip(references, resolutions):
+        if result.status == "matched" and result.name:
+            valid.append(result.name)
+        elif result.status == "ambiguous":
+            ambiguous.append((reference, result.candidates))
+        else:
+            missing.append(reference)
+
+    # Both names missing: one combined sentence.
+    if len(missing) == 2:
+        return (
+            f"I couldn't find '{missing[0]}' or "
+            f"'{missing[1]}' in the available Danube "
+            "projects. Please provide two valid "
+            "project names to compare."
+        )
+
+    if ambiguous:
+        reference, candidates = ambiguous[0]
+        options = ", ".join(candidates[:5])
+        return (
+            f"'{reference}' could refer to multiple "
+            f"projects: {options}. "
+            "Which project would you like to use?"
+        )
+
+    if missing:
+        reference = missing[0]
+        alternatives = comparison_family_suggestions(
+            reference,
+            active_projects,
+        )
+
+        if alternatives:
+            options = ", ".join(alternatives[:8])
+            return (
+                f"I couldn't find '{reference}' in the "
+                "available Danube projects. "
+                f"Available projects in this family are: "
+                f"{options}. "
+                "Which one would you like to use?"
+            )
+
+        if valid:
+            return (
+                f"I couldn't find '{reference}' in the "
+                "available Danube projects. "
+                f"'{valid[0]}' is available. "
+                "Which other project would you like "
+                "to compare it with?"
+            )
+
+    if len(valid) == 2 and valid[0] == valid[1]:
+        return (
+            f"Both names refer to '{valid[0]}'. "
+            "Please select a different second project."
+        )
+
+    return "Please provide two valid Danube projects to compare."
+
+
+def comparison_family_suggestions(
+    reference: str,
+    active_projects: Collection[str],
+) -> list[str]:
+    """
+    Return available variants of the requested project
+    family without substituting a different project.
+    """
+    requested_base, _ = _comparison_project_parts(reference)
+
+    if not requested_base:
+        return []
+
+    entries = [
+        (name, *_comparison_project_parts(name))
+        for name in _names(active_projects)
+    ]
+
+    bases = sorted({
+        base for _, base, _ in entries if base
+    })
+
+    if requested_base in bases:
+        family_base = requested_base
+    else:
+        ranked = sorted(
+            (
+                (_score(requested_base, base), base)
+                for base in bases
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+
+        if not ranked or ranked[0][0] < 0.85:
+            return []
+
+        if (
+            len(ranked) > 1
+            and ranked[0][0] - ranked[1][0] < 0.09
+        ):
+            return []
+
+        family_base = ranked[0][1]
+
+    family = [
+        (name, number)
+        for name, base, number in entries
+        if base == family_base
+    ]
+
+    family.sort(
+        key=lambda item: (
+            item[1] is not None,
+            item[1] if item[1] is not None else 0,
+            item[0],
+        )
+    )
+
+    return [name for name, _ in family]

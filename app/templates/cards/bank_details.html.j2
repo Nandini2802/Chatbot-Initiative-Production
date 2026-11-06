@@ -110,7 +110,7 @@
         <div class="bank-field"><div class="bank-field__label">Project Name</div><div class="bank-field__value">{{ account.projectName }}</div></div>
         <div class="bank-field"><div class="bank-field__label">Bank Name</div><div class="bank-field__value">{{ account.bankName }}</div></div>
         <div class="bank-field"><div class="bank-field__label">Account No.</div><div class="bank-field__value">{{ account.accountNumber if account.accountNumber is not none else "Not available" }}</div></div>
-        <div class="bank-field"><div class="bank-field__label">IBAN Number</div><div class="bank-field__value">{{ account.ibanNumber if account.ibanNumber is not none else "Not available" }}</div></div>
+        <div class="bank-field"><div class="bank-field__label">IBAN Number</div><div class="bank-field__value">AE90035{{ account.accountNumber if account.accountNumber is not none else "Not available" }}</div></div>
         <div class="bank-field"><div class="bank-field__label">Account Name</div><div class="bank-field__value">{{ account.beneficiaryName if account.beneficiaryName is not none else "Not available" }}</div></div>
         <div class="bank-field"><div class="bank-field__label">Swift Code</div><div class="bank-field__value">{{ account.swiftCode if account.swiftCode is not none else "Not available" }}</div></div>
         <div class="bank-field"><div class="bank-field__label">Branch Name</div><div class="bank-field__value">{{ account.branch if account.branch is not none else "Not available" }}</div></div>
@@ -168,14 +168,23 @@
     try { document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(ta);
   }
-  // Share → native share sheet; fallback to host postMessage so the app can share natively.
+  /* SHARE NATIVE AND FALLBACK */
   function bankShare(btn) {
     var text = bankText(btn);
     if (navigator.share) {
-      navigator.share({ text: text }).catch(function () {});
+      navigator.share({ text: text }).catch(function (err) {
+        if (err && err.name === 'AbortError') return;   // user dismissed the sheet
+        shareFallback(btn, text);
+      });
     } else {
-      try { window.parent.postMessage({ source: 'danube-ai', type: 'action', action: 'share', payload: { text: text } }, '*'); } catch (e) {}
+      shareFallback(btn, text);
     }
+  }
+  function shareFallback(btn, text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(function () { legacyCopy(text); });
+    } else { legacyCopy(text); }
+    bankFlash(btn, 'Copied to share');
   }
 </script>
 </body>

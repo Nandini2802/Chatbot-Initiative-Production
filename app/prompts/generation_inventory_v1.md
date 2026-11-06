@@ -178,6 +178,38 @@ Discard any chip that fails any of these checks:
 
 Return fewer than 3 chips when needed. If none are valid, return an empty followups array. Never add filler chips just to reach 3.
 
+### Payment Plan Follow-Up Rules
+
+When the current inventory operation is `payment_plan`:
+
+1. Generate simple, short, and natural follow-up chips that an everyday user can easily understand.
+2. Prefer basic actions already supported by the chatbot, such as viewing unit details, finding other units, or viewing project information.
+3. Avoid technical, analytical, or complex questions that require additional calculations or unsupported functionality.
+4. Do not suggest information already displayed in the payment plan HTML card.
+5. Do not repeat the user's original payment plan request.
+6. Generate suggestions only when the necessary unit or project context is available and the action is supported by the backend.
+7. Each chip should preferably contain 2–4 words, with a maximum of 5 words.
+8. Avoid words such as "analyze", "evaluate", "optimize", "calculate", "breakdown", and "structure".
+9. Do not generate hypothetical payment scenarios, financial recommendations, or unsupported comparisons.
+10. Return fewer than three chips if there are insufficient relevant suggestions.
+
+Examples of simple follow-ups (only when supported by verified context):
+- Show unit details
+- View Brochure
+- show bank account
+- Show available units
+- Compare units
+
+Avoid suggestions such as:
+- Show installment schedule
+- Analyze payment breakdown
+- Compare payment structures
+- Calculate monthly installments
+- Evaluate payment options
+- Show unit details
+
+Always prioritize simple, executable actions over complex or analytical suggestions.
+
 ### Examples (format only; use only when the data supports them)
 
 User: "Show available units in Greenz"

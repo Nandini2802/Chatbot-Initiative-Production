@@ -600,20 +600,27 @@ class SessionService:
             select(ChatMessage)
             .where(ChatMessage.session_id == session_id)
             .order_by(
-                ChatMessage.created_at.asc(),
-                ChatMessage.id.asc(),
+                ChatMessage.created_at.desc(),
+                ChatMessage.id.desc(),
             )
             .limit(limit + 1)
             .offset(offset)
         )
 
         result = await self.db.execute(statement)
-        rows = result.scalars().all()
+        rows = list(result.scalars().all())
+
+        has_more = len(rows) > limit
+
+        messages = rows[:limit]
+
+        # Return messages chronologically for frontend
+        messages.reverse()
 
         return {
             "session": session,
-            "messages": rows[:limit],
-            "has_more": len(rows) > limit,
+            "messages": messages,
+            "has_more": has_more,
         }
 
     async def resume_session(

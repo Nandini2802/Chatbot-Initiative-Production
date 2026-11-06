@@ -88,8 +88,14 @@ class RouterService:
                 "Use the user's message and conversation history "
                 "to understand shortened, misspelled, or "
                 "contextual project references.\n"
-                "Return only exact official project names from "
-                "the relevant catalog.\n"
+                "Return exact official project names where the "
+                "business operation requires a resolved project.\n"
+                "For project_comparison, preserve each user-supplied "
+                "reference separately in compare_project_names, "
+                "including unknown or misspelled references.\n"
+                "Do not remove an unknown comparison reference "
+                "or invent a replacement. The backend validates "
+                "comparison references against the active catalog.\n"
                 "If multiple names are plausible, request "
                 "clarification instead of guessing.\n"
                 "If the user did not specify a project for a "
@@ -230,6 +236,32 @@ class RouterService:
             ),
         })
 
+        conversation.append({
+            "role": "developer",
+            "content": (
+                "PROJECT COMPARISON STRUCTURED OUTPUT:\n"
+                "Identify project comparisons semantically, "
+                "without requiring particular keywords.\n"
+                "For a project comparison, use intent='inventory', "
+                "inventory_scope='projects', and "
+                "inventory_operation='project_comparison'.\n"
+                "Put each supplied project reference into "
+                "compare_project_names as a separate element.\n"
+                "Preserve the user's original reference even "
+                "when it does not match the official catalog.\n"
+                "Do not place both project names together in "
+                "explicit_project_reference.\n"
+                "Use conversation history to combine an earlier "
+                "incomplete comparison with the user's clarification, "
+                "but only when the current message is genuinely "
+                "a continuation.\n"
+                "For an unresolved project correction, preserve "
+                "the other previously selected project.\n"
+                "An unrelated request must retain its own intent.\n"
+                "Do not invent project names.\n"
+            ),
+        })
+
         # 2. Add recent conversation history
         for turn in (history or [])[-6:]:
             role = turn.get("role")
@@ -296,6 +328,19 @@ class RouterService:
             )            
         # 6. Apply deterministic business rules
         result = self.validate_routing(result)
+
+        for item in result.intents:
+            if (
+                item.intent == "inventory"
+                and item.inventory_operation == "project_comparison"
+            ):
+                logger.info(
+                    "LLM1_PROJECT_COMPARISON | "
+                    "scope=%s | projects=%s | missing=%s",
+                    item.inventory_scope,
+                    item.compare_project_names,
+                    item.missing_fields,
+                )
 
 
         allowed_features = set(walkthrough_features or [])
@@ -496,6 +541,9 @@ class RouterService:
                     )
 
             elif item.intent == "inventory":
+                if item.inventory_operation == "project_comparison":
+                    item.inventory_scope = "projects"
+            
                 if item.inventory_operation == "payment_plan":
                     if not (
                         item.project_name
@@ -513,9 +561,7 @@ class RouterService:
                         ]
 
                         # Remove exact duplicate names without changing order.
-                        item.compare_project_names = list(
-                            dict.fromkeys(names)
-                        )
+                        item.compare_project_names = names
 
                         # Project comparison doesn't need a single project_name.
                         missing.discard("project_name")

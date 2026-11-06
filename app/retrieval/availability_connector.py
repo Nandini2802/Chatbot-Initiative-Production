@@ -59,9 +59,6 @@ class AvailabilityConnector:
         headers = {
             "salesforce_access_token": access_token,
             "user_id": user_id,
-            "appversion": (
-                self.settings.availability_app_version
-            ),
             "Content-Type": "application/json",
             "Accept": "application/json",
         }

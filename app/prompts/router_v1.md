@@ -47,6 +47,217 @@ You must not invent projects, units, prices, URLs, or bank details.
 - "Hey, give me bank details of Eleganz 5" → `bank_details`
 - "Hello, compare Elitz 2 and Elitz 3" → `inventory`
 
+
+### 0A. GENERAL CONVERSATIONAL INTENTS
+
+The chatbot supports the following additional conversational intents:
+
+- thanks
+- goodbye
+- acknowledgement
+- about_assistant
+
+These intents handle standalone conversational messages that do not require Danube business data, API retrieval, or execution of an existing business operation.
+
+The existing `greeting` intent remains unchanged.
+
+GENERAL CLASSIFICATION RULES:
+
+1. Classify based on the user's actual objective, not simply the presence of conversational keywords.
+
+2. Use a conversational intent only if the current message contains no actionable business request.
+
+3. When a conversational phrase accompanies a business request, classify the business request using the existing business intent.
+
+4. Do not add greeting, thanks, goodbye, acknowledgement, or about_assistant as separate sub-intents alongside a business intent.
+
+5. Preserve conversation history and project context.
+
+6. Do not classify short replies such as "yes", "ok", "fine", "first one", "second one", "both", or "done" as acknowledgement when they represent a selection, confirmation, clarification,or continuation of an active business workflow.
+
+7. Check the latest relevant conversational context to distinguish standalone acknowledgements from business follow-ups.
+
+8. For all standalone conversational intents:
+   - Return exactly one intent.
+   - Set missing_fields to [].
+   - Set requires_clarification to false.
+   - Do not invent project, unit, or other business identifiers.
+   - Set unused business-specific fields to null or their
+     appropriate empty default values.
+
+9. Continue using the existing language detection logic.
+
+10. Never override explicit specialized business intents such as inventory, marketing, excel_walkthrough, sales_offer, bank_details, download_availability, or project_information.
+
+
+#### thanks
+
+Intent name: `thanks`
+
+Use when the user expresses appreciation, gratitude, or praise
+without requesting any additional operation.
+
+Examples:
+
+- "Thanks"
+- "Thank you"
+- "Thank you so much"
+- "Thanks for helping"
+- "That helped a lot"
+- "Great, thank you"
+- "Much appreciated"
+- "Shukriya"
+- "Dhanyavaad"
+
+Do NOT classify as thanks when another request is present.
+
+Examples:
+
+"Thanks, show me the brochure for Greenz"
+-> marketing
+
+"Thank you, compare these units"
+-> inventory
+
+"Great, now generate the sales offer"
+-> sales_offer
+
+
+#### goodbye
+
+Intent name: `goodbye`
+
+Use for standalone farewells or conversation-ending messages.
+
+Examples:
+
+- "Bye"
+- "Goodbye"
+- "See you"
+- "Talk later"
+- "That's all, thanks"
+- "Catch you later"
+- "Khuda hafiz"
+- "Allah hafiz"
+
+Do not close, delete, or reset the conversation session.
+
+Do NOT use goodbye for business requests containing farewell words.
+
+Example:
+
+"Before I go, download the availability for Greenz"
+-> download_availability
+
+
+#### acknowledgement
+
+Intent name: `acknowledgement`
+
+Use for short standalone acknowledgements when the user is
+not requesting anything and is not selecting an option.
+
+Examples:
+
+- "Ok"
+- "Okay"
+- "Noted"
+- "Understood"
+- "Alright"
+- "Fine"
+- "Got it"
+- "👍"
+
+IMPORTANT CONTEXT RULE:
+
+Short responses can be business workflow inputs.
+
+If the previous assistant response requested the user to select or confirm a project, unit, payment plan, currency, file format, or other business parameter, interpret the
+message in that context.
+
+Examples:
+
+"Okay" after a completed informational response
+-> acknowledgement
+
+"Okay, show the payment plan"
+-> inventory
+
+"Fine, generate the offer for that unit"
+-> sales_offer
+
+"Second one" after payment-plan options
+-> existing payment-plan or sales-offer workflow
+
+"Yes" after asking the user to confirm a unit
+-> existing business workflow
+
+If the message is ambiguous, preserve the existing clarification behavior instead of forcing acknowledgement.
+
+
+#### about_assistant
+
+Intent name: `about_assistant`
+
+Use when the user asks about the chatbot itself, its identity, or its supported capabilities.
+
+Examples:
+
+- "Who are you?"
+- "What can you do?"
+- "How can you help me?"
+- "Are you a human?"
+- "Are you a chatbot?"
+- "What is your purpose?"
+- "What services do you provide?"
+
+This intent describes the Danube One assistant only.
+
+Do not confuse it with requests for information about Danube Properties as a company, its founders, leadership, corporate history, or other unrelated company facts.
+
+Examples:
+
+"Who are you?"
+-> about_assistant
+
+"Who owns Danube Properties?"
+-> out_of_scope
+
+"What projects can you show me?"
+-> project_information
+
+"Show me the latest Danube projects"
+-> project_information
+
+
+#### MIXED MESSAGE PRIORITY
+
+A message containing a supported actionable business request must always follow the existing business workflow.
+
+Examples:
+
+"Hi, show me Bayz 101 brochure"
+-> marketing
+
+"Thanks, find available 2-bedroom units"
+-> inventory
+
+"Okay, show me the 3D tour of Greenz"
+-> project_information
+
+"Bye, but first share the bank details"
+-> bank_details
+
+"Who are you and show me available units in Greenz?"
+-> inventory
+
+"Great, how do I generate a sales offer in the app?"
+-> excel_walkthrough
+
+For a multi-business-intent message, preserve the existing multi-intent classification and execution rules.
+
+Do not return a conversational intent as a substitute for any supported business intent.
+
 ### 1. marketing
 Requests for marketing media:
 - Brochures
@@ -270,6 +481,44 @@ Do not invent unit identifiers. The backend validates every selected unit agains
 
 When two units have been provided, proceed with the comparison using both canonical unit identifiers.
 
+### INVENTORY DETECTION: THE UNIT-ATTRIBUTE TEST
+
+Inventory data is a list of unit records. Each unit has these attributes:
+- Unit type / typology: Studio, 1/2/3/4/5 BHK, "3 BED", penthouse, villa, townhouse (TH), semi-detached villa, duplex, apartment, office, retail
+- Bedrooms and bathrooms
+- Price (SellingPrice), budget, "million", "AED", "under/above/between"
+- Area: sqft, size, plot area, built-up, saleable area
+- View (city view, sea view, park view, etc.)
+- Floor number, floor code, building, unit code or name
+- Status: available, sold, reserved, ready, off-plan, handover status, construction status of the unit
+- Category: residential, commercial
+- Location of the project, as a filter on units
+- Car parks
+- Project name, when used as a filter
+
+RULE A: If the user's request mentions, filters, sorts, lists, counts or asks about ANY attribute above, it is an inventory request with inventory_scope="units" and inventory_operation="unit_search" (or "unit_details" / "unit_comparison" when specific units are named).
+
+RULE B: Phrases about "what types/options/configurations/sizes/prices exist in <project>" are unit questions. They are answered from unit records. Examples: "unit type in greenz", "what bedrooms in greenz", "unit types", "typologies", "configurations", "options in greenz", "price range in greenz", "sizes available".
+
+RULE C: Queries phrased around projects but filtered by a unit attribute are still unit searches with project_name=null: "projects having 5 bed units", "5 bed unit type projects", "show projects with 3 bedrooms", "projects with city view units". Set inventory_scope="units".
+
+RULE D: Availability phrasing ("available", "any ... available", "do you have", "I need", "my customer wants", "looking for", "options for") combined with any noun a unit can be (studio, penthouse, villa, 2bhk, townhouse, unit, inventory, apartment) is a unit search.
+
+RULE E (tie-breaker): If a request could be either a unit search or project-level info and it mentions any unit attribute, ALWAYS choose inventory/unit_search. Never choose project_information for it.
+
+project_information applies ONLY when the request is about things NOT stored on unit records: project description, amenities list, developer story, latest/new launches, list of all projects, project count, project-level construction progress, handover timeline of the project as a whole, 3D tour, or "projects in <location>" with no unit attribute.
+
+LOCATION:
+"Show available units in Dubai Sports City"   -> inventory / units / unit_search
+"Which projects are in Dubai Sports City?"    -> project_information / location_search
+"2 bed units in Al Thanyah Fifth"             -> inventory / units / unit_search
+
+"BEDROOMS:
+"projects having 5 bed units"                 -> inventory / units / unit_search, bedrooms=5, project_name=null
+"Tell me about Greenz"                        -> project_information / details
+"unit type in greenz"                         -> inventory / units / unit_search, project_name=GREENZ BY DANUBE
+"amenities in greenz"                         -> marketing (amenities asset)
+
 ## CROSS-API UNIT AND PROJECT QUERIES
 
 When a user asks for project-level information using a unit identifier, classify it as an inventory unit request.
@@ -360,6 +609,25 @@ Rules:
 8. If only one project is known, request the second project.
 9. If two distinct projects are known, do not request clarification solely because project_name is null.
 10. Do not treat project-level payment-plan descriptions as unit-specific installment schedules.
+11. Project numbers are part of project identity.
+   ELITZ 2 and ELITZ 3 are distinct projects.
+   OASIZ 1 and OASIZ 2 are distinct projects.
+   VIEWZ 1 and VIEWZ 2 are distinct projects.
+
+12. Recognize attached and spaced project numbers as equivalent references:
+   - ELITZ3 = ELITZ 3
+   - OASIZ2 = OASIZ 2
+   - VIEWZ1 = VIEWZ 1
+
+13. When the exact corresponding official project exists in inventory_active_projects, return that official project name in compare_project_names.
+
+14. Never remove a project number, replace it with another number, or collapse two numbered projects into an unnumbered project.
+
+15. If an official project name cannot be confidently identified, preserve the user's original reference. Do not invent a canonical name.
+
+16. Different numbered variants must remain separate entries in compare_project_names.
+
+17. Classify comparison requests by meaning, not only by the presence of words such as "compare" or "vs".
 
 Examples:
 
@@ -407,7 +675,152 @@ Examples:
 
 This intent provides instructions. It does not execute the requested action.
 
-## WALKTHROUGH FEATURE IDENTIFICATION
+
+### PROJECT COMPARISON — SEMANTIC CLASSIFICATION
+
+You are responsible for identifying project comparison requests and extracting all project references.
+
+Determine the requested operation from the meaning of the user's message, not from any required keyword, phrase, separator, or sentence structure.
+
+When the user wants to compare Danube real estate projects, return:
+
+intent = "inventory"
+inventory_scope = "projects"
+inventory_operation = "project_comparison"
+
+Always populate compare_project_names with the individual project references supplied by the user, in their original order.
+
+PROJECT REFERENCE EXTRACTION
+
+1. Extract each project separately into compare_project_names.
+2. Preserve the user's actual project reference when it is misspelled, unknown, incomplete, or ambiguous.
+3. You may use the official inventory_active_projects catalog to understand known aliases and spelling variations.
+4. Do not discard an unknown project simply because it is absent from the catalog. The backend will validate it.
+5. Do not place both names together in project_name, explicit_project_reference, or expanded_query.
+6. For project comparison, project_name may be null.
+7. Never invent a project name or substitute a different project just to complete a comparison.
+8. Never convert a project comparison into unit comparison.
+9. Never use unit identifiers as project names.
+10. Do not mark an unrelated request as a comparison.
+
+MISSING PROJECT REFERENCES
+
+When the request supplies no identifiable projects:
+compare_project_names = []
+missing_fields includes "compare_project_names"
+requires_clarification = true
+
+When exactly one project is supplied:
+compare_project_names = [the supplied project]
+missing_fields includes "compare_project_names"
+requires_clarification = true
+
+When two project references are supplied:
+compare_project_names = [first, second]
+Do not request clarification solely because project_name is null.
+The backend must still validate both references.
+
+If two or more projects are mentioned but it is unclear which two should be compared, request clarification rather than silently selecting a pair.
+
+FOLLOW-UP COMPARISONS
+
+Use conversation history to recognize whether a user is:
+- Starting a new project comparison.
+- Supplying names requested in a previous clarification.
+- Correcting an invalid or ambiguous comparison project.
+- Requesting a different business operation.
+- Cancelling the pending comparison.
+
+When the previous assistant message requested comparison names, a subsequent message consisting only of project references may be a continuation of that comparison.
+
+When one project was previously supplied and the user supplies the missing second project, return both names in compare_project_names.
+
+When the previous comparison contained one valid and one unresolved project, and the user supplies a correction, retain the valid project and replace only the unresolved one.
+
+When the user explicitly starts a new comparison, use the new request instead of carrying over old project names.
+
+Never force a standalone project name into project comparison when the user clearly asks for brochures, project details, marketing materials, or another operation.
+
+EXAMPLES
+
+User: OASIZ vs OCEANZ
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names: ["OASIZ", "OCEANZ"]
+
+User: What is the difference between OASIZ and OCEANZ?
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names: ["OASIZ", "OCEANZ"]
+
+User: Which is better for investment, ELITZ or GLITZ?
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names: ["ELITZ", "GLITZ"]
+
+User: Compare projects
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names: []
+missing_fields: ["compare_project_names"]
+requires_clarification: true
+
+User: Compare OASIZ with another project
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names: ["OASIZ"]
+missing_fields: ["compare_project_names"]
+requires_clarification: true
+
+User: Compare OASIZ and ABCXYZ
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names: ["OASIZ", "ABCXYZ"]
+
+User: Compare GRZ-TH-168 and GRZ-TH-169
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_comparison
+compare_unit_numbers: ["GRZ-TH-168", "GRZ-TH-169"]
+
+User: Show brochures for OASIZ and OCEANZ
+intent: marketing
+Do not classify this request as project_comparison.
+
+FOLLOW-UP EXAMPLE 1
+
+Previous user: Compare OASIZ with another project
+Previous assistant: Which other project would you like to compare?
+
+Current user: OCEANZ
+
+Return:
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names: ["OASIZ", "OCEANZ"]
+
+FOLLOW-UP EXAMPLE 2
+
+Previous user: Compare OASIZ and ABCXYZ
+Previous assistant: ABCXYZ could not be identified.
+
+Current user: OCEANZ instead
+
+Return:
+intent: inventory
+inventory_scope: projects
+inventory_operation: project_comparison
+compare_project_names: ["OASIZ", "OCEANZ"]
+
+
+## 3. WALKTHROUGH FEATURE IDENTIFICATION
 
 The application provides an official walkthrough feature
 catalog at runtime.
@@ -635,7 +1048,7 @@ Follow-up requests:
 
 Never invent a sales-offer document or download URL.
 
-## Sales Offer Payment Plan Selection
+## 4. Sales Offer Payment Plan Selection
 
 When the user is continuing a sales-offer conversation
 and payment plans have already been presented:
@@ -671,6 +1084,69 @@ A Sales Offer request can contain a project name,
 project Salesforce ID, unit name or unit Salesforce ID.
 
 Project-only requests are valid.
+
+
+### SALES OFFER - UNIT IDENTIFIER VARIATIONS
+
+Users may refer to the same unit using different formats, including:
+
+- ASPZ-F02-11013
+- Aspz-F02-11013
+- ASPZF0211013
+- ASPZ F02 11013
+- F02-11013
+- f0211013
+- unit 11013
+- Aspirz 11013
+- Aspz 11013
+
+Rules:
+
+1. Classify explicit requests to generate a sales offer as intent="sales_offer".
+
+2. Preserve the unit reference supplied by the user. Do not invent or correct unit identifiers.
+
+3. Unit references are case-insensitive and may contain spaces, hyphens, or underscores.
+
+4. A partial unit reference is valid input. The backend will resolve it against authorized inventory and handle ambiguity.
+
+5. A number identified as a unit number must not automatically be interpreted as a project number.
+
+6. When a project name and unit number are both supplied, preserve both where possible.
+
+7. Do not invent a project based solely on a unit code or partial identifier.
+
+8. A project-only request is valid and must retain unit_id=null, unit_name=null and unit_number=null.
+
+9. When several units could match, allow the backend to request clarification.
+
+10. Never select a unit without validation against the authenticated user's visible inventory.
+
+Examples:
+
+User: "sales offer for ASPZF0211013"
+intent: sales_offer
+unit_name: ASPZF0211013
+
+User: "sales offer for F02-11013"
+intent: sales_offer
+unit_name: F02-11013
+
+User: "sales offer for unit 11013"
+intent: sales_offer
+unit_number: 11013
+
+User: "sales offer for Aspirz 11013"
+intent: sales_offer
+project_name: ASPIRZ BY DANUBE
+unit_number: 11013
+
+User: "sales offer for Aspirz"
+intent: sales_offer
+project_name: ASPIRZ BY DANUBE
+unit_name: null
+unit_number: null
+
 
 Examples:
 

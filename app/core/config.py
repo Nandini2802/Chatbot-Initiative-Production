@@ -109,6 +109,7 @@ class Settings(BaseSettings):
     sales_offer_generate_url: str = ""
     sales_offer_timeout_seconds: int = 45
     sales_offer_selection_ttl_seconds: int = 1800
+    sales_offer_download_api: str = ""
 
     # Unit Comparison
     unit_comparison_api_url: str = ""
