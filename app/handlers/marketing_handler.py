@@ -1,15 +1,29 @@
 from app.schemas.handler_result import HandlerResult
 from app.services.marketing_service import MarketingService
 from app.services.template_service import TemplateService
+from app.services.marketing_file_selector import MarketingFileSelector
 
 
 class MarketingHandler:
 
-    def __init__(self, redis_client):
+    def __init__(
+        self,
+        redis_client,
+        client,
+        model: str,
+        message: str = "",
+    ):
         self.marketing_service = MarketingService(
             redis_client
         )
+
         self.template_service = TemplateService()
+
+        self.file_selector = MarketingFileSelector(
+            client=client,
+            model=model,
+        )
+
 
     async def handle(self, intent) -> HandlerResult:
 
@@ -52,6 +66,42 @@ class MarketingHandler:
                 f"were found for {project_name}."
             )
             return result
+
+        
+        # 3A. SEMANTIC SELECTION OF INDIVIDUAL FILES
+
+        user_message = (
+            getattr(intent, "original_query", None)
+            or self.message
+            or ""
+        )
+
+        for asset in assets:
+
+            if asset.asset_type not in {
+                "brochures",
+                "videos",
+                "walkthrough",
+            }:
+                continue
+
+            if not asset.files:
+                continue
+
+            selected_files = (
+                await self.file_selector.select_files(
+                    user_message=user_message,
+                    project_name=asset.project,
+                    asset_type=asset.asset_type,
+                    files=asset.files,
+                )
+            )
+
+            # trusted URLs and metadata.
+            asset.files = selected_files
+
+            # Important: update the displayed count.
+            asset.total_files = len(selected_files)
 
         # 4. PREPARE VERIFIED ASSET DATA
 

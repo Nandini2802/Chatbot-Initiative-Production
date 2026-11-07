@@ -33,11 +33,18 @@ class IntentDispatcher:
         key_features: str = "",
         selected_payment_plan_names: list[str] | None = None,
         db_session=None,
+        foundry_client=None,
+        foundry_model: str = "",
 
     ):
 
         self.handlers = {
-            "marketing": MarketingHandler(redis_client),
+            "marketing": MarketingHandler(
+                redis_client=redis_client,
+                client=foundry_client,
+                model=foundry_model,
+                message=message,
+            ),
         }
 
         if walkthrough_engine is not None:

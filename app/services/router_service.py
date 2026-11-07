@@ -555,7 +555,7 @@ class RouterService:
                     if not item.project_location:
                         missing.add("project_location")
 
-                elif operation == "details":
+                elif operation in {"details", "amenities"}:
                     identifiers = (
                         item.project_name,
                         item.project_id,

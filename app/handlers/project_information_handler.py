@@ -117,6 +117,63 @@ def safe_image_url(value):
     return None
 
 
+def safe_amenity_image_url(value):
+    """
+    Validate amenity images returned by OSF Portfolio API.
+
+    Supports HTTPS image URLs hosted on approved
+    Danube Properties domains, including staging.
+    """
+
+    if not isinstance(value, str):
+        return None
+
+    url = unescape(value).strip()
+
+    if not url:
+        return None
+
+    try:
+        parsed = urlparse(url)
+
+        hostname = (parsed.hostname or "").lower()
+
+        allowed_domain = (
+            hostname == "danubeproperties.com"
+            or hostname.endswith(".danubeproperties.com")
+        )
+
+        if not allowed_domain:
+            return None
+
+        if parsed.scheme != "https":
+            return None
+
+        if parsed.username or parsed.password:
+            return None
+
+        if parsed.port not in (None, 443):
+            return None
+
+        allowed_extensions = (
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".gif",
+        )
+
+        if not parsed.path.lower().endswith(
+            allowed_extensions
+        ):
+            return None
+
+        return url
+
+    except ValueError:
+        return None
+
+
 class ProjectInformationHandler:
 
     def __init__(
@@ -470,6 +527,203 @@ class ProjectInformationHandler:
             }
         ]
 
+    
+    async def handle_project_amenities(
+        self,
+        intent,
+        projects,
+    ):
+        """
+        Fetch project-specific amenities from OSF Portfolio.
+
+        Reuses the existing curl_cffi connector used
+        by the project 3D tour functionality.
+
+        Returns the original amenities HTML template
+        populated with dynamic names and images.
+        """
+
+        # 1. Resolve requested project using existing logic.
+        project, error = self.resolve_project(
+            intent,
+            projects,
+        )
+
+        if error:
+            return self.failure(error)
+
+        # 2. Fetch OSF Portfolio API using existing connector.
+        try:
+            portfolio = (
+                await self.tour_connector.fetch_portfolio()
+            )
+
+        except Exception:
+            logger.exception(
+                "PROJECT_AMENITIES_API_FAILED | "
+                "project_id=%s",
+                project.project_id,
+            )
+
+            return self.failure(
+                "Project amenities are temporarily "
+                "unavailable. Please try again."
+            )
+
+        # 3. Normalize official project name.
+        project_key = normalize(
+            normalize_map_project_name(
+                project.project_name
+            )
+        )
+
+        # 4. Find matching OSF Portfolio project.
+        matching_projects = []
+
+        for item in portfolio:
+
+            if not isinstance(item, dict):
+                continue
+
+            portfolio_name = (
+                item.get("title")
+                or item.get("name")
+                or ""
+            )
+
+            portfolio_key = normalize(
+                normalize_map_project_name(
+                    portfolio_name
+                )
+            )
+
+            if portfolio_key == project_key:
+                matching_projects.append(item)
+
+        if not matching_projects:
+
+            logger.info(
+                "PROJECT_AMENITIES_PROJECT_NOT_FOUND | "
+                "project_name=%s",
+                project.project_name,
+            )
+
+            return self.failure(
+                f"No amenities were found for "
+                f"{project.project_name}."
+            )
+
+        # 5. Extract amenity names and image URLs.
+        amenities = []
+        seen = set()
+
+        for item in matching_projects:
+
+            meta = item.get("meta") or {}
+
+            if not isinstance(meta, dict):
+                continue
+
+            # IMPORTANT:
+            # The OSF API uses the key "aminities".
+            raw_amenities = meta.get("aminities") or []
+
+            if not isinstance(raw_amenities, list):
+                continue
+
+            for amenity in raw_amenities:
+
+                if not isinstance(amenity, dict):
+                    continue
+
+                label = str(
+                    amenity.get("label") or ""
+                ).strip()
+
+                image_url = safe_amenity_image_url(
+                    amenity.get("category_image")
+                )
+
+                if not label or not image_url:
+                    continue
+
+                # Avoid duplicate cards.
+                unique_key = (
+                    label.casefold(),
+                    image_url,
+                )
+
+                if unique_key in seen:
+                    continue
+
+                seen.add(unique_key)
+
+                amenities.append({
+                    "label": label,
+                    "category_image": image_url,
+                })
+
+        # 6. No usable amenities.
+        if not amenities:
+
+            logger.info(
+                "PROJECT_AMENITIES_EMPTY | "
+                "project_name=%s",
+                project.project_name,
+            )
+
+            return self.failure(
+                f"No amenities are currently available "
+                f"for {project.project_name}."
+            )
+
+        # 7. Render original amenities HTML.
+        html = self.templates.render(
+            "amenities.html.j2",
+            amenities=amenities,
+        )
+
+        logger.info(
+            "PROJECT_AMENITIES_RENDERED | "
+            "project_name=%s | count=%s",
+            project.project_name,
+            len(amenities),
+        )
+
+        # 8. Return standard HandlerResult.
+        return HandlerResult(
+            intent="project_information",
+
+            html_blocks=[
+                {
+                    "card_type": "amenities",
+                    "html": html,
+                }
+            ],
+
+            files=[],
+
+            messages=[],
+
+            generation_context={
+                "service": "project_information",
+                "operation": "amenities",
+                "result_count": 1,
+                "project_name": project.project_name,
+                "amenities_count": len(amenities),
+                "projects": [
+                    {
+                        "project_name": project.project_name,
+                        "amenities": [
+                            item["label"]
+                            for item in amenities
+                        ],
+                    }
+                ],
+            },
+
+            has_data=True,
+        )
 
     async def handle_project_tour(
         self,
@@ -712,6 +966,13 @@ class ProjectInformationHandler:
                 intent.project_operation
                 or "details"
             )
+
+            if operation == "amenities":
+
+                return await self.handle_project_amenities(
+                    intent,
+                    projects,
+                )
 
             # Step 2: 3D tour uses OSF Portfolio API.
             if operation == "tour":

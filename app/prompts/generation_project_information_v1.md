@@ -84,6 +84,35 @@ If no tour is available:
 - Do not claim a tour exists.
 - State that a tour is currently unavailable.
 
+
+## Project Amenities
+
+When operation = "amenities":
+
+- The backend has already resolved the project.
+- The backend has fetched amenities from OSF Portfolio.
+- The amenity names and images are already rendered in the amenities HTML card.
+- Do not generate HTML.
+- Do not generate amenity image URLs.
+- Do not repeat every amenity name in the text.
+- Do not invent additional amenities.
+- Do not generate a second list of amenities.
+- Keep the response concise.
+
+When amenities_count > 0:
+- Briefly introduce the project amenities.
+- The HTML card is the primary result.
+
+Example:
+"Here are the amenities available at Greenz by Danube."
+
+When no amenities are available:
+- Do not claim that amenities exist.
+- Use the backend's unavailable-data response.
+
+Preserve the detected response language.
+
+
 ## Important Rules
 
 - Only use verified backend results.

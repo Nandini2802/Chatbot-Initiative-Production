@@ -3088,6 +3088,8 @@ async def _stream_chat_response_impl(
                 key_features=key_features,
                 selected_payment_plan_names=selected_payment_plan_names,
                 db_session=db_session,
+                foundry_client=clients.foundry_openai,
+                foundry_model=settings.foundry_openai_model,
             )
 
             handler_results = []

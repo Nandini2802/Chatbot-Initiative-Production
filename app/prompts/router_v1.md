@@ -258,6 +258,65 @@ For a multi-business-intent message, preserve the existing multi-intent classifi
 
 Do not return a conversational intent as a substitute for any supported business intent.
 
+
+
+### PROJECT AMENITIES — ROUTING PRIORITY
+
+When the user asks what amenities or facilities are available in a Danube project, classify the request as:
+
+intent = "project_information"
+project_operation = "amenities"
+
+This functionality uses the OSF Portfolio API and displays amenity names and images in a backend-rendered HTML card.
+
+Examples:
+
+User: Amenities of Greenz
+intent: project_information
+project_operation: amenities
+project_name: GREENZ BY DANUBE
+
+User: Breez amenities
+intent: project_information
+project_operation: amenities
+project_name: BREEZ BY DANUBE
+
+User: Show facilities in Oceanz 2
+intent: project_information
+project_operation: amenities
+
+User: What amenities are available in Greenz?
+intent: project_information
+project_operation: amenities
+
+User: Show its amenities
+intent: project_information
+project_operation: amenities
+project_name: <project from conversation context>
+
+IMPORTANT DISTINCTION:
+
+Requests asking for a project's amenities or facilities must use project_information / amenities.
+
+Requests explicitly asking to download amenity images, marketing photographs, amenity media files, or amenity ZIP files must continue using the existing marketing intent.
+
+Examples:
+
+"Show amenities of Greenz"
+-> project_information / amenities
+
+"Download Greenz amenity images"
+-> marketing / amenities asset
+
+"Give me amenities ZIP of Breez"
+-> marketing / amenities asset
+
+Do not create a second marketing intent for an ordinary project amenities request.
+
+Resolve the project using inventory_active_projects. Preserve the current project context for follow-ups.
+Do not invent amenities, project names, or image URLs.
+
+
 ### 1. marketing
 Requests for marketing media:
 - Brochures
@@ -300,10 +359,10 @@ For marketing requests:
 5. Extract marketing_assets using the closest supported canonical asset type where the meaning is clear.
 
 6. Examples:
-   "greens amnties"
-     intent: marketing
-     explicit_project_reference: "greens"
-     marketing_assets: ["amenities"]
+   "greens amnties images zip"
+      intent: marketing
+      explicit_project_reference: "greens"
+      marketing_assets: ["amenities"]
 
    "elegnz 4 brochre"
      intent: marketing
@@ -517,7 +576,7 @@ LOCATION:
 "projects having 5 bed units"                 -> inventory / units / unit_search, bedrooms=5, project_name=null
 "Tell me about Greenz"                        -> project_information / details
 "unit type in greenz"                         -> inventory / units / unit_search, project_name=GREENZ BY DANUBE
-"amenities in greenz"                         -> marketing (amenities asset)
+"amenities in greenz"                         -> project_information / amenities
 
 ## CROSS-API UNIT AND PROJECT QUERIES
 
@@ -1295,7 +1354,41 @@ Supported operations:
    - Extract the requested location into project_location.
    - Do not require a project name.
 
-5. tour
+5. amenities
+   - User requests the amenities or facilities available in a specific Danube project.
+   - intent = "project_information"
+   - project_operation = "amenities"
+   - Extract the project name into project_name.
+   - Resolve using inventory_active_projects.
+   - If project is missing, use conversation history.
+   - If the project cannot be identified,
+     request clarification.
+   - Do not invent amenity names or images.
+
+   Examples:
+
+   User: Show amenities of Greenz
+   intent: project_information
+   project_operation: amenities
+   project_name: GREENZ BY DANUBE
+
+   User: Breez amenities
+   intent: project_information
+   project_operation: amenities
+   project_name: BREEZ BY DANUBE
+
+   User: Show amenities for the same project
+   intent: project_information
+   project_operation: amenities
+   project_name: <project from conversation context>
+
+   The backend retrieves amenities using the existing
+   OSF Portfolio API connector.
+
+   Ordinary amenity information requests are not
+   marketing-asset download requests.
+
+6. tour
    - User requests a 3D tour, virtual tour, project tour, or project walkthrough video.
    - project_operation = "tour"
    - intent = "project_information"
@@ -1321,6 +1414,7 @@ Supported operations:
    intent: project_information
    project_operation: tour
    project_name: <project from conversation context>
+   
 
 Project 3D tours and virtual tour requests use project_information with project_operation="tour".
 
