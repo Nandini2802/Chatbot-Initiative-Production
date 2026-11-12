@@ -35,6 +35,9 @@ from app.services.inventory_conversation_service import *
 from app.core.keyvault import load_application_secrets
 from app.services.sales_offer_state import SalesOfferState
 from app.services.unit_comparison_state import UnitComparisonState
+from app.services.unit_comparison_resolver import (
+    extract_explicit_unit_references,
+)
 from app.services.walkthrough_access_service import WalkthroughEngine
 from app.services.download_availability_state import DownloadAvailabilityState
 from app.services.download_availability_access_service import DownloadAvailabilityAccessService
@@ -1014,6 +1017,83 @@ async def _stream_chat_response_impl(
             project_codes=project_codes,
         )
 
+        print("\n========== ROUTER LLM OUTPUT ==========")
+        print("USER MESSAGE:", message)
+
+        for intent in routing_result.intents:
+            print("Intent:", intent.intent)
+            print("Inventory Operation:", intent.inventory_operation)
+            print("Project Name:", intent.project_name)
+            print("Explicit Project Reference:", intent.explicit_project_reference)
+            print("Compare Unit Numbers:", intent.compare_unit_numbers)
+            print("Original Query:", intent.original_query)
+
+        print("=======================================\n")
+
+        # Preserve explicit project-unit pairs only for comparison requests.
+        # The resolver validates project names against visible inventory and
+        # allows only confident typo matches; unit numbers remain exact.
+        has_unit_comparison_intent = any(
+            intent.intent == "inventory"
+            and intent.inventory_operation == "unit_comparison"
+            for intent in routing_result.intents
+        )
+        explicit_unit_references = (
+            extract_explicit_unit_references(message, inventory_snapshot.units)
+            if has_unit_comparison_intent
+            else None
+        )
+
+        if explicit_unit_references:
+
+            for intent in routing_result.intents:
+
+                if not (
+                    intent.intent == "inventory"
+                    and intent.inventory_operation == "unit_comparison"
+                ):
+                    continue
+
+                logger.info(
+                    "UNIT_COMPARISON_ROUTER_OUTPUT | units=%s",
+                    intent.compare_unit_numbers,
+                )
+
+
+                intent.compare_unit_numbers = list(
+                    explicit_unit_references
+                )
+
+                # Each unit reference now includes its own project.
+                intent.project_name = None
+
+                # Remove unnecessary clarification fields.
+                intent.missing_fields = [
+                    field
+                    for field in intent.missing_fields
+                    if field not in {
+                        "compare_unit_numbers",
+                        "project_name",
+                        "project_identifier",
+                        "project_or_unit_identifier",
+                    }
+                ]
+
+                intent.requires_clarification = bool(
+                    intent.missing_fields
+                )
+
+                logger.info(
+                    "UNIT_COMPARISON_RESOLVED_INPUT | units=%s",
+                    intent.compare_unit_numbers,
+                )
+
+            routing_result.requires_clarification = any(
+                intent.requires_clarification
+                for intent in routing_result.intents
+            )
+
+
 
         for intent in routing_result.intents:
             is_payment_plan = (
@@ -1077,9 +1157,7 @@ async def _stream_chat_response_impl(
                     "message=%s | projects=%s",
                     message,
                     intent.compare_project_names,
-                )
-
-        
+                )     
         comparison_state = UnitComparisonState(clients.redis)
         comparison_override = False
         comparison_prompt = None

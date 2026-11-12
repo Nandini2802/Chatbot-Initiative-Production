@@ -15,7 +15,7 @@ def normalize_project_name(value: str | None) -> str:
 
 
 SALES_OFFER_PROJECT_ALIASES = {
-    "breez": "breeze",
+    "breez": "breez",
     "jewelz": "jewelz residence",
     "wavez": "wavez residence",
     "olivz": "olivz residence",

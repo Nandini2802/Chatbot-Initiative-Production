@@ -166,6 +166,8 @@ Chips must map to operations the chatbot can execute from verified service data:
 - Negotiations, discounts or special offers.
 - Booking or payment actions.
 - Cross-intent actions (outside inventory) unless explicitly verified as supported.
+- Sold units, booked units, reserved units, or unavailable units.
+- Complex or analytical queries when a simpler supported query exists.
 
 ### 8. Final validation
 Discard any chip that fails any of these checks:

@@ -14,13 +14,16 @@ from app.services.project_name_service import normalize_project_name
 from app.services.unit_comparison_client import UnitComparisonClient
 from app.services.unit_comparison_mapper import map_comparison
 from app.handlers.payment_plan_handler import PaymentPlanHandler
+from app.services.unit_comparison_resolver import (
+    resolve_comparison_unit,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class InventoryHandler:
 
-    MAX_DISPLAY_UNITS = 20
+    MAX_DISPLAY_UNITS = 10
 
     def __init__(
         self,
@@ -284,55 +287,34 @@ class InventoryHandler:
             )
             return result
 
-        candidates = self.snapshot.units
-
-        if intent.project_name:
-            candidates = [
-                unit for unit in candidates
-                if norm(unit.project_name)
-                == norm(intent.project_name)
-            ]
-
         selected = []
         selected_keys = set()
 
         for identifier in identifiers:
 
-            requested = re.sub(
-                r"[^a-z0-9]",
-                "",
-                str(identifier or "").casefold(),
+            unit, match_status = resolve_comparison_unit(
+                identifier=identifier,
+                units=self.snapshot.units,
+                project_hint=intent.project_name,
             )
 
-            matches = [
-                unit
-                for unit in candidates
-                if requested
-                and any(
-                    re.sub(
-                        r"[^a-z0-9]",
-                        "",
-                        str(value).casefold(),
-                    ) == requested
-                    for value in (
-                        unit.unit_name,
-                        unit.unit_code,
-                        unit.unit_id,
-                    )
-                    if value
-                )
-            ]
-
-
-            if len(matches) != 1:
+            if match_status == "ambiguous":
                 result.messages.append(
-                    f"Could not uniquely identify unit "
-                    f"{identifier} in your visible inventory. "
-                    "Please specify its project and unit number."
+                    f"Multiple units match '{identifier}' "
+                    "in your visible inventory. "
+                    "Please provide the full unit name "
+                    "or floor to identify the correct unit."
                 )
                 return result
 
-            unit = matches[0]
+            if match_status == "not_found":
+                result.messages.append(
+                    f"Could not identify unit '{identifier}' "
+                    "in your visible inventory. "
+                    "Please check the project and unit number."
+                )
+                return result
+
             key = (
                 norm(unit.project_name),
                 norm(unit.unit_id or unit.unit_name),
@@ -346,7 +328,6 @@ class InventoryHandler:
 
             selected_keys.add(key)
             selected.append(unit)
-
 
         if not self.payment_token or not self.user_id:
             result.messages.append(

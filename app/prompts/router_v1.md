@@ -484,6 +484,53 @@ For a search across all projects, project_name=null is valid.
 For an ambiguous project, preserve the inventory intent, return project_name=null and request clarification.
 Do not generate a user-facing answer.
 
+
+### Unit comparison identifier extraction
+
+For unit comparison requests, preserve each project name together with its corresponding unit number when the user explicitly provides both.
+
+Do not remove project names from shortened unit references.
+
+Examples:
+
+User: compare greenz 230 vs aspirz 201
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_comparison
+project_name: null
+compare_unit_numbers: ["Greenz 230", "Aspirz 201"]
+requires_clarification: false
+missing_fields: []
+
+User: compare greenz 230 vs greenz 236
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_comparison
+project_name: null
+compare_unit_numbers: ["Greenz 230", "Greenz 236"]
+requires_clarification: false
+missing_fields: []
+
+User: compare GRZ-TH-230 vs ASPZ-F02-201
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_comparison
+project_name: null
+compare_unit_numbers: ["GRZ-TH-230", "ASPZ-F02-201"]
+requires_clarification: false
+missing_fields: []
+
+When a user misspells a project name in a unit comparison, use the runtime project catalogs to recognize the intended official project name only when unambiguous. For example, "breeze 4110" may refer to "Breez 4110" if Breez is present in the runtime catalog. Do not create a project that is not in the catalog. If multiple projects could match, request clarification.
+
+Keep the two project-unit pairs in compare_unit_numbers, even if a project name was corrected. Never modify, approximate, or invent the unit numbers. The backend independently validates both references against visible inventory.
+
+Do not invent full unit identifiers from shortened numbers. The backend resolves identifiers against authorized inventory.
+
+Do not assume that a unit number belongs to one project when the user has not identified the project.
+
+Preserve both unit references in their original order.
+
+
 ### Inventory conversational follow-ups
 
 The previous_inventory_context contains the last authorized inventory selection from this conversation.
@@ -1477,7 +1524,10 @@ Requests for general marketing videos, promotional videos, or downloadable marke
      bedrooms_categories     bedroom options, bedroom types, typologies offered
      apartments              number of apartments
      construction_status     construction status, project status, is it ready
-     completion_date         completion date, when will it be completed
+     completion_date         completion date, anticipated completion date,
+                              expected completion date, ACD, AC date,
+                              anticipated CD, estimated completion date,
+                              when will it be completed
      handover_date           handover date, when is handover
      payment_plan            payment plan of the project (project level)
      starting_price          starting price, price starts from
@@ -1631,6 +1681,66 @@ unit_name: GRZ-TH-169
 Use conversation history to understand follow-up references such as "tell me about the first project".
 
 Only use project information returned by the backend. Never invent amenities, prices, locations, handover dates, or project descriptions.
+
+
+### Completion Date Acronym Recognition
+
+Recognize the following expressions as requests for the
+project's anticipated completion date:
+
+- ACD
+- AC date
+- Anticipated CD
+- Anticipated completion date
+- Expected completion date
+- Estimated completion date
+
+Rules:
+
+1. Acronym matching is case-insensitive.`
+2. ACD, Acd and acd have the same meaning.
+3. "AC date" and "anticipated CD" refer to completion_date.
+4. For these queries, return:
+   intent = "project_information"
+   project_operation = "field"
+   project_fields = ["completion_date"]
+5. Resolve the project name using the existing project catalog.
+6. Preserve the existing project context for follow-up queries.
+7. Do not confuse completion_date with handover_date.
+8. Never invent a completion date. Use only verified project data.
+
+Examples:
+
+User: "acd of greenz"
+intent: project_information
+project_operation: field
+project_fields: ["completion_date"]
+project_name: GREENZ BY DANUBE
+
+User: "ACD of Greenz"
+intent: project_information
+project_operation: field
+project_fields: ["completion_date"]
+project_name: GREENZ BY DANUBE
+
+User: "anticipated CD of greenz"
+intent: project_information
+project_operation: field
+project_fields: ["completion_date"]
+project_name: GREENZ BY DANUBE
+
+User: "AC date of greenz"
+intent: project_information
+project_operation: field
+project_fields: ["completion_date"]
+project_name: GREENZ BY DANUBE
+
+User: "what is its ACD?"
+intent: project_information
+project_operation: field
+project_fields: ["completion_date"]
+project_name: <project from conversation context>
+
 
 
 ## PROJECT RESOLUTION:
