@@ -452,6 +452,7 @@ class SalesOfferHandler:
 
         html_blocks = []
         download_errors = []
+        download_failure_reasons = []
 
         logger.info(
             "FLOW3_GENERATED_DOCUMENTS | count=%s",
@@ -461,8 +462,9 @@ class SalesOfferHandler:
         for document in generated:
             try:
                 logger.info(
-                    "FLOW3_PROCESSING | document_id=%s",
+                    "FLOW3_PROCESSING | document_id=%s | api_name=%s",
                     document.salesOfferDocId,
+                    document.salesOfferName,
                 )
 
                 download = await create_sales_offer_download(
@@ -496,7 +498,7 @@ class SalesOfferHandler:
                     len(html_blocks),
                 )
 
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "SALES_OFFER_DOWNLOAD_FAILED | "
                     "document_id=%s",
@@ -505,6 +507,9 @@ class SalesOfferHandler:
 
                 download_errors.append(
                     document.salesOfferName
+                )
+                download_failure_reasons.append(
+                    f"{type(exc).__name__}: {exc}"
                 )
 
         logger.info(
@@ -516,6 +521,22 @@ class SalesOfferHandler:
 
 
         await self.clear()
+
+        # The offer was generated, but no download card could be built.
+        # Do not report success. The technical reason goes to the log
+        # only; users see a plain message.
+        if download_errors and not html_blocks:
+            logger.error(
+                "SALES_OFFER_DOWNLOAD_ALL_FAILED | documents=%s | "
+                "reasons=%s",
+                len(download_errors),
+                download_failure_reasons,
+            )
+
+            return self.reply(
+                "I generated the sales offer, but I couldn't prepare "
+                "the download. Please try again in a few minutes."
+            )
 
         return HandlerResult(
             intent="sales_offer",
@@ -574,6 +595,13 @@ class SalesOfferHandler:
                         "currency": pending.get(
                             "currency", "AED"
                         ),
+                        # Keep the list so "no" returns to it.
+                        "candidate_unit_ids": pending.get(
+                            "candidate_unit_ids", []
+                        ),
+                        "displayed_unit_ids": pending.get(
+                            "displayed_unit_ids", []
+                        ),
                     })
 
                     return self.reply(
@@ -598,6 +626,31 @@ class SalesOfferHandler:
                 and pending.get("stage")
                 == "unit_confirmation"
             ):
+                # Confirmation came from the unit list:
+                # "no" returns to that list.
+                if (
+                    self.is_no(self.message)
+                    and pending.get("candidate_unit_ids")
+                ):
+                    await self.save({
+                        "stage": "unit_selection",
+                        "candidate_unit_ids": pending[
+                            "candidate_unit_ids"
+                        ],
+                        "displayed_unit_ids": pending.get(
+                            "displayed_unit_ids", []
+                        ),
+                        "currency": pending.get(
+                            "currency", "AED"
+                        ),
+                    })
+
+                    return self.reply(
+                        "No problem. Please type the unit name "
+                        "from the list, or say 'first one', "
+                        "'second one', and so on."
+                    )
+
                 if self.is_no(self.message):
                     await self.clear()
 
@@ -757,47 +810,12 @@ class SalesOfferHandler:
             
             if not requested_unit:
                 if has_project:
-                    units = find_project_units(
-                        intent,
-                        self.snapshot,
-                    )
-
-                    # Select only authorized units
-                    # that have a valid Salesforce ID.
-                    valid_units = sorted(
-                        (
-                            unit
-                            for unit in units
-                            if unit.unit_id
-                        ),
-                        key=lambda unit: (
-                            str(unit.unit_name or "").casefold(),
-                            str(unit.unit_id).casefold(),
-                        ),
-                    )
-
-                    if not valid_units:
-                        return self.reply(
-                            "No authorized units were found "
-                            "for that project."
-                        )
-
-                    unit = valid_units[0]
-
-                    logger.info(
-                        "SALES_OFFER_AUTO_UNIT_SELECTED | "
-                        "user_id=%s | project=%s | unit_id=%s",
-                        self.user_id,
-                        unit.project_name,
-                        unit.unit_id,
-                    )
-
-                    # Existing currency-confirmation flow.
-                    # ask_currency() saves the selected
-                    # unit into Redis session state.
-                    return await self.ask_currency(
-                        unit,
-                        getattr(intent, "currency", None),
+                    # Project without a unit: show the project's
+                    # authorized units and let the user choose
+                    # (stage "unit_selection"). Never pick a unit
+                    # on the user's behalf.
+                    return await self.show_project_units(
+                        intent
                     )
 
                 return self.reply(

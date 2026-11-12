@@ -30,7 +30,7 @@
     word-break: break-word;
   }
 
-  /* Share / Copy actions */
+  /* Copy action */
   .bank-actions { display: flex; gap: 12px; margin-top: 14px; }
   .bank-btn {
     flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -84,10 +84,6 @@
 </div>
 
 <div class="bank-actions">
-  <button type="button" class="bank-btn" onclick="bankShare()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
-    Share
-  </button>
   <button type="button" class="bank-btn" onclick="bankCopy(this)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
     Copy
@@ -120,15 +116,6 @@
     document.body.appendChild(ta); ta.select();
     try { document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(ta);
-  }
-  // Share → native share sheet; fallback to host postMessage so the app can share natively.
-  function bankShare() {
-    var text = bankText();
-    if (navigator.share) {
-      navigator.share({ text: text }).catch(function () {});
-    } else {
-      try { window.parent.postMessage({ source: 'danube-ai', type: 'action', action: 'share', payload: { text: text } }, '*'); } catch (e) {}
-    }
   }
 </script>
 </body>

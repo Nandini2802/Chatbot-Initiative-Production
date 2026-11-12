@@ -19,12 +19,41 @@ ROOT = Path(__file__).resolve().parent
 WALKTHROUGH_FILE = "Danube One App Walkthrough(1).xlsx"
 
 
+# Walkthroughs where ANY ONE of the keys in the workbook's Feature Key cell
+# is enough (elsewhere "A/B" or "A,B" means all are needed). The keys
+# themselves always come from the workbook, e.g. "DARView,DARCreate".
+ANY_KEY_FEATURES: frozenset[str] = frozenset({
+    "daily activity report",
+})
+
+
 def norm(value) -> str:
     return re.sub(
         r"\s+",
         " ",
         str(value or "").replace("\xa0", " "),
     ).strip().casefold()
+
+
+def compact_feature_key(value) -> str:
+    """'DAR Dashboard', 'DARdashboard', 'DAR_Dashboard' -> 'dardashboard'."""
+    return re.sub(
+        r"[\s_\-]+",
+        "",
+        str(value or "").replace("\xa0", " "),
+    ).casefold()
+
+
+def granted_feature_keys(key_features: str | None) -> set[str]:
+    """The app's comma-separated feature keys, compacted."""
+    return {
+        compact
+        for compact in (
+            compact_feature_key(key)
+            for key in parse_key_features(key_features)
+        )
+        if compact
+    }
 
 
 def rows_xlsx(path: Path):
@@ -61,28 +90,57 @@ class WalkthroughEngine:
 
         rows = rows_xlsx(excel_path)
 
+        # Two layouts are supported:
+        #   - all steps in one cell (line breaks between steps), or
+        #   - one step per row, with the S. No., Feature Name and Feature
+        #     Key only on the first row (merged cells). A row with no
+        #     S. No. and no Feature Name continues the walkthrough above.
+        entries: dict[str, dict] = {}
+        current: dict | None = None
+
         # Row 1 = Excel header
         for row in rows[1:]:
 
+            serial = str(cell(row, 0) or "").strip()
             feature_name = norm(cell(row, 1))
             steps = str(cell(row, 2) or "").strip()
             feature_key = str(cell(row, 3) or "").strip()
 
-            if not feature_name or not steps:
+            if not feature_name:
+                if not serial and current is not None:
+                    if steps:
+                        current["steps"].append(steps)
+                    if feature_key and not current["key"]:
+                        current["key"] = feature_key
+                else:
+                    # A new numbered row without a name ends the walkthrough.
+                    current = None
                 continue
 
             if feature_name.startswith("based on the login"):
+                current = None
                 continue
 
-            if feature_name in self.guides:
+            if feature_name in entries:
                 raise ValueError(
                     f"Duplicate walkthrough feature: {feature_name}"
                 )
 
+            current = {
+                "name": str(cell(row, 1)).strip(),
+                "steps": [steps] if steps else [],
+                "key": feature_key,
+            }
+            entries[feature_name] = current
+
+        for feature_name, entry in entries.items():
+            if not entry["steps"]:
+                continue
+
             self.guides[feature_name] = Guide(
-                name=str(cell(row, 1)).strip(),
-                steps=steps,
-                key=feature_key,
+                name=entry["name"],
+                steps="\n".join(entry["steps"]),
+                key=entry["key"],
             )
 
         self.issues = self.validate()
@@ -97,6 +155,26 @@ class WalkthroughEngine:
                 )
 
         return issues
+
+    def required_keys(self, name: str) -> list[str]:
+        """The guide's feature key(s), compacted. Empty if unknown.
+
+        For ANY_KEY_FEATURES these are the alternatives (any one is enough).
+        """
+
+        guide = self.guides.get(norm(name))
+
+        if guide is None or not guide.key:
+            return []
+
+        return [
+            compact
+            for compact in (
+                compact_feature_key(key)
+                for key in re.split(r"[/,|]", guide.key)
+            )
+            if compact
+        ]
 
     def permission(
         self,
@@ -114,13 +192,24 @@ class WalkthroughEngine:
         if not guide.key:
             return False, "missing_excel_feature_key"
 
-        required_keys = [
-            key.strip().casefold()
-            for key in re.split(r"[/,|]", guide.key)
-            if key.strip()
-        ]
+        if feature_name in ANY_KEY_FEATURES:
+            granted = granted_feature_keys(key_features)
 
-        granted_keys = parse_key_features(key_features)
+            if any(
+                compact in granted
+                for compact in self.required_keys(name)
+            ):
+                return True, "feature_key_verified"
+
+            return False, "feature_key_not_granted"
+
+        # Keys are compared ignoring case, spaces, dashes and
+        # underscores, so the workbook's "DAR Dashboard" matches the
+        # app's "DARdashboard" / "DAR_Dashboard". Different key names
+        # (e.g. "DarAnalytics") still never match.
+        required_keys = self.required_keys(name)
+
+        granted_keys = granted_feature_keys(key_features)
 
         if (
             not required_keys

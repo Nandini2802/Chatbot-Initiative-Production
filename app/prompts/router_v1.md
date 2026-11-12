@@ -1420,6 +1420,158 @@ Project 3D tours and virtual tour requests use project_information with project_
 
 Requests for general marketing videos, promotional videos, or downloadable marketing walkthrough files continue to use the existing marketing materials functionality.
 
+7. faq
+   - User asks for the FAQs (frequently asked questions) of a specific Danube project.
+   - intent = "project_information"
+   - project_operation = "faq"
+   - Extract the project name into project_name.
+   - Resolve using inventory_active_projects.
+   - If the project is missing, use conversation history.
+   - If the project cannot be identified, request clarification.
+   - The backend retrieves and displays ALL FAQs for that project from the OSF Portfolio API.
+   - Never classify an FAQ request as greeting, about_assistant, or out_of_scope.
+   - This operation applies only when the user explicitly asks for FAQs / frequently asked questions.
+     Do not use it for specific questions about prices, units, availability, payment plans,
+     handover, construction status, amenities, location, or tours. Those keep their existing routing.
+
+   Examples:
+
+   User: FAQs for Oceanz
+   intent: project_information
+   project_operation: faq
+   project_name: OCEANZ BY DANUBE
+
+   User: Show me the frequently asked questions about Greenz
+   intent: project_information
+   project_operation: faq
+   project_name: GREENZ BY DANUBE
+
+   User: Greenz FAQ
+   intent: project_information
+   project_operation: faq
+   project_name: GREENZ BY DANUBE
+
+   User: Show its FAQs
+   intent: project_information
+   project_operation: faq
+   project_name: <project from conversation context>
+
+   User: What are the FAQs?   (no project in the message or conversation history)
+   intent: project_information
+   project_operation: faq
+   project_name: null
+   missing_fields: ["project_identifier"]
+
+8. field
+   - User asks for one or more SPECIFIC facts about a specific Danube project
+     (not a general overview).
+   - intent = "project_information"
+   - project_operation = "field"
+   - project_fields = the requested facts, using ONLY these names:
+
+     project_number          project number, project code, project no, project ID
+     project_code            project code, short code
+     project_configuration   configuration, config, building configuration/structure
+     places_nearby           places nearby, nearby places, what is near / around
+     location                location, where is it, address, area
+     bedrooms_categories     bedroom options, bedroom types, typologies offered
+     apartments              number of apartments
+     construction_status     construction status, project status, is it ready
+     completion_date         completion date, when will it be completed
+     handover_date           handover date, when is handover
+     payment_plan            payment plan of the project (project level)
+     starting_price          starting price, price starts from
+     service_charge          service charge
+     amenities               amenities listed for the project (project record)
+     building_type           building type
+     plot_size_sqft          plot size
+     total_units             total units, how many units in total
+     total_sold_units        sold units, units sold
+     total_booked_units      booked units
+     total_residential_units total residential units
+     total_commercial_units  total commercial units
+     total_other_units       total other units
+     total_new_units         total new units
+     total_buildings         number of buildings
+     total_floors            number of floors
+     total_bua_sqft          total built-up area, BUA
+     total_saleable_area     total saleable area
+     all_totals              "totals", "all totals", "total figures" (no specific total)
+
+   - When the user asks for the project code, set BOTH project_number and project_code.
+   - Extract the project name into project_name. If missing, use conversation history.
+     If the project cannot be identified, request clarification.
+
+   Precedence (do not change any other rule):
+   - A general request ("Tell me about Greenz", "Greenz details", "project info for Greenz")
+     stays project_operation = "details" (full card).
+   - AVAILABLE / unsold unit counts ("available units in Greenz", "how many units are
+     available") and any unit search with filters (bedrooms, price range, view, floor,
+     unit type, status) stay with intent = "inventory" exactly as defined by RULE A-E.
+   - Amenities with images ("amenities of Greenz", "facilities in Greenz") stay
+     project_operation = "amenities". Use field "amenities" only when the user asks for
+     the amenities listed in the project record together with other project facts.
+   - Payment plan of a UNIT stays intent = "inventory" (payment_plan). Use field
+     "payment_plan" only for the project-level payment plan summary.
+   - 3D tours, FAQs, bank details, brochures and marketing files keep their existing routing.
+
+   Examples:
+
+   User: What is the project number for Breeze?
+   intent: project_information
+   project_operation: field
+   project_fields: ["project_number"]
+   project_name: BREEZE BY DANUBE
+
+   User: Project code for Breeze
+   intent: project_information
+   project_operation: field
+   project_fields: ["project_number", "project_code"]
+   project_name: BREEZE BY DANUBE
+
+   User: Project config of Breeze
+   intent: project_information
+   project_operation: field
+   project_fields: ["project_configuration"]
+   project_name: BREEZE BY DANUBE
+
+   User: Places nearby Breeze
+   intent: project_information
+   project_operation: field
+   project_fields: ["places_nearby"]
+   project_name: BREEZE BY DANUBE
+
+   User: Total sold units in Greenz
+   intent: project_information
+   project_operation: field
+   project_fields: ["total_sold_units"]
+   project_name: GREENZ BY DANUBE
+
+   User: Show me the totals for Greenz
+   intent: project_information
+   project_operation: field
+   project_fields: ["all_totals"]
+   project_name: GREENZ BY DANUBE
+
+   User: When is the handover for Greenz?
+   intent: project_information
+   project_operation: field
+   project_fields: ["handover_date"]
+   project_name: GREENZ BY DANUBE
+
+   User: Starting price and payment plan of Oceanz
+   intent: project_information
+   project_operation: field
+   project_fields: ["starting_price", "payment_plan"]
+   project_name: OCEANZ BY DANUBE
+
+   User: How many units are available in Greenz?
+   intent: inventory   (unchanged - RULE A-E)
+
+   User: Tell me about Greenz
+   intent: project_information
+   project_operation: details
+
 Supported identifiers:
 - project_name
 - project_id

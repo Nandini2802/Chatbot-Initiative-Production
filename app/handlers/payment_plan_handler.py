@@ -411,9 +411,7 @@ class PaymentPlanHandler:
 
         if not matches:
             result.messages.append(
-                "I couldn't find an authorized unit for "
-                "that project or unit identifier. "
-                "Please check the details."
+                "I couldn't find any payment plans for this project."
             )
             return result
 
@@ -457,8 +455,7 @@ class PaymentPlanHandler:
 
             if not matches:
                 result.messages.append(
-                    "No authorized unit with a valid "
-                    "Salesforce ID was found for this project."
+                    "I couldn't find any payment plans for this project."
                 )
                 return result
 
@@ -476,8 +473,7 @@ class PaymentPlanHandler:
 
         if not unit.unit_id:
             result.messages.append(
-                "The selected unit does not have a "
-                "Salesforce ID required for payment plans."
+                "I couldn't find any payment plans for this project."
             )
             return result
 
@@ -495,7 +491,7 @@ class PaymentPlanHandler:
 
         if not plans:
             result.messages.append(
-                "No payment plans were returned for this unit."
+                "I couldn't find any payment plans for this project."
             )
             return result
 
@@ -534,8 +530,7 @@ class PaymentPlanHandler:
             )
 
             result.messages.append(
-                f"I found {len(plan_options)} payment plans "
-                f"for {unit.unit_name or unit.unit_id}. "
+                f"I found {len(plan_options)} payment plans. "
                 "Please select one plan below, or reply "
                 "with its name or option number."
             )

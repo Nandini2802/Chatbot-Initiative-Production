@@ -64,7 +64,18 @@ class BankDetailsHandler:
                 },
             )
 
-            accounts = await self.service.get_accounts(
+            requested_types = [
+                str(value).strip().lower()
+                for value in (
+                    getattr(intent, "bank_account_types", None) or []
+                )
+                if str(value).strip()
+            ]
+
+            # One API call. If only an account type was asked for and the
+            # project has none of it (e.g. escrow), the other accounts are
+            # returned and the reply explains it.
+            accounts, requested_type_found = await self.service.get_accounts_with_type_fallback(
                 project_id=project_id,
                 access_token=self.access_token,
                 user_id=self.user_id,
@@ -169,7 +180,22 @@ class BankDetailsHandler:
                         for account in accounts
                     }
                 ),
+                # Requested type missing (e.g. "Escrow"): the response
+                # must say so and name the accounts provided instead.
+                "requested_account_types": [
+                    value.capitalize() for value in requested_types
+                ],
+                "requested_type_found": requested_type_found,
             }
+
+            if not requested_type_found:
+                logger.info(
+                    "BANK_DETAILS_REQUESTED_TYPE_MISSING | "
+                    "project=%s | requested=%s | provided=%s",
+                    project_name,
+                    requested_types,
+                    result.generation_context["account_types"],
+                )
 
             result.has_data = True
 

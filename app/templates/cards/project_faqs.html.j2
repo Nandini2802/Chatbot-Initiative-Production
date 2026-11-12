@@ -1,0 +1,70 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: transparent;
+    color: #fff;
+    -webkit-font-smoothing: antialiased;
+  }
+  .faq-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e0aa4a;
+    margin: 0 2px 12px;
+  }
+  .faq-list { display: flex; flex-direction: column; gap: 10px; }
+  .faq-item {
+    background: #16171a;
+    border-radius: 16px;
+    padding: 14px 16px;
+  }
+  .faq-question {
+    font-size: 14.5px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: #fff;
+  }
+  .faq-answer {
+    margin-top: 8px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #c9cacd;
+  }
+  .faq-answer p + p,
+  .faq-answer p + ul,
+  .faq-answer ul + p { margin-top: 8px; }
+  .faq-answer ul { padding-left: 18px; }
+  .faq-answer li + li { margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="faq-title">{{ project_name | e }} &ndash; FAQs</div>
+
+  <div class="faq-list">
+    {% for faq in faqs %}
+    <div class="faq-item">
+      <div class="faq-question">{{ faq.question | e }}</div>
+      <div class="faq-answer">
+        {% for block in faq.answer %}
+          {% if block.type == "list" %}
+          <ul>
+            {% for item in block["items"] %}
+            <li>{{ item | e }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p>{{ block.text | e }}</p>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

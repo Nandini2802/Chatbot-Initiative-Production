@@ -18,7 +18,8 @@ MAX_PDF_BYTES = 10 * 1024 * 1024
 
 def safe_pdf_filename(value: str) -> str:
     name = str(value or "SalesOffer.pdf")
-    name = name.replace("\\", "/").split("/")[-1]
+    # Slashes become "-" (GRZ/101/2026 -> GRZ-101-2026), so no path can remain.
+    name = re.sub(r"\s*[\\/]+\s*", "-", name)
 
     name = re.sub(
         r"[^a-zA-Z0-9_.() -]",

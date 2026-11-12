@@ -31,7 +31,8 @@ VIDEO_RULES = {
         "features": ("View EOI", "EOI Dashboard"),
     },
     "how to view sales order": {
-        "keys": ("Sales Order",),
+        # Workbook key is "SalesOrder"; the spaced spelling is kept too.
+        "keys": ("SalesOrder", "Sales Order"),
         "features": (
             "Sales Order",
             "Sales Order / Booking",
@@ -75,7 +76,8 @@ VIDEO_RULES = {
         "features": ("Add a Unit to Compare",),
     },
     "daily activity report": {
-        "keys": ("DAR Dashboard",),
+        # Same keys as the workbook's Daily Activity Report row.
+        "keys": ("DARCreate", "DARView"),
         "features": ("Daily Activity Report",),
     },
     "how to view dar stories": {
@@ -210,12 +212,145 @@ def get_player(url: str) -> dict | None:
 
 
 
+def _compact_key(value) -> str:
+    return re.sub(r"[\s_\-]+", "", str(value or "")).casefold()
+
+
+def _record_videos(record: dict) -> list[dict]:
+    """Playable videos of one API record."""
+    videos = record.get("videos")
+
+    if not isinstance(videos, list):
+        return []
+
+    playable = []
+
+    for video in videos:
+
+        if not isinstance(video, dict):
+            continue
+
+        player = get_player(
+            video.get("video_url", "")
+        )
+
+        if player is None:
+            continue
+
+        playable.append({
+            "title": (
+                video.get("title")
+                or record.get("title")
+            ),
+            "duration": (
+                video.get("video_duration")
+                or ""
+            ),
+            "kind": player["kind"],
+            "player_url": player["url"],
+            "original_url": player["original_url"],
+        })
+
+    return playable
+
+
+def _role_allowed(record: dict, user_role: str) -> bool:
+    allowed_roles = record.get("allowed_roles")
+
+    if not isinstance(allowed_roles, list):
+        return False
+
+    normalized_roles = {
+        normalize_role(item)
+        for item in allowed_roles
+        if isinstance(item, str)
+    }
+
+    return "all" in normalized_roles or user_role in normalized_roles
+
+
 class HowToVideoService:
 
     def __init__(self, redis_client):
         self.cache = APICacheService(
             redis_client
         )
+
+    async def _records(self) -> list:
+        cached = await self.cache.get(
+            RedisCacheKeys.HOW_TO_VIDEOS
+        )
+
+        if not isinstance(cached, dict):
+            return []
+
+        data = cached.get("data")
+
+        if not isinstance(data, dict):
+            return []
+
+        records = data.get("howToVideos")
+
+        return records if isinstance(records, list) else []
+
+    async def find_permitted_videos(
+        self,
+        *,
+        key_features: str | None,
+        role: str,
+    ) -> list[dict]:
+        """Every video this user may watch, across all API records.
+
+        A record is only used when it has a VIDEO_RULES entry (unknown
+        records fail closed), the user holds one of that rule's keys
+        (ignoring case, spaces, dashes and underscores, as for
+        walkthroughs) and the record's allowed_roles include the user.
+        Each video carries "group" (its record title) for the selector.
+        """
+        user_role = normalize_role(role)
+
+        if not user_role:
+            return []
+
+        granted = {
+            _compact_key(key)
+            for key in str(key_features or "").split(",")
+            if _compact_key(key)
+        }
+
+        if not granted:
+            return []
+
+        permitted: list[dict] = []
+        seen_urls: set[str] = set()
+
+        for record in await self._records():
+
+            if not isinstance(record, dict):
+                continue
+
+            rule = VIDEO_RULES.get(normalize(record.get("title")))
+
+            if rule is None:
+                continue
+
+            if not any(_compact_key(key) in granted for key in rule["keys"]):
+                continue
+
+            if not _role_allowed(record, user_role):
+                continue
+
+            for video in _record_videos(record):
+                if video["player_url"] in seen_urls:
+                    continue
+
+                seen_urls.add(video["player_url"])
+                permitted.append({
+                    **video,
+                    "group": str(record.get("title") or ""),
+                })
+
+        return permitted
 
     async def find_videos(
         self,

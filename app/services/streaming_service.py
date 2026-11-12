@@ -47,18 +47,25 @@ from app.services.payment_plan_selection_service import (
 from app.utils.bank_debug import bank_debug
 from app.schemas.routing import RoutingIntent
 from app.handlers.payment_plan_handler import PaymentPlanHandler
+from app.handlers.walkthrough_handler import WALKTHROUGH_FALLBACK
 from app.services.router_service import RouterService
 from app.services.inventory_extraction_service import InventoryExtractionService
 from app.services.project_resolution_service import ProjectResolution
 from app.services.project_resolution_service import (
     resolve_project,
     match_project_reference,
+    match_project_in_message,
     resolve_comparison_project,
     format_project_comparison_clarification,
+)
+from app.services.project_codes import (
+    build_project_code_map,
+    codes_in_project_reference,
 )
 from app.services.project_context_service import (
     resolve_session_project,
     same_project,
+    format_ambiguous_project_clarification,
 )
 from app.services.payment_plan_context_service import (
     load_pending_payment_selection,
@@ -475,6 +482,19 @@ async def _stream_chat_response_impl(
                     )
                 )
 
+                # After a "no report" result the request is kept only so a
+                # very short reply ("Excel", "in USD") can retry it; longer
+                # messages go through normal routing.
+                if (
+                    is_parameter_reply
+                    and pending_availability.get("after_no_report")
+                    and (
+                        len(message.split()) > 3
+                        or re.search(r"\d", message)
+                    )
+                ):
+                    is_parameter_reply = False
+
                 if is_parameter_reply:
                     availability_followup = True
 
@@ -528,7 +548,19 @@ async def _stream_chat_response_impl(
                 user_id=user_id,
             )
         )
-        
+
+        # Short project codes (GRZ, DMZ, ...) from this user's units.
+        project_codes = build_project_code_map(
+            getattr(inventory_snapshot, "units", None) or [],
+            project_names=[
+                project.project_name
+                for project in (
+                    getattr(inventory_snapshot, "projects", None) or []
+                )
+                if getattr(project, "project_name", None)
+            ],
+        )
+
         # BANK ACCOUNT CLICK SELECTION
 
         if (
@@ -979,9 +1011,10 @@ async def _stream_chat_response_impl(
             previous_inventory_context=previous_inventory_context,
             walkthrough_features=walkthrough_features,
             active_project_context=session_project_context,
+            project_codes=project_codes,
         )
 
-        
+
         for intent in routing_result.intents:
             is_payment_plan = (
                 intent.intent == "inventory"
@@ -1729,6 +1762,43 @@ async def _stream_chat_response_impl(
 
 
         elif pending_availability and not availability_followup:
+            # A new availability request while one is pending (e.g. the
+            # user corrects the project: "I asked for greenz", or the last
+            # attempt found no report): keep the currency and format the
+            # user already gave, unless the new request states its own.
+            # (A pending request only exists until a report is produced.)
+            for item in routing_result.intents:
+                if item.intent != "download_availability":
+                    continue
+
+                carried = []
+
+                if not item.currency and pending_availability.get("currency"):
+                    item.currency = pending_availability["currency"]
+                    carried.append("currency")
+
+                if not item.file_format and pending_availability.get("file_format"):
+                    item.file_format = pending_availability["file_format"]
+                    carried.append("file_format")
+
+                if carried:
+                    item.missing_fields = [
+                        field
+                        for field in item.missing_fields
+                        if field not in carried
+                    ]
+                    item.requires_clarification = bool(
+                        item.missing_fields
+                    )
+
+                    logger.info(
+                        "AVAILABILITY_ANSWERS_CARRIED | fields=%s | "
+                        "from_project=%s | to_project=%s",
+                        carried,
+                        pending_availability.get("project_name"),
+                        item.project_name,
+                    )
+
             # A distinct request supersedes the pending download.
             await availability_state.clear(user_id=user_id, session_id=str(session_id))
             pending_availability = None
@@ -1903,6 +1973,8 @@ async def _stream_chat_response_impl(
         availability_access = DownloadAvailabilityAccessService()
         blocked_intents = set()
         sales_offer_project_errors = {}
+        # index -> "Did you mean A or B?" for ambiguous projects.
+        ambiguous_project_clarifications = {}
         comparison_clarifications: dict[int, str] = {}
 
         for index, intent in enumerate(routing_result.intents):
@@ -1968,6 +2040,31 @@ async def _stream_chat_response_impl(
                         or ""
                     )
                 )
+
+                # Short project code ("sales offer for GRZ").
+                coded_projects = codes_in_project_reference(
+                    reference,
+                    project_codes,
+                )
+
+                if len(coded_projects) > 1:
+                    sales_offer_project_errors[index] = (
+                        "Multiple projects match your "
+                        f"request. Please specify one: "
+                        f"{', '.join(coded_projects)}."
+                    )
+                    intent.requires_clarification = True
+                    blocked_intents.add(index)
+                    continue
+
+                if len(coded_projects) == 1:
+                    logger.info(
+                        "SALES_OFFER_PROJECT_CODE | code_reference=%s | "
+                        "project=%s",
+                        reference,
+                        coded_projects[0],
+                    )
+                    reference = coded_projects[0]
 
                 resolution = resolve_sales_offer_project(
                     reference,
@@ -2490,10 +2587,42 @@ async def _stream_chat_response_impl(
                     intent.unit_number,
                 ])
 
+                # Availability follow-up ("Uae", "Pdf"): the reply names no
+                # project, so check the continuation text (which names the
+                # pending project) and treat the pending project as active.
+                # Otherwise the conversation's older active project would
+                # replace it. A project named in the reply itself still wins.
+                check_message = message
+                check_active_project = active_project_name
+
+                pending_project = (
+                    (pending_availability or {}).get("project_name")
+                    if intent.intent == "download_availability"
+                    and availability_followup
+                    else None
+                )
+
+                if (
+                    pending_project
+                    and match_project_in_message(
+                        message,
+                        allowed_projects,
+                    ).status == "not_found"
+                ):
+                    check_message = routing_message
+                    check_active_project = pending_project
+
+                    logger.info(
+                        "AVAILABILITY_FOLLOWUP_PROJECT | pending_project=%s | "
+                        "active_project=%s",
+                        pending_project,
+                        active_project_name,
+                    )
+
                 decision = resolve_session_project(
-                    message=message,
+                    message=check_message,
                     router_project=intent.project_name,
-                    active_project=active_project_name,
+                    active_project=check_active_project,
                     allowed_projects=allowed_projects,
                     project_reference_source=(
                         intent.project_reference_source
@@ -2509,6 +2638,17 @@ async def _stream_chat_response_impl(
                             intent.unit_name,
                             intent.unit_number,
                         ])
+                    ),
+                    # Bank details (account numbers) never use the
+                    # router's choice to settle an ambiguous name,
+                    # nor short project codes.
+                    allow_router_tiebreak=(
+                        intent.intent != "bank_details"
+                    ),
+                    project_codes=(
+                        None
+                        if intent.intent == "bank_details"
+                        else project_codes
                     ),
                 )
 
@@ -2568,6 +2708,25 @@ async def _stream_chat_response_impl(
                     if "project_name" not in intent.missing_fields:
                         intent.missing_fields.append("project_name")
                     blocked_intents.add(index)
+
+                    if match.status == "ambiguous":
+                        ambiguous_question = (
+                            format_ambiguous_project_clarification(
+                                decision.candidates
+                            )
+                        )
+
+                        if ambiguous_question:
+                            ambiguous_project_clarifications[
+                                index
+                            ] = ambiguous_question
+
+                            logger.info(
+                                "PROJECT_AMBIGUOUS_CLARIFICATION | "
+                                "intent=%s | candidates=%s",
+                                intent.intent,
+                                list(decision.candidates),
+                            )
                 elif intent.intent == "bank_details":
                     # A unit ID or LLM guess alone is insufficient for bank details.
                     intent.project_name = None
@@ -3248,9 +3407,14 @@ async def _stream_chat_response_impl(
                         "project_identifier" in missing
                         or "project_name" in missing
                     ):
+                        # Ambiguous name (e.g. "Bayz") -> "Did you mean
+                        # BAYZ 101 or BAYZ 102?"; otherwise unchanged.
                         clarification_messages.append(
-                            "Which Danube project would you like "
-                            "the availability report for?"
+                            ambiguous_project_clarifications.get(
+                                index,
+                                "Which Danube project would you like "
+                                "the availability report for?",
+                            )
                         )
 
                     elif "currency" in missing:
@@ -3275,8 +3439,11 @@ async def _stream_chat_response_impl(
 
                 if intent.intent == "bank_details":
                     clarification_messages.append(
-                        "Could you please tell me the project name "
-                        "so I can share the bank details?"
+                        ambiguous_project_clarifications.get(
+                            index,
+                            "Could you please tell me the project name "
+                            "so I can share the bank details?",
+                        )
                     )
                     continue
 
@@ -3311,9 +3478,21 @@ async def _stream_chat_response_impl(
                         and index in sales_offer_project_errors
                     ):
                         continue
+
+                    # A "how to" question about a feature we have no
+                    # walkthrough for: not a project question.
+                    if intent.intent == "excel_walkthrough":
+                        clarification_messages.append(
+                            WALKTHROUGH_FALLBACK
+                        )
+                        continue
+
                     clarification_messages.append(
-                        "Could you please provide a little more detail about your project"
-                        "so I can help you with the right information?"
+                        ambiguous_project_clarifications.get(
+                            index,
+                            "Could you please provide a little more detail about your project"
+                            "so I can help you with the right information?",
+                        )
                     )
 
                 continue
@@ -3341,6 +3520,25 @@ async def _stream_chat_response_impl(
                 await availability_state.clear(
                     user_id=user_id,
                     session_id=str(session_id),
+                )
+
+            elif intent.intent == "download_availability":
+                # No report produced: remember the full request so a
+                # correction ("I asked for greenz") or another format
+                # ("Excel") can reuse the answers already given.
+                await availability_state.save(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                    state={
+                        "intent": "download_availability",
+                        "project_id": intent.project_id,
+                        "project_name": intent.project_name,
+                        "currency": intent.currency,
+                        "file_format": intent.file_format,
+                        # Only very short replies may continue it
+                        # (see follow-up detection).
+                        "after_no_report": True,
+                    },
                 )
 
             handler_results.append(result)
@@ -3407,6 +3605,19 @@ async def _stream_chat_response_impl(
                 block.get("card_type") == "project_details"
                 for block in all_html_blocks
             )
+        )
+
+        # Specific project facts: the handler's fixed sentence is the
+        # answer (no LLM), shown live and saved to history.
+        project_fields_only = (
+            len(routing_result.intents) == 1
+            and len(handler_results) == 1
+            and handler_results[0].intent == "project_information"
+            and handler_results[0].has_data
+            and handler_results[0].generation_context.get("operation")
+                == "field"
+            and bool(handler_results[0].messages)
+            and not clarification_messages
         )
 
         inventory_html_only = (
@@ -3538,6 +3749,13 @@ async def _stream_chat_response_impl(
 
         elif project_details_html_only:
             response_text = ""
+            followup_chips = []
+            real_llm_streaming = False
+
+        elif project_fields_only:
+            response_text = " ".join(
+                handler_results[0].messages
+            ).strip()
             followup_chips = []
             real_llm_streaming = False
 

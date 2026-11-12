@@ -113,6 +113,34 @@ When no amenities are available:
 Preserve the detected response language.
 
 
+## Specific Project Facts
+
+When operation = "field":
+
+- The backend has already answered the requested facts from the
+  Projects API and rendered them in a project facts card.
+- Use only the values in the verified results. Never invent or
+  estimate a value.
+- If a value is missing, say it is not available.
+- Keep the response to one or two short sentences.
+
+
+## Project FAQs
+
+When operation = "faq":
+
+- The backend has already resolved the project.
+- The backend has fetched the project's FAQs from OSF Portfolio.
+- All questions and answers are already rendered in the FAQ HTML card.
+- Do not generate HTML.
+- Do not repeat the questions or answers in the text.
+- Do not answer any FAQ yourself and do not add new questions.
+- Keep the response to one short sentence.
+
+Example:
+"Here are the frequently asked questions for Oceanz by Danube."
+
+
 ## Important Rules
 
 - Only use verified backend results.
@@ -197,6 +225,11 @@ Select only from these supported actions:
 - View project details
 - View floor plans
 - Check available units
+
+**When operation = "faq"**
+- View project details
+- Check available units
+- View project brochure
 
 These are examples, not mandatory outputs. Select chips only when the corresponding action is supported and relevant.
 

@@ -8,6 +8,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.schemas.chat import ChatRequest
 from app.services.streaming_service import stream_chat_response
+from app.services.walkthrough_access_service import granted_feature_keys
 from app.core.dependencies import get_session_service
 from app.services.session_service import SessionService, SessionNotFoundError, SessionResumeRequiredError
 from app.observability.logger import audit_event
@@ -23,6 +24,27 @@ bearer_scheme = HTTPBearer(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def logged_key_features(value: str | None) -> tuple[str, int]:
+    """
+    Feature keys as received, for the request log:
+      ("<not sent>", 0)                - no key_features in the request (or null)
+      ("<empty>", 0)                   - key_features sent but blank
+      ("dardashboard,udpage", 2)       - compacted, sorted keys, as the
+                                         walkthrough check compares them
+    Returned as one string (plus a count) so long lists are not cut
+    to the logger's 20-item list limit.
+    """
+    if value is None:
+        return "<not sent>", 0
+
+    keys = sorted(granted_feature_keys(value))
+
+    if not keys:
+        return "<empty>", 0
+
+    return ",".join(keys), len(keys)
 
 
 @router.post("/query")
@@ -63,6 +85,10 @@ async def chat_query(
 
     clients = request.app.state.clients
 
+    key_features_logged, key_features_count = logged_key_features(
+        body.key_features
+    )
+
     audit_event(
         "CHAT_REQUEST_RECEIVED",
         correlation_id=correlation_id,
@@ -72,6 +98,10 @@ async def chat_query(
         user_message=body.message,
         start_conversation=body.start_conversation,
         session_id=str(body.session_id) if body.session_id else None,
+        # Feature keys exactly as received (compacted, as compared by
+        # the walkthrough check). Key names are not sensitive.
+        key_features=key_features_logged,
+        key_features_count=key_features_count,
     )
 
     # 1. SESSION HANDLING

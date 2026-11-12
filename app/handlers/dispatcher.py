@@ -53,6 +53,9 @@ class IntentDispatcher:
                 key_features=key_features,
                 role=role,
                 redis_client=redis_client,
+                message=message,
+                llm_client=foundry_client,
+                llm_model=foundry_model,
             )
 
 

@@ -20,6 +20,43 @@ IntentType = Literal[
 ]
 
 
+# Project facts that can be answered directly (project_operation="field").
+# Deliberately excluded: total_available_* (answered by inventory from
+# live units), total_selling_price (needs business approval), BrandMorph
+# and internal flags.
+ProjectFieldName = Literal[
+    "project_number",
+    "project_code",
+    "project_configuration",
+    "places_nearby",
+    "location",
+    "bedrooms_categories",
+    "apartments",
+    "construction_status",
+    "completion_date",
+    "handover_date",
+    "payment_plan",
+    "starting_price",
+    "service_charge",
+    "amenities",
+    "building_type",
+    "plot_size_sqft",
+    "total_units",
+    "total_sold_units",
+    "total_booked_units",
+    "total_residential_units",
+    "total_commercial_units",
+    "total_other_units",
+    "total_new_units",
+    "total_buildings",
+    "total_floors",
+    "total_bua_sqft",
+    "total_saleable_area",
+    # Shortcut: "totals for X" -> every total above.
+    "all_totals",
+]
+
+
 class RoutingIntent(BaseModel):
     intent: IntentType
 
@@ -117,7 +154,15 @@ class RoutingIntent(BaseModel):
         "location_search",
         "tour",
         "amenities",
+        "faq",
+        "field",
     ] | None = None
+
+    # Specific project facts requested (project_operation = "field").
+    # Only these names are allowed; see app/services/project_fields.py.
+    project_fields: list[ProjectFieldName] = Field(
+        default_factory=list,
+    )
 
     compare_unit_numbers: list[str] = Field(
         default_factory=list,

@@ -40,7 +40,8 @@ MAX_PDF_BYTES = 10 * 1024 * 1024
 
 def safe_pdf_filename(value: str) -> str:
     name = str(value or "SalesOffer.pdf")
-    name = name.replace("\\", "/").split("/")[-1]
+    # Slashes become "-" (GRZ/101/2026 -> GRZ-101-2026), so no path can remain.
+    name = re.sub(r"\s*[\\/]+\s*", "-", name)
     name = re.sub(r"[^a-zA-Z0-9_.() -]", "_", name)
     name = name.strip(" .")[:180] or "SalesOffer"
 
@@ -162,12 +163,6 @@ async def fetch_sales_offer_pdf(
             )
 
             return pdf_bytes
-
-        logger.info(
-            "SALES_OFFER_PDF_RETRIEVED | size=%s | valid_pdf=%s",
-            len(pdf_bytes),
-            pdf_bytes.startswith(b"%PDF-"),
-        )
 
         raw = response.text.strip()
 

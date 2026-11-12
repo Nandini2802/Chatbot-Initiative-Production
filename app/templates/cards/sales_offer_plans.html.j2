@@ -135,10 +135,8 @@
       window.parent.postMessage({
         source: 'danube-block',
         type: 'send_message',
-        message: 'Selected payment plans',
-        extra: {
-          selected_payment_plan_names: picks
-        }
+        message: 'Selected payment plans: ' + picks.join(', '),
+        extra: { selected_payment_plan_names: picks }
       }, '*');
     });
   })();

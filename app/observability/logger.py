@@ -75,6 +75,9 @@ def prepare_audit_details(event_name, details):
         "source",
         "status",
         "latency_ms",
+        # Feature-access keys sent by the app (names only, not sensitive).
+        "key_features",
+        "key_features_count",
     }
 
     result = {

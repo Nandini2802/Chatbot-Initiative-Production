@@ -1,0 +1,56 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: transparent;
+    color: #fff;
+    -webkit-font-smoothing: antialiased;
+  }
+  .pf-card {
+    background: #16171a;
+    border-radius: 16px;
+    padding: 14px 16px;
+  }
+  .pf-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e0aa4a;
+    margin-bottom: 10px;
+  }
+  .pf-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 8px 0;
+    border-top: 1px solid #26272b;
+    font-size: 13.5px;
+    line-height: 1.45;
+  }
+  .pf-row:first-of-type { border-top: 0; }
+  .pf-label { color: #8b8d92; flex-shrink: 0; }
+  .pf-value { color: #fff; text-align: right; word-break: break-word; }
+  .pf-value--missing { color: #6c6e73; font-style: italic; }
+</style>
+</head>
+<body>
+  <div class="pf-card">
+    <div class="pf-title">{{ project_name | e }}</div>
+    {% for row in rows %}
+    <div class="pf-row">
+      <span class="pf-label">{{ row.label | capitalize | e }}</span>
+      {% if row.value %}
+      <span class="pf-value">{{ row.value | e }}</span>
+      {% else %}
+      <span class="pf-value pf-value--missing">Not available</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

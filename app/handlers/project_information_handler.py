@@ -34,6 +34,16 @@ from app.utils.project_tours import (
     build_project_tour_lookup,
 )
 
+from app.utils.project_faqs import (
+    extract_project_faqs,
+)
+
+from app.services.project_fields import (
+    build_field_answer,
+    expand_fields,
+    field_rows,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -725,6 +735,216 @@ class ProjectInformationHandler:
             has_data=True,
         )
 
+    def handle_project_fields(
+        self,
+        intent,
+        projects,
+    ):
+        """
+        Answer specific project questions ("project number for Breeze",
+        "places nearby Greenz", "total sold units in Greenz") directly
+        from the Projects API record ("project code" is the project
+        number).
+
+        The answer text and the card are built from fixed templates;
+        no LLM is involved.
+        """
+
+        project, error = self.resolve_project(
+            intent,
+            projects,
+        )
+
+        if error:
+            return self.failure(error)
+
+        fields = expand_fields(
+            getattr(intent, "project_fields", None)
+        )
+
+        rows = field_rows(
+            project,
+            fields,
+        )
+
+        answer = build_field_answer(
+            project.project_name,
+            rows,
+        )
+
+        html = self.templates.render(
+            "project_fields.html.j2",
+            project_name=project.project_name,
+            rows=rows,
+        )
+
+        logger.info(
+            "PROJECT_FIELDS_ANSWERED | project_name=%s | "
+            "fields=%s | missing=%s",
+            project.project_name,
+            fields,
+            [row["field"] for row in rows if not row["value"]],
+        )
+
+        return HandlerResult(
+            intent="project_information",
+
+            html_blocks=[
+                {
+                    "card_type": "project_fields",
+                    "html": html,
+                }
+            ],
+
+            files=[],
+
+            messages=[answer],
+
+            generation_context={
+                "service": "project_information",
+                "operation": "field",
+                "result_count": 1,
+                "project_name": project.project_name,
+                "fields": fields,
+                "projects": [
+                    self.project_summary(project)
+                ],
+            },
+
+            has_data=True,
+        )
+
+    async def handle_project_faqs(
+        self,
+        intent,
+        projects,
+    ):
+        """
+        Show all FAQs of one project from OSF Portfolio.
+
+        Reuses the existing OSF connector and the same
+        project resolution / name matching as amenities.
+        FAQ answers are converted to safe text blocks
+        before rendering (see app.utils.project_faqs).
+        """
+
+        # 1. Resolve requested project using existing logic.
+        project, error = self.resolve_project(
+            intent,
+            projects,
+        )
+
+        if error:
+            return self.failure(error)
+
+        # 2. Fetch OSF Portfolio API using existing connector.
+        try:
+            portfolio = (
+                await self.tour_connector.fetch_portfolio()
+            )
+
+        except Exception:
+            logger.exception(
+                "PROJECT_FAQS_API_FAILED | "
+                "project_id=%s",
+                project.project_id,
+            )
+
+            return self.failure(
+                "Project FAQs are temporarily "
+                "unavailable. Please try again."
+            )
+
+        # 3. Find matching OSF Portfolio project
+        # (same matching as amenities).
+        project_key = normalize(
+            normalize_map_project_name(
+                project.project_name
+            )
+        )
+
+        matching_projects = [
+            item
+            for item in portfolio or []
+            if isinstance(item, dict)
+            and normalize(
+                normalize_map_project_name(
+                    item.get("title")
+                    or item.get("name")
+                    or ""
+                )
+            ) == project_key
+        ]
+
+        # 4. Extract FAQs.
+        faqs = extract_project_faqs(
+            matching_projects
+        )
+
+        if not faqs:
+
+            logger.info(
+                "PROJECT_FAQS_EMPTY | "
+                "project_name=%s | osf_matches=%s",
+                project.project_name,
+                len(matching_projects),
+            )
+
+            return self.failure(
+                f"No FAQs are currently available "
+                f"for {project.project_name}."
+            )
+
+        # 5. Render FAQ card.
+        html = self.templates.render(
+            "project_faqs.html.j2",
+            project_name=project.project_name,
+            faqs=faqs,
+        )
+
+        logger.info(
+            "PROJECT_FAQS_RENDERED | "
+            "project_name=%s | count=%s",
+            project.project_name,
+            len(faqs),
+        )
+
+        # 6. Return standard HandlerResult. Only the
+        # questions go to the LLM; answers stay in the card.
+        return HandlerResult(
+            intent="project_information",
+
+            html_blocks=[
+                {
+                    "card_type": "project_faqs",
+                    "html": html,
+                }
+            ],
+
+            files=[],
+
+            messages=[],
+
+            generation_context={
+                "service": "project_information",
+                "operation": "faq",
+                "result_count": 1,
+                "project_name": project.project_name,
+                "faq_count": len(faqs),
+                "projects": [
+                    {
+                        "project_name": project.project_name,
+                        "faq_questions": [
+                            faq["question"]
+                            for faq in faqs
+                        ],
+                    }
+                ],
+            },
+
+            has_data=True,
+        )
+
     async def handle_project_tour(
         self,
         intent,
@@ -875,7 +1095,11 @@ class ProjectInformationHandler:
 
         return str(value).strip() or None
 
-    def render_project_details(self, project):
+    def render_project_details(
+        self,
+        project,
+        map_url=None,
+    ):
 
         """Render one Figma-style project details card."""
 
@@ -883,6 +1107,8 @@ class ProjectInformationHandler:
             "project_details.html.j2",
 
             project_name=project.project_name,
+
+            map_url=map_url,
 
             location=self.display_value(
                 project.location
@@ -974,6 +1200,29 @@ class ProjectInformationHandler:
                     projects,
                 )
 
+            # Project FAQs use OSF Portfolio API.
+            if operation == "faq":
+
+                return await self.handle_project_faqs(
+                    intent,
+                    projects,
+                )
+
+            # Specific project facts from the Projects API.
+            # Without any recognised field, use the existing
+            # full details card instead.
+            if operation == "field":
+
+                if expand_fields(
+                    getattr(intent, "project_fields", None)
+                ):
+                    return self.handle_project_fields(
+                        intent,
+                        projects,
+                    )
+
+                operation = "details"
+
             # Step 2: 3D tour uses OSF Portfolio API.
             if operation == "tour":
 
@@ -1061,15 +1310,11 @@ class ProjectInformationHandler:
 
             # Step 5: Generate map URLs only for
             # operations that render project list cards.
-            map_urls = {}
-
-            if operation != "details":
-
-                map_urls = (
-                    await self.get_project_map_urls(
-                        selected
-                    )
+            map_urls = (
+                await self.get_project_map_urls(
+                    selected
                 )
+            )
 
             # Step 6: Return existing HandlerResult.
             return HandlerResult(
@@ -1077,7 +1322,10 @@ class ProjectInformationHandler:
 
                 html_blocks=(
                     self.render_project_details(
-                        selected[0]
+                        selected[0],
+                        map_url=map_urls.get(
+                            str(selected[0].project_id)
+                        ),
                     )
                     if operation == "details"
                     else self.render_cards(

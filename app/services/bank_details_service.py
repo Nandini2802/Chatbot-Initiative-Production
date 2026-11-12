@@ -69,6 +69,74 @@ class BankDetailsService:
             user_id=user_id,
         )
 
+        return self.filter_accounts(
+            accounts,
+            account_types=account_types,
+            bank_id=bank_id,
+            bank_name=bank_name,
+            account_number=account_number,
+            account_index=account_index,
+        )
+
+    async def get_accounts_with_type_fallback(
+        self,
+        *,
+        project_id: str,
+        access_token: str,
+        user_id: str,
+        account_types: list[str] | None = None,
+        bank_id: str | None = None,
+        bank_name: str | None = None,
+        account_number: str | None = None,
+        account_index: int | None = None,
+    ) -> tuple[list[BankAccount], bool]:
+        """
+        Same as get_accounts (one API call), but when only an account
+        TYPE was requested and the project has none of that type
+        (e.g. escrow asked, only corporate exists), return the project's
+        other accounts instead.
+
+        Returns (accounts, requested_type_found).
+        """
+
+        accounts = await self.connector.fetch(
+            project_id=project_id,
+            access_token=access_token,
+            user_id=user_id,
+        )
+
+        matched = self.filter_accounts(
+            accounts,
+            account_types=account_types,
+            bank_id=bank_id,
+            bank_name=bank_name,
+            account_number=account_number,
+            account_index=account_index,
+        )
+
+        specific_account_requested = any([
+            bank_id,
+            bank_name,
+            account_number,
+            account_index is not None,
+        ])
+
+        if matched or not account_types or specific_account_requested:
+            return matched, True
+
+        return accounts, False
+
+    def filter_accounts(
+        self,
+        accounts: list[BankAccount],
+        *,
+        account_types: list[str] | None = None,
+        bank_id: str | None = None,
+        bank_name: str | None = None,
+        account_number: str | None = None,
+        account_index: int | None = None,
+    ) -> list[BankAccount]:
+
         requested_types = {
             value.lower()
             for value in (account_types or [])

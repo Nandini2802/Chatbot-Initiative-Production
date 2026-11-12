@@ -4,13 +4,21 @@ import logging
 from app.schemas.handler_result import HandlerResult
 from app.services.walkthrough_access_service import (
     WalkthroughEngine,
+    granted_feature_keys,
     norm,
 )
 from app.services.how_to_video_service import (
     HowToVideoService,
 )
+from app.services.how_to_video_selector import (
+    select_relevant_videos,
+)
 from app.services.template_service import (
     TemplateService,
+)
+from app.services.walkthrough_feature_resolver import (
+    decide_walkthrough,
+    find_walkthrough_candidates,
 )
 
 
@@ -31,10 +39,16 @@ class WalkthroughHandler:
         key_features: str | None,
         role: str,
         redis_client,
+        message: str | None = None,
+        llm_client=None,
+        llm_model: str = "",
     ):
         self.engine = engine
         self.key_features = key_features
         self.role = role
+        self.message = message
+        self.llm_client = llm_client
+        self.llm_model = llm_model
 
         self.video_service = HowToVideoService(
             redis_client
@@ -44,20 +58,73 @@ class WalkthroughHandler:
 
     async def handle(self, intent) -> HandlerResult:
 
-        feature_name = getattr(
+        router_feature = getattr(
             intent,
             "feature_name",
             None,
         )
 
-        if not feature_name:
+        # Which walkthrough does the user mean? Router pick + aliases +
+        # typo-tolerant match, then decided by the user's access.
+        names = [guide.name for guide in self.engine.guides.values()]
+        text = (
+            self.message
+            or getattr(intent, "original_query", None)
+            or ""
+        )
+
+        candidates = find_walkthrough_candidates(
+            text,
+            router_feature,
+            names,
+        )
+
+        decision = decide_walkthrough(
+            candidates,
+            lambda name: self.engine.permission(
+                name=name,
+                key_features=self.key_features,
+            )[0],
+        )
+
+        logger.info(
+            "WALKTHROUGH_RESOLVED | router_feature=%s | candidates=%s | "
+            "decision=%s | feature=%s | options=%s",
+            router_feature,
+            candidates,
+            decision.kind,
+            decision.feature,
+            decision.options,
+        )
+
+        if decision.kind == "none":
             return HandlerResult(
                 intent="excel_walkthrough",
-                messages=[
-                    "Which Danube One feature would "
-                    "you like help with?"
-                ],
+                messages=[WALKTHROUGH_FALLBACK],
             )
+
+        if decision.kind == "ask":
+            return HandlerResult(
+                intent="excel_walkthrough",
+                messages=[decision.message],
+            )
+
+        if decision.kind == "denied":
+            logger.info(
+                "WALKTHROUGH_ACCESS_DENIED | "
+                "feature=%s | reason=feature_key_not_granted | "
+                "required=%s | granted=%s",
+                decision.feature,
+                self.engine.required_keys(decision.feature),
+                sorted(granted_feature_keys(self.key_features)),
+            )
+
+            return HandlerResult(
+                intent="excel_walkthrough",
+                messages=[decision.message],
+            )
+
+        feature_name = decision.feature
 
         # First authorize the Excel walkthrough.
         result = self.engine.lookup(
@@ -67,11 +134,15 @@ class WalkthroughHandler:
 
         if result["status"] != "ok":
 
+            # Feature key names are not secret; logging both sides
+            # shows immediately whether a denial is a key mismatch.
             logger.info(
                 "WALKTHROUGH_ACCESS_DENIED | "
-                "feature=%s | reason=%s",
+                "feature=%s | reason=%s | required=%s | granted=%s",
                 feature_name,
                 result.get("reason"),
+                self.engine.required_keys(feature_name),
+                sorted(granted_feature_keys(self.key_features)),
             )
 
             return HandlerResult(
@@ -107,11 +178,19 @@ class WalkthroughHandler:
                 norm(result["feature"])
             ]
 
-            videos = await self.video_service.find_videos(
-                feature_name=guide.name,
-                excel_feature_key=guide.key,
+            # Every video the user may watch; the LLM keeps only the
+            # one or two whose titles fit the question.
+            permitted = await self.video_service.find_permitted_videos(
                 key_features=self.key_features,
                 role=self.role,
+            )
+
+            videos = await select_relevant_videos(
+                question=text,
+                feature_name=guide.name,
+                videos=permitted,
+                client=self.llm_client,
+                model=self.llm_model,
             )
 
             if videos:
