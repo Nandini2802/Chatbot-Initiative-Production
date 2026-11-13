@@ -44,6 +44,10 @@ from app.services.project_fields import (
     field_rows,
 )
 
+from app.retrieval.construction_update_connector import (
+    ConstructionUpdateConnector,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -210,7 +214,10 @@ class ProjectInformationHandler:
         # KEEP: OSF Portfolio API for 3D tours.
         self.tour_connector = OSFPortfolioConnector()
 
+        self.construction_connector = ConstructionUpdateConnector()
+
         self.templates = TemplateService()
+
 
     def failure(self, message):
 
@@ -735,21 +742,199 @@ class ProjectInformationHandler:
             has_data=True,
         )
 
-    def handle_project_fields(
+
+    async def get_construction_update_url(
+        self,
+        project_name: str,
+    ) -> str | None:
+
+        # 1. Reuse existing OSF Portfolio connector.
+        portfolio = await self.tour_connector.fetch_portfolio()
+
+        # 2. Normalize project name.
+        project_key = normalize(
+            normalize_map_project_name(project_name)
+        )
+
+        # 3. Match OSF title with project name.
+        matches = []
+
+        for item in portfolio:
+
+            if not isinstance(item, dict):
+                continue
+
+            osf_name = (
+                item.get("title")
+                or item.get("name")
+                or ""
+            )
+
+            osf_key = normalize(
+                normalize_map_project_name(osf_name)
+            )
+
+            if osf_key == project_key:
+                matches.append(item)
+
+        # Avoid incorrect project ID selection.
+        if len(matches) != 1:
+            logger.warning(
+                "CONSTRUCTION_OSF_MATCH_FAILED | "
+                "project=%s | matches=%s",
+                project_name,
+                len(matches),
+            )
+            return None
+
+        # 4. Retrieve OSF project ID.
+        osf_project_id = matches[0].get("id")
+
+        if (
+            osf_project_id is None
+            or not str(osf_project_id).isdigit()
+        ):
+            return None
+
+        # 5. Call Construction Update API.
+        construction_url = (
+            await self.construction_connector
+            .fetch_construction_url(
+                osf_project_id=str(osf_project_id)
+            )
+        )
+
+        return construction_url
+
+
+    async def get_nearby_places(
+        self,
+        project_name: str,
+    ) -> list[dict]:
+        """
+        Fetch nearby places from OSF Portfolio API
+        for the specified project.
+
+        Returns:
+        [
+            {"title": "...", "image": "..."}
+        ]
+        """
+
+        portfolio = (
+            await self.tour_connector.fetch_portfolio()
+        )
+
+        project_key = normalize(
+            normalize_map_project_name(project_name)
+        )
+
+        matching_projects = []
+
+        for item in portfolio:
+
+            if not isinstance(item, dict):
+                continue
+
+            osf_name = (
+                item.get("title")
+                or item.get("name")
+                or ""
+            )
+
+            osf_key = normalize(
+                normalize_map_project_name(osf_name)
+            )
+
+            if osf_key == project_key:
+                matching_projects.append(item)
+
+        if len(matching_projects) != 1:
+
+            logger.warning(
+                "NEARBY_PROJECT_MATCH_FAILED | "
+                "project=%s | matches=%s",
+                project_name,
+                len(matching_projects),
+            )
+
+            return []
+
+        meta = (
+            matching_projects[0].get("meta") or {}
+        )
+
+        if not isinstance(meta, dict):
+            return []
+
+        raw_places = meta.get(
+            "danube_why_near_location_content"
+        ) or []
+
+        if not isinstance(raw_places, list):
+            return []
+
+        nearby_places = []
+        seen = set()
+
+        for item in raw_places:
+
+            if not isinstance(item, dict):
+                continue
+
+            title = str(
+                item.get(
+                    "danube_why_near_location_title"
+                ) or ""
+            ).strip()
+
+            image = safe_amenity_image_url(
+                item.get(
+                    "danube_why_near_location_image"
+                )
+            )
+
+            if not title or not image:
+                continue
+
+            unique_key = (
+                title.casefold(),
+                image,
+            )
+
+            if unique_key in seen:
+                continue
+
+            seen.add(unique_key)
+
+            nearby_places.append({
+                "title": title,
+                "image": image,
+            })
+
+        logger.info(
+            "NEARBY_PLACES_FETCHED | "
+            "project=%s | count=%s",
+            project_name,
+            len(nearby_places),
+        )
+
+        return nearby_places
+
+    
+    async def handle_project_fields(
         self,
         intent,
         projects,
     ):
         """
-        Answer specific project questions ("project number for Breeze",
-        "places nearby Greenz", "total sold units in Greenz") directly
-        from the Projects API record ("project code" is the project
-        number).
+        Preserve existing project field response text.
 
-        The answer text and the card are built from fixed templates;
-        no LLM is involved.
+        For construction_status only, replace the
+        HTML with the construction update link card.
         """
 
+        # 1. Existing project resolution.
         project, error = self.resolve_project(
             intent,
             projects,
@@ -758,6 +943,7 @@ class ProjectInformationHandler:
         if error:
             return self.failure(error)
 
+        # 2. Existing field extraction.
         fields = expand_fields(
             getattr(intent, "project_fields", None)
         )
@@ -767,37 +953,124 @@ class ProjectInformationHandler:
             fields,
         )
 
+        # 3. KEEP EXISTING RESPONSE UNCHANGED.
         answer = build_field_answer(
             project.project_name,
             rows,
         )
 
+        # 4. Default existing HTML.
         html = self.templates.render(
             "project_fields.html.j2",
             project_name=project.project_name,
             rows=rows,
         )
 
-        logger.info(
-            "PROJECT_FIELDS_ANSWERED | project_name=%s | "
-            "fields=%s | missing=%s",
-            project.project_name,
-            fields,
-            [row["field"] for row in rows if not row["value"]],
-        )
+        card_type = "project_fields"
 
+        # 5. Change HTML only for a single
+        # construction_status field request.
+        if fields == ["construction_status"]:
+
+            try:
+                construction_url = (
+                    await self.get_construction_update_url(
+                        project.project_name
+                    )
+                )
+
+                if construction_url:
+
+                    html = self.templates.render(
+                        "construction_update.html.j2",
+                        project_name=project.project_name,
+                        construction_update_url=construction_url,
+                    )
+
+                    card_type = "construction_update"
+
+                    logger.info(
+                        "CONSTRUCTION_HTML_RENDERED | "
+                        "project=%s",
+                        project.project_name,
+                    )
+
+                else:
+                    logger.info(
+                        "CONSTRUCTION_URL_NOT_AVAILABLE | "
+                        "project=%s",
+                        project.project_name,
+                    )
+
+            except Exception:
+                logger.exception(
+                    "CONSTRUCTION_HTML_FAILED | "
+                    "project=%s",
+                    project.project_name,
+                )
+
+
+        # 6. Nearby places HTML from OSF Portfolio.
+
+        if fields == ["places_nearby"]:
+
+            try:
+                nearby_places = (
+                    await self.get_nearby_places(
+                        project.project_name
+                    )
+                )
+
+                if nearby_places:
+
+                    html = self.templates.render(
+                        "nearbyplaces.html.j2",
+                        nearby_places=nearby_places,
+                    )
+
+                    card_type = "nearby_places"
+
+                    answer = (
+                        f"Here are the places nearby "
+                        f"{project.project_name}."
+                    )
+
+                    logger.info(
+                        "NEARBY_HTML_RENDERED | "
+                        "project=%s | count=%s",
+                        project.project_name,
+                        len(nearby_places),
+                    )
+
+                else:
+                    logger.info(
+                        "NEARBY_PLACES_NOT_AVAILABLE | "
+                        "project=%s",
+                        project.project_name,
+                    )
+
+            except Exception:
+
+                logger.exception(
+                    "NEARBY_PLACES_FAILED | "
+                    "project=%s",
+                    project.project_name,
+                )
+
+        # 7. Existing response structure.
         return HandlerResult(
             intent="project_information",
 
             html_blocks=[
                 {
-                    "card_type": "project_fields",
+                    "card_type": card_type,
                     "html": html,
                 }
             ],
 
             files=[],
 
+            # SAME existing response.
             messages=[answer],
 
             generation_context={
@@ -1216,7 +1489,7 @@ class ProjectInformationHandler:
                 if expand_fields(
                     getattr(intent, "project_fields", None)
                 ):
-                    return self.handle_project_fields(
+                    return await self.handle_project_fields(
                         intent,
                         projects,
                     )

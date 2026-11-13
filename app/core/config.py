@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     osf_portfolio_api_url: str = ""
     osf_portfolio_timeout_seconds: float = 30.0
 
+    # Construction Update 
+    construction_update_api_url: str = ""
+    construction_update_timeout_seconds: float = 60.0
+
     # Payment Plan
     payment_plan_api_url: str = ""
     payment_plan_timeout_seconds: float = 30.0

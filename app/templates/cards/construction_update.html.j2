@@ -1,0 +1,84 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+  .file-stack { display: flex; flex-direction: column; gap: 10px; }
+  .file-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    background: #16171a;
+    border-radius: 16px;
+    padding: 14px 16px;
+  }
+  .file-icon {
+    flex-shrink: 0;
+    color: #fff;
+    display: flex;
+  }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-meta {
+    font-size: 12.5px;
+    color: #8b8d92;
+    margin-top: 3px;
+  }
+  .download-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #e0aa4a 0%, #c9963a 100%);
+    color: #16171a;
+    text-decoration: none;
+    transition: transform .12s, filter .18s;
+    border: 0;
+    cursor: pointer;
+  }
+  .download-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  .download-btn:active { transform: translateY(0); }
+  .download-btn svg { width: 20px; height: 20px; }
+</style>
+</head>
+<body>
+<div class="file-stack">
+
+  <!-- Variant: Construction Updates -->
+  <div class="file-card">
+    <span class="file-icon">
+        <img src="https://d39mr55n259x6c.cloudfront.net/DPT_Container/aibot/icons/construction.png" width="24" height="24" alt="">
+    </span>
+    <div class="file-info">
+      <div class="file-name">{{ project_name | e }}</div>
+      <div class="file-meta">View construction update</div>
+    </div>
+    <a class="download-btn" href="{{ construction_update_url | e }}" target="_blank" rel="noopener noreferrer" title="COntruction Update">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>
+      </svg>
+    </a>
+  </div>
+
+</div>
+</body>
+</html>
