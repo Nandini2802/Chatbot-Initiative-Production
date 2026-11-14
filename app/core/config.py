@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     # Microsoft Foundry
     foundry_openai_base_url: str = ""
+    foundry_openai_secondary_base_url: str = ""
     foundry_openai_model: str = "gpt-5.4"
     foundry_openai_timeout_seconds: float = 30.0
     generation_openai_model: str = ""
@@ -149,6 +150,7 @@ class LocalSecrets(BaseSettings):
     applicationinsights_connection_string: str
     marketing_api_key: str
     foundry_openai_api_key: str
+    foundry_openai_secondary_api_key: str
     currency_api_cookie: str = ""
     inventory_client_id: str = ""
     inventory_client_secret: str = ""

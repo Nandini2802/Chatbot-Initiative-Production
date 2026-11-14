@@ -24,6 +24,7 @@ from redis_entraid.cred_provider import (
 )
 from pinecone import Pinecone
 from openai import AsyncOpenAI
+from app.core.foundry_failover import FoundryFailoverClient
 from functools import partial
 
 from app.core.config import get_settings
@@ -58,7 +59,7 @@ class ServiceClients:
     redis: RedisCluster
     pinecone: Pinecone
     pinecone_index: Any
-    foundry_openai: AsyncOpenAI
+    foundry_openai: FoundryFailoverClient
 
 
 async def create_service_clients(
@@ -141,8 +142,9 @@ async def create_service_clients(
         raise
 
     logger.info("Pinecone client initialized")
+    
+    # Step 4: Initialize Microsoft Foundry clients
 
-    # Step 4: Initialize Azure OpenAI
     if not settings.foundry_openai_base_url:
         await redis_client.aclose()
         await postgres_engine.dispose()
@@ -150,14 +152,44 @@ async def create_service_clients(
             "FOUNDRY_OPENAI_BASE_URL is not configured"
         )
 
-    foundry_client = AsyncOpenAI(
+    if not settings.foundry_openai_secondary_base_url:
+        await redis_client.aclose()
+        await postgres_engine.dispose()
+        raise ValueError(
+            "FOUNDRY_OPENAI_SECONDARY_BASE_URL is not configured"
+        )
+
+    # Primary Microsoft Foundry deployment
+    primary_foundry_client = AsyncOpenAI(
         base_url=settings.foundry_openai_base_url,
-        api_key=secrets.foundry_openai_api_key.get_secret_value(),
+        api_key=(
+            secrets.foundry_openai_api_key.get_secret_value()
+        ),
         timeout=settings.foundry_openai_timeout_seconds,
-        max_retries=2,
+        max_retries=0,
     )
 
-    logger.info("Microsoft Foundry client initialized")
+    # Secondary Microsoft Foundry deployment
+    secondary_foundry_client = AsyncOpenAI(
+        base_url=settings.foundry_openai_secondary_base_url,
+        api_key=(
+            secrets.foundry_openai_secondary_api_key
+            .get_secret_value()
+        ),
+        timeout=settings.foundry_openai_timeout_seconds,
+        max_retries=0,
+    )
+
+    # Shared client with automatic HTTP 429 failover
+    foundry_client = FoundryFailoverClient(
+        primary=primary_foundry_client,
+        secondary=secondary_foundry_client,
+    )
+
+    logger.info(
+        "Microsoft Foundry primary and secondary "
+        "clients initialized with HTTP 429 failover"
+    )
 
     return ServiceClients(
         postgres=postgres_engine,

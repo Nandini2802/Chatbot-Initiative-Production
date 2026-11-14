@@ -215,7 +215,7 @@ class SalesOfferHandler:
 
         mapper = InventoryHandler(self.snapshot)
 
-        displayed = units[:mapper.MAX_DISPLAY_UNITS]
+        displayed = units
 
         await self.save({
             "stage": "unit_selection",

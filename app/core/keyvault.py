@@ -51,6 +51,7 @@ class AppSecrets(BaseModel):
     applicationinsights_connection_string: SecretStr
     marketing_api_key: SecretStr
     foundry_openai_api_key: SecretStr
+    foundry_openai_secondary_api_key: SecretStr
     inventory_client_id: SecretStr
     inventory_client_secret: SecretStr
     inventory_test_cookie: SecretStr
@@ -185,6 +186,7 @@ async def load_application_secrets() -> AppSecrets:
             applicationinsights_connection_string=local.applicationinsights_connection_string,
             marketing_api_key=local.marketing_api_key,
             foundry_openai_api_key=local.foundry_openai_api_key,
+            foundry_openai_secondary_api_key=local.foundry_openai_secondary_api_key,
             inventory_client_id=local.inventory_client_id,
             inventory_client_secret=local.inventory_client_secret,
             inventory_test_cookie=local.inventory_test_cookie,
@@ -227,6 +229,11 @@ async def load_application_secrets() -> AppSecrets:
             ),
             foundry_openai_api_key=SecretStr(
                 await keyvault.get_secret("foundry-openai-api-key")
+            ),
+            foundry_openai_secondary_api_key=SecretStr(
+                await keyvault.get_secret(
+                    "foundry-openai-secondary-api-key"
+                )
             ),
             inventory_client_id=await keyvault.get_secret(
                 "inventory-client-id"

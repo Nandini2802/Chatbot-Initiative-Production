@@ -1,9 +1,9 @@
 
 import logging
+import time
 from typing import Any
 
-import httpx
-import time
+from curl_cffi.requests import AsyncSession
 
 from app.observability.logger import audit_event
 from app.core.config import get_settings
@@ -16,7 +16,7 @@ class MarketingAPIClient:
     def __init__(
         self,
         api_key: str,
-        http_client: httpx.AsyncClient | None = None,
+        http_client: AsyncSession | None = None,
     ):
         self.settings = get_settings()
         self.api_key = api_key
@@ -42,12 +42,10 @@ class MarketingAPIClient:
             ),
         }
 
-        logger.info(
-            "MARKETING_API_REQUEST_STARTED"
-        )
+        logger.info("MARKETING_API_REQUEST_STARTED")
 
         async def make_request(
-            client: httpx.AsyncClient,
+            client: AsyncSession,
         ) -> Any:
 
             response = await client.post(
@@ -81,23 +79,26 @@ class MarketingAPIClient:
             return data
 
         started_at = time.perf_counter()
+
         try:
             if self.http_client is not None:
                 return await make_request(
                     self.http_client
                 )
 
-            async with httpx.AsyncClient() as client:
+            async with AsyncSession() as client:
                 return await make_request(client)
 
         except Exception as exc:
+            response = getattr(exc, "response", None)
+
             audit_event(
                 "MARKETING_API_RESPONSE",
                 level="ERROR",
                 status="failed",
                 api="marketing_catalog",
                 http_status=getattr(
-                    getattr(exc, "response", None),
+                    response,
                     "status_code",
                     None,
                 ),
@@ -108,5 +109,7 @@ class MarketingAPIClient:
                 error_type=type(exc).__name__,
             )
 
-            logger.exception("MARKETING_API_REQUEST_FAILED")
+            logger.exception(
+                "MARKETING_API_REQUEST_FAILED"
+            )
             raise

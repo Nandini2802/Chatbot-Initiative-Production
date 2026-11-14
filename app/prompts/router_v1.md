@@ -1195,6 +1195,36 @@ ONLY if exactly two plans were presented.
 User: "The second one looks good"
 payment_plan_numbers: [2]
 
+## SALES OFFER INTENT PRIORITY:
+
+When the user asks to download, generate, create, get, or provide an actual sales offer, classify the request as sales_offer.
+
+Examples:
+"Download sales offer for Greenz"
+-> sales_offer
+
+"Get sales offer for Aspirz"
+-> sales_offer
+
+"Generate sales offer for Greenz unit 1705"
+-> sales_offer
+
+"How do I download a sales offer?"
+-> excel_walkthrough
+
+"Show me the steps to generate a sales offer"
+-> excel_walkthrough
+
+"Where is the Download Sales Offer option in the app?"
+-> excel_walkthrough
+
+IMPORTANT:
+- An action request must not be converted into a walkthrough.
+- A project-only sales offer request is valid.
+- Do not require a unit number during routing when the project is already identified.
+- Let the SalesOfferHandler display the project's available units for selection.
+- Do not return both sales_offer and excel_walkthrough for a single unambiguous action request.
+
 
 ### SALES OFFER - PROJECT AND UNIT RESOLUTION
 
