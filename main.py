@@ -31,6 +31,8 @@ from app.templates.dev.chat_harness import router as dev_router
 from app.middleware.exception_handlers import validation_exception_handler
 from app.services.walkthrough_access_service import WalkthroughEngine
 from app.observability.logger import setup_logging, audit_event
+from app.core.service_health_monitor import check_all_services
+
 
 from opentelemetry import trace
 from opentelemetry._logs import get_logger_provider
@@ -225,6 +227,13 @@ async def lifespan(app: FastAPI):
         )
 
         scheduler.start()
+
+        try:
+            await check_all_services(clients)
+        except Exception:
+            logger.exception(
+                "INITIAL_HEALTH_MONITOR_EXECUTION_FAILED"
+            )
 
         for job in scheduler.get_jobs():
             logger.info(

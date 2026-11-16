@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     # MAP Link
     project_coordinates_api_url: str = ""
 
+    # Monitoring
+    monitor_middleware_inventory_url: str = ""
+    monitor_test_failure_service: str = ""
+    monitor_interval_seconds: int = 300
+
     # Portfolio API
     osf_portfolio_api_url: str = ""
     osf_portfolio_timeout_seconds: float = 30.0

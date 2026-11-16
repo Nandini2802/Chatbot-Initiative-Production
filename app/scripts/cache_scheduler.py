@@ -2,6 +2,7 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.scripts.refresh_api_cache import *
+from app.core.service_health_monitor import check_all_services
 
 logger = logging.getLogger(__name__)
 
@@ -64,5 +65,21 @@ def create_cache_scheduler(clients, secrets):
         "HOW_TO_VIDEOS_CACHE_SCHEDULED | every_24_hours"
     )
 
+
+    scheduler.add_job(
+        check_all_services,
+        trigger="interval",
+        minutes=5,
+        args=[clients],
+        id="service_health_monitor",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
+    )
+
+    logger.info(
+        "SERVICE_HEALTH_MONITOR_SCHEDULED | interval=5_minutes"
+    )
 
     return scheduler

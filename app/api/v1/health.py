@@ -24,7 +24,10 @@ async def ready(request: Request):
 
     clients = request.app.state.clients
 
-    dependency_status = await run_startup_checks(clients)
+    dependency_status = await run_startup_checks(
+        clients,
+        application_insights_initialized=True,
+    )
 
     is_ready = all(
         status == "healthy"
