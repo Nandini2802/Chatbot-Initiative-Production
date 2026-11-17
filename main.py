@@ -134,6 +134,15 @@ async def lifespan(app: FastAPI):
         ]
 
         if failed_mandatory_services:
+            for service_name in failed_mandatory_services:
+                audit_event(
+                    "SERVICE_STARTUP_FAILURE",
+                    level="ERROR",
+                    service=service_name,
+                    status="unhealthy",
+                    stage="startup_check",
+                )
+
             raise RuntimeError(
                 "Application startup failed. "
                 "Unhealthy mandatory services: "
@@ -206,6 +215,8 @@ async def lifespan(app: FastAPI):
             logger.info(
                 "CURRENCY_CACHE_ALREADY_AVAILABLE"
             )
+
+        # Initialize How to Videos if Redis cache is empty.
 
         videos_cache_exists = await clients.redis.exists(
             RedisCacheKeys.HOW_TO_VIDEOS

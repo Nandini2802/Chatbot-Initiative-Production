@@ -3,7 +3,7 @@ import asyncio
 import logging
 import time
 
-import httpx
+from curl_cffi.requests import AsyncSession
 
 from app.core.startup_checks import (
     check_postgres,
@@ -15,7 +15,6 @@ from app.core.config import get_settings
 
 logger = logging.getLogger("app.health_monitor")
 
-MONITOR_INTERVAL_SECONDS = 300
 
 settings = get_settings()
 
@@ -66,22 +65,57 @@ async def _check_foundry(client):
     return True
 
 
+
 async def _check_middleware(name, url):
     """
-    Check an approved read-only middleware health endpoint.
+    Check middleware health using its dedicated health API.
 
-    A healthy endpoint must return HTTP 200.
-    Do not use a business-action URL here.
+    Healthy when:
+    1. HTTP status is 200
+    2. Response JSON contains {"ok": true}
     """
-    if not url.startswith("https://"):
-        raise ValueError("Middleware health URL must use HTTPS")
 
-    async with httpx.AsyncClient(
-        timeout=10.0,
-        follow_redirects=False,
-    ) as client:
-        response = await client.get(url)
-        return response.status_code == 200
+    if not url.startswith("https://"):
+        raise ValueError(
+            "Middleware health URL must use HTTPS"
+        )
+
+    async with AsyncSession(
+        impersonate="chrome",
+        timeout=10,
+    ) as session:
+
+        response = await session.get(
+            url,
+            headers={
+                "Accept": "application/json",
+            },
+            allow_redirects=False,
+        )
+
+        logger.info(
+            "MIDDLEWARE_HEALTH_RESPONSE | service=%s | status_code=%s",
+            name,
+            response.status_code,
+        )
+
+        if response.status_code != 200:
+            return False
+
+        try:
+            data = response.json()
+        except ValueError:
+            logger.error(
+                "MIDDLEWARE_HEALTH_INVALID_JSON | service=%s",
+                name,
+            )
+            return False
+
+        return (
+            isinstance(data, dict)
+            and data.get("ok") is True
+        )
+
 
 
 async def check_all_services(clients):
@@ -112,6 +146,8 @@ async def check_all_services(clients):
     middleware_url = (
         settings.monitor_middleware_inventory_url.strip()
     )
+
+    print("Monitoring middleware URL:", middleware_url)
 
     if middleware_url:
         checks["middleware_inventory"] = (

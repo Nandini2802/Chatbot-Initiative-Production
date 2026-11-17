@@ -28,6 +28,7 @@ from app.core.foundry_failover import FoundryFailoverClient
 from functools import partial
 
 from app.core.config import get_settings
+from app.observability.logger import audit_event
 from app.core.keyvault import (
     AppSecrets,
     load_application_secrets,
@@ -73,14 +74,25 @@ async def create_service_clients(
 
 
     # Step 1: Initialize PostgreSQL
-    postgres_engine = create_async_engine(
-        secrets.postgres_url.get_secret_value(),
-        pool_size=5,
-        max_overflow=10,
-        pool_pre_ping=True,
-    )
-
-    logger.info("PostgreSQL engine initialized")
+    try:
+        postgres_engine = create_async_engine(
+            secrets.postgres_url.get_secret_value(),
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+        )
+        logger.info("PostgreSQL engine initialized")
+    except Exception as exc:
+        audit_event(
+            "SERVICE_STARTUP_FAILURE",
+            level="ERROR",
+            service="postgres",
+            status="unhealthy",
+            stage="engine_initialization",
+            error_type=type(exc).__name__,
+        )
+        logger.exception("POSTGRES_ENGINE_INITIALIZATION_FAILED")
+        raise
 
     # Step 2: Initialize Redis
     redis_credential_provider = (
@@ -114,7 +126,16 @@ async def create_service_clients(
 
         logger.info("Redis client initialized")
 
-    except Exception:
+    except Exception as exc:
+        audit_event(
+            "SERVICE_STARTUP_FAILURE",
+            level="ERROR",
+            service="redis",
+            status="unhealthy",
+            stage="client_initialization",
+            error_type=type(exc).__name__,
+        )
+
         logger.exception(
             "REDIS_CONNECTION_FAILURE | stage=startup | status=unhealthy"
         )

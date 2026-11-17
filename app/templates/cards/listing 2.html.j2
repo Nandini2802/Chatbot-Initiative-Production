@@ -5,110 +5,121 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500&display=swap" rel="stylesheet" />
 <style>
-	/* TEMP ENDS HERE (DO not use above) */
- 	*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-	body {
-		font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-		-webkit-font-smoothing: antialiased;
-		color: #fff;
-		padding-bottom: 96px;
-	}
-	.pay-header {
-		display: flex;
-		align-items: center;
-		gap: 16px;
-		height: 56px;
-		padding: 18px 16px;
-		background: rgba(0,0,0,.6);
-		backdrop-filter: blur(15px);
-		-webkit-backdrop-filter: blur(15px);
-		position: sticky;
-		top: 0;
-		z-index: 2;
-	}
-	.pay-header__title {
-		flex: 1 0 0;
-		min-width: 0;
-		text-align: center;
-		font-family: 'Montserrat', sans-serif;
-		font-weight: 600;
-		font-size: 17px;
-		line-height: 1.2;
-		letter-spacing: 1.7px;
-		text-transform: uppercase;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	/* TEMP ENDS HERE (DO not use above) */
+ /* TEMP ENDS HERE (DO not use above) */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+ body {
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #fff;
+  padding-bottom: 96px;
+ }
+ .pay-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  padding: 18px 16px;
+  background: rgba(0,0,0,.6);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+ }
+ .pay-header__title {
+  flex: 1 0 0;
+  min-width: 0;
+  text-align: center;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 1.2;
+  letter-spacing: 1.7px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+ }
+ /* TEMP ENDS HERE (DO not use above) */
 
-	/* UNIT LISTING */
-	.unit-table {
-		display: flex;
-		flex-direction: column;
-		background: #111;
-		border-radius: 10px;
-		overflow: hidden;
-	}
-	.unit-table__head {
-		display: flex;
-		gap: 5px;
-		padding: 10px;
-		color: #000;
-		line-height: 1.5;
-		background: linear-gradient(100.45deg, #b87c01 0%, #d7ac50 21.26%, #dc9b15 100%);
-	}
-	.unit-table__head .col-title { font-weight: 500; font-size: 12px; }
-	.unit-table__head .col-sub { font-weight: 400; font-size: 10px; }
-	/* Column widths match the Figma spec; Property flexes to fill. */
-	.col-property { flex: 1 0 0; min-width: 1px; }
-	.col-area  { width: 50px; }
-	.col-type  { width: 70px; }
-	.col-price { width: 50px; }
+ /* UNIT LISTING */
+ /* Cap width on large screens so the table doesn't stretch edge-to-edge
+    (the sticky header stays full-width); fills the width on mobile. */
+ .unit-table, .unit-pagination {
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+ }
+ .unit-table {
+  display: flex;
+  flex-direction: column;
+  background: #111;
+  border-radius: 10px;
+  overflow: hidden;
+ }
+ .unit-table__head {
+  display: flex;
+  gap: 5px;
+  padding: 10px;
+  color: #000;
+  line-height: 1.5;
+  background: linear-gradient(100.45deg, #b87c01 0%, #d7ac50 21.26%, #dc9b15 100%);
+ }
+ .unit-table__head .col-title { font-weight: 500; font-size: 11px; }
+ .unit-table__head .col-sub { font-weight: 400; font-size: 9px; }
+ /* Flexible columns: scale together from mobile up to the capped desktop width,
+    so nothing stretches or crams. Property (1) and Area (2) carry the most weight. */
+ .col-property { flex: 3 1 96px; min-width: 0; }
+ .col-area  { flex: 1.3 1 60px; }
+ .col-type  { flex: 1.5 1 64px; }
+ .col-price { flex: 1 1 66px; }
 
-	.unit-table__body { display: flex; flex-direction: column; padding: 0 10px; }
-	.unit-row {
-		display: flex;
-		gap: 5px;
-		padding: 16px 0;
-		border-bottom: 1px solid #000;
-		color: #fff;
-		font-weight: 400;
-		font-size: 12px;
-		line-height: 1.5;
-	}
-	.unit-row .col-property { white-space: nowrap; }
-	/* UNIT LISTING */
+ .unit-table__body { display: flex; flex-direction: column; padding: 0 10px; }
+ .unit-row {
+  display: flex;
+  gap: 5px;
+  padding: 16px 0;
+  border-bottom: 1px solid #000;
+  color: #fff;
+  font-weight: 400;
+  font-size: 11px;
+  line-height: 1.5;
+ }
+ /* Property/Type wrap at any point (long codes/names); Price stays on one line. */
+ .unit-row .col-property { overflow-wrap: anywhere; }
+ .unit-row .col-type { overflow-wrap: anywhere; }
+ .unit-row .col-price { white-space: nowrap; }
+ /* UNIT LISTING */
 
-	/* PAGINATION — only shown when records exceed one page (20) */
-	.unit-pagination {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-wrap: wrap;
-		gap: 6px;
-		padding: 14px 10px;
-	}
-	.unit-pagination__btn {
-		min-width: 32px;
-		height: 32px;
-		padding: 0 10px;
-		border: 1px solid #333;
-		border-radius: 8px;
-		background: #111;
-		color: #fff;
-		font-family: inherit;
-		font-size: 12px;
-		cursor: pointer;
-	}
-	.unit-pagination__btn:disabled { opacity: .4; cursor: default; }
-	.unit-pagination__btn--active {
-		border-color: transparent;
-		color: #000;
-		font-weight: 500;
-		background: linear-gradient(100.45deg, #b87c01 0%, #d7ac50 21.26%, #dc9b15 100%);
-	}
-	.unit-pagination__ellipsis { color: #777; padding: 0 2px; }
+ /* PAGINATION — only shown when records exceed one page (20) */
+ .unit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 14px 10px;
+ }
+ .unit-pagination__btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+ }
+ .unit-pagination__btn:disabled { opacity: .4; cursor: default; }
+ .unit-pagination__btn--active {
+  border-color: transparent;
+  color: #000;
+  font-weight: 500;
+  background: linear-gradient(100.45deg, #b87c01 0%, #d7ac50 21.26%, #dc9b15 100%);
+ }
+ .unit-pagination__ellipsis { color: #777; padding: 0 2px; }
 </style>
 </head>
 <body>

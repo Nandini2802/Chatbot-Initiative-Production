@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     # Monitoring
     monitor_middleware_inventory_url: str = ""
     monitor_test_failure_service: str = ""
-    monitor_interval_seconds: int = 300
+    monitor_interval_seconds: int = 60
 
     # Portfolio API
     osf_portfolio_api_url: str = ""
