@@ -5,7 +5,7 @@ from curl_cffi.requests import AsyncSession
 from pydantic import BaseModel, ConfigDict
 
 from app.core.config import get_settings
-
+from app.core.middleware_headers import build_middleware_headers
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +46,10 @@ class BankDetailsConnector:
                 "Required project or authentication data missing."
             )
 
-        headers = {
-            "salesforce_access_token": access_token,
-            "user_id": user_id,
+        headers = build_middleware_headers({
             "Content-Type": "application/json",
             "Accept": "application/json",
-        }
+        })
 
         payload = {
             "projectId": project_id,

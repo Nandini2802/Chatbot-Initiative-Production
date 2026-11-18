@@ -6,25 +6,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-*, *::before, *::after {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-}
-
-body {
-    font-family: -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, Arial, sans-serif;
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     background: transparent;
-}
-
-.file-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.file-card {
+    -webkit-font-smoothing: antialiased;
+  }
+  .file-stack { display: flex; flex-direction: column; gap: 10px; }
+  .file-card {
     display: flex;
     align-items: center;
     gap: 14px;
@@ -32,34 +21,27 @@ body {
     background: #16171a;
     border-radius: 16px;
     padding: 14px 16px;
-}
-
-.file-icon {
+  }
+  .file-icon {
     flex-shrink: 0;
     color: #fff;
-}
-
-.file-info {
-    flex: 1;
-    min-width: 0;
-}
-
-.file-name {
+    display: flex;
+  }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name {
     font-size: 15px;
     font-weight: 600;
     color: #fff;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    overflow-wrap: anywhere;
-}
-
-.file-meta {
+  }
+  .file-meta {
     font-size: 12.5px;
     color: #8b8d92;
-    margin-top: 4px;
-}
-
-.download-btn {
+    margin-top: 3px;
+  }
+  .download-btn {
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -67,26 +49,39 @@ body {
     width: 44px;
     height: 44px;
     border-radius: 50%;
-    background: linear-gradient(
-        135deg,
-        #e0aa4a 0%,
-        #c9963a 100%
-    );
+    background: linear-gradient(135deg, #e0aa4a 0%, #c9963a 100%);
     color: #16171a;
     text-decoration: none;
+    transition: transform .12s, filter .18s;
     border: 0;
     cursor: pointer;
-}
-
-.download-btn:hover {
-    filter: brightness(1.06);
-    transform: translateY(-1px);
-}
-
-.download-btn svg {
-    width: 20px;
-    height: 20px;
-}
+  }
+  .download-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  .download-btn:active { transform: translateY(0); }
+  .download-btn svg { width: 20px; height: 20px; }
+  /* Both action buttons sit together; copy is secondary to the gold download. */
+  .file-actions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+  .copy-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: transparent;
+    border: 1.5px solid #2e3034;
+    color: #c9963a;
+    cursor: pointer;
+    transition: transform .12s, background .18s, border-color .18s, color .18s;
+  }
+  .copy-btn:hover { background: #1e2024; border-color: #3a3d42; }
+  .copy-btn:active { transform: translateY(0); }
+  .copy-btn svg { width: 19px; height: 19px; }
+  .copy-btn.copied { border-color: #2e7d52; color: #4caf7d; background: rgba(76,175,125,.12); }
+  .copy-btn .ico-check { display: none; }
+  .copy-btn.copied .ico-copy { display: none; }
+  .copy-btn.copied .ico-check { display: block; }
 </style>
 </head>
 
@@ -152,6 +147,78 @@ body {
 {% endfor %}
 
 </div>
+
+<script>
+/* Add a "Copy details" button to every file card. Built generically from each
+   card (name · meta · link) so it covers all variants and any future ones.
+   Clipboard write with execCommand fallback; also relays to the host app so a
+   native WebView can copy if the iframe blocks the Clipboard API. */
+(function () {
+  var COPY_SVG =
+    '<svg class="ico-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>' +
+    '<svg class="ico-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+  function detailsOf(card) {
+    var name = (card.querySelector('.file-name') || {}).textContent || '';
+    var meta = (card.querySelector('.file-meta') || {}).textContent || '';
+    var link = card.querySelector('.download-btn');
+    var href = link ? link.getAttribute('href') || '' : '';
+    return [name.trim(), meta.trim(), href.trim()].filter(Boolean).join('\n');
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(fallbackCopy.bind(null, text));
+    } else {
+      fallbackCopy(text);
+    }
+    // Let the native host copy too (no-op in a plain browser).
+    try {
+      window.parent.postMessage({ source: 'danube-block', type: 'copy', text: text }, '*');
+    } catch (e) {}
+  }
+
+  function fallbackCopy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {}
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.file-card'), function (card) {
+    var dl = card.querySelector('.download-btn');
+    if (!dl) return;
+    var actions = document.createElement('div');
+    actions.className = 'file-actions';
+    var copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'copy-btn';
+    copy.title = 'Copy details';
+    copy.setAttribute('aria-label', 'Copy details');
+    copy.innerHTML = COPY_SVG;
+    dl.parentNode.insertBefore(actions, dl);
+    actions.appendChild(copy);
+    actions.appendChild(dl);
+    copy.addEventListener('click', function () {
+      copyText(detailsOf(card));
+      copy.classList.add('copied');
+      copy.title = 'Copied';
+      clearTimeout(copy._t);
+      copy._t = setTimeout(function () {
+        copy.classList.remove('copied');
+        copy.title = 'Copy details';
+      }, 1600);
+    });
+  });
+})();
+</script>
 
 </body>
 </html>

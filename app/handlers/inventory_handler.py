@@ -15,6 +15,7 @@ from app.services.project_name_service import normalize_project_name
 from app.services.unit_comparison_client import UnitComparisonClient
 from app.services.unit_comparison_mapper import map_comparison
 from app.handlers.payment_plan_handler import PaymentPlanHandler
+from app.services.inventory_filter_service import as_decimal
 from app.services.unit_comparison_resolver import (
     resolve_comparison_unit,
 )
@@ -201,8 +202,38 @@ class InventoryHandler:
             )
             return result
 
-        # Limit the number of displayed units.
-        displayed = matches[:self.MAX_DISPLAY_UNITS]
+        price_selection = getattr(
+            intent,
+            "price_selection",
+            None,
+        )
+
+        is_extreme_price_search = (
+            price_selection in {
+                "cheapest",
+                "most_expensive",
+            }
+        )
+
+        def price_sort_key(unit):
+            price = as_decimal(unit.price)
+
+            return (
+                price is None,
+                price if price is not None else 0,
+            )
+
+        price_sorted_matches = sorted(
+            matches,
+            key=price_sort_key,
+        )
+
+        displayed = (
+            price_sorted_matches
+            if is_extreme_price_search
+            else price_sorted_matches[:self.MAX_DISPLAY_UNITS]
+        )
+
 
         safe_units = [
             self._unit_data(unit)
@@ -273,6 +304,21 @@ class InventoryHandler:
             "total_matches": len(matches),
             "displayed_count": len(displayed),
             "units": safe_units,
+            "price_selection": (
+                price_selection
+                if is_extreme_price_search
+                else None
+            ),
+            "selected_price": (
+                str(matches[0].price)
+                if is_extreme_price_search and matches
+                else None
+            ),
+            "price_tie_count": (
+                len(matches)
+                if is_extreme_price_search
+                else 0
+            ),
             "show_unit_type_summary": show_unit_type_summary,
             "distinct_unit_types": distinct_unit_types,
             "unit_type_count": len(distinct_unit_types),
@@ -316,11 +362,9 @@ class InventoryHandler:
             })
 
         elif operation != "unit_details":
-
-            # Preserve existing inventory listing logic.
             html_units = [
                 self._unit_data(unit)
-                for unit in matches
+                for unit in price_sorted_matches
             ]
 
             result.html_blocks.append({

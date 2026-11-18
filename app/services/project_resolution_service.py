@@ -43,6 +43,46 @@ def _aliases(name: str) -> set[str]:
     return {alias for alias in (_norm(name), _short(name)) if alias}
 
 
+def _match_unique_numbered_family(
+    phrase: str,
+    names: list[str],
+) -> ProjectResolution | None:
+    """
+    Match an unnumbered project family only when
+    exactly one numbered variant exists.
+
+    Never guess between multiple numbered projects.
+    """
+    query = _short(phrase)
+
+    if not query or _numbers(query):
+        return None
+
+    candidates = [
+        name
+        for name in names
+        if re.fullmatch(
+            re.escape(query) + r"\s+\d+",
+            _short(name),
+        )
+    ]
+
+    if len(candidates) == 1:
+        return ProjectResolution(
+            status="matched",
+            name=candidates[0],
+            method="unique_numbered_family",
+        )
+
+    if len(candidates) > 1:
+        return ProjectResolution(
+            status="ambiguous",
+            candidates=tuple(candidates),
+        )
+
+    return None
+
+
 def _score(left: str, right: str) -> float:
     def canonical(value: str) -> str:
         return " ".join(
@@ -65,12 +105,34 @@ def _exact(phrase: str, names: list[str], method: str) -> ProjectResolution | No
         return ProjectResolution("matched", full[0], method)
     if len(full) > 1:
         return ProjectResolution("ambiguous", candidates=tuple(full))
-    short = [name for name in names if _short(name) == normalized]
+
+    short = [
+        name
+        for name in names
+        if _short(name) == normalized
+    ]
+
     if len(short) == 1:
         return ProjectResolution("matched", short[0], method)
+
     if len(short) > 1:
-        return ProjectResolution("ambiguous", candidates=tuple(short))
+        return ProjectResolution(
+            "ambiguous",
+            candidates=tuple(short),
+        )
+
+    # Resolve a family-only name when exactly one
+    # numbered variant exists in the catalog.
+    family_match = _match_unique_numbered_family(
+        phrase,
+        names,
+    )
+
+    if family_match is not None:
+        return family_match
+
     return None
+
 
 
 def _rank(phrase: str, names: list[str]) -> list[tuple[float, str]]:
@@ -158,6 +220,52 @@ def match_project_in_message(message: str, projects: Collection[str]) -> Project
     phrases = _message_phrases(message)
     if not phrases:
         return ProjectResolution("not_found")
+
+    family_matches = []
+
+    for phrase in phrases:
+        if _numbers(phrase):
+            continue
+
+        family_match = _match_unique_numbered_family(
+            phrase,
+            names,
+        )
+
+        if family_match is not None:
+            family_matches.append(family_match)
+
+    matched_names = {
+        match.name
+        for match in family_matches
+        if match.status == "matched"
+    }
+
+    if len(matched_names) == 1 and not any(
+        match.status == "ambiguous"
+        for match in family_matches
+    ):
+        return ProjectResolution(
+            "matched",
+            next(iter(matched_names)),
+            "message_unique_family",
+        )
+
+    if any(
+        match.status == "ambiguous"
+        for match in family_matches
+    ):
+        candidates = sorted({
+            name
+            for match in family_matches
+            for name in match.candidates
+        })
+
+        return ProjectResolution(
+            "ambiguous",
+            candidates=tuple(candidates),
+        )
+
 
     # A family-only request such as 'Eleganz' must not select Eleganz 2/5.
     # Also handles misspelled family names when there is no exact unnumbered

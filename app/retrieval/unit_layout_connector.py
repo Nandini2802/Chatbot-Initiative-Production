@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from curl_cffi.requests import AsyncSession
 
 from app.core.config import get_settings
+from app.core.middleware_headers import build_middleware_headers
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,10 @@ class UnitLayoutConnector:
 
         url = f"{base_url}/{unit_id}"
 
-        headers = {
-            "salesforce_access_token": access_token,
-            "user_id": user_id,
+        headers = build_middleware_headers({
             "Content-Type": "application/json",
             "Accept": "application/json",
-        }
+        })
 
         try:
             async with AsyncSession(

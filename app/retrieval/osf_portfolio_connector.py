@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.core.config import get_settings
 from app.core.keyvault import load_application_secrets
+from app.core.middleware_headers import build_middleware_headers
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +31,10 @@ class OSFPortfolioConnector:
         if not api_key:
             raise ValueError("OSF Portfolio API key missing")
 
-        headers = {
+        headers = build_middleware_headers({
             "x_api_key": api_key,
             "Accept": "application/json",
-        }
+        })
 
         async with AsyncSession(
             impersonate="chrome"

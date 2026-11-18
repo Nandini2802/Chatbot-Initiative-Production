@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from curl_cffi.requests import AsyncSession
 
 from app.core.config import get_settings
+from app.core.middleware_headers import build_middleware_headers
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +39,9 @@ class ConstructionUpdateConnector:
                 params={
                     "project_Id": str(osf_project_id)
                 },
-                headers={
-                    "Accept": "application/json"
-                },
+                headers=build_middleware_headers({
+                    "Accept": "application/json",
+                }),
                 data="",
                 timeout=(
                     self.settings

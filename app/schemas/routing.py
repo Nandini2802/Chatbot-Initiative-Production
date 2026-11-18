@@ -139,6 +139,11 @@ class RoutingIntent(BaseModel):
         "area_desc",
     ] | None = None
 
+    price_selection: Literal[
+        "cheapest",
+        "most_expensive",
+    ] | None = None
+
     inventory_operation: Literal[
         "project_info",
         "project_comparison",

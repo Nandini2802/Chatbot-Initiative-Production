@@ -155,7 +155,7 @@ def map_comparison(project, unit):
 
             # Status__c is a text field, not a date.
             "completion_date": display(
-                unit.get("Status__c")
+                unit.get("ACD__c")
             ),
         },
         "payment_plans": payment_plans,

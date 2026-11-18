@@ -3,6 +3,7 @@ import os
 
 from curl_cffi.requests import AsyncSession
 from app.core.config import get_settings
+from app.core.middleware_headers import build_middleware_headers
 
 
 logger = logging.getLogger(__name__)
@@ -41,11 +42,9 @@ class UnitComparisonClient:
         ):
             raise ValueError("Exactly two distinct units are required")
 
-        headers = {
-            "salesforce_access_token": token,
-            "user_id": user_id,
+        headers = build_middleware_headers({
             "Content-Type": "application/json",
-        }
+        })
 
         payload = {
             "project_ids": ",".join(project_ids),

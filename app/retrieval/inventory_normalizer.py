@@ -65,8 +65,9 @@ def normalize_project(raw: dict[str, Any]) -> InventoryProject:
             "Anticipated_Handover_Date__c"
         ),
 
-        completion_date=data.get(
-            "Completion_Date_Mob__c"
+        completion_date=(
+            data.get("Completion_Date_Mob__c")
+            or data.get("Completion_Date_Mob__c ")
         ),
 
         location=data.get(

@@ -8,6 +8,8 @@ from curl_cffi.requests import AsyncSession
 from app.observability.logger import audit_event
 from app.core.config import get_settings
 
+from app.core.middleware_headers import build_middleware_headers
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,15 +34,14 @@ class MarketingAPIClient:
                 "Marketing API URL is not configured"
             )
 
-        headers = {
+        headers = build_middleware_headers({
             "x_api_key": self.api_key,
-            "product_name": (
-                self.settings.marketing_product_name
-            ),
+            "product_name": self.settings.marketing_product_name,
             "product_feature_name": (
                 self.settings.marketing_product_feature_name
             ),
-        }
+        })
+
 
         logger.info("MARKETING_API_REQUEST_STARTED")
 

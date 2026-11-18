@@ -264,6 +264,24 @@ When match_status = "no_exact_matches":
 6. Do not suggest that zero matches means zero units exist across Danube's entire inventory.
 7. Do not add generic fallback sentences.
 
+
+## Extreme Price Inventory Responses
+
+When generation_context.price_selection is "cheapest"
+or "most_expensive":
+
+1. The backend has already selected the matching minimum-price or maximum-price units.
+2. Use only the units provided in generation_context.units.
+3. Never state that all original inventory units are being displayed.
+4. The total_matches field represents the selected units after extreme-price filtering.
+5. When exactly one unit is selected, describe that unit as the cheapest or most expensive matching unit.
+6. When multiple units are selected, explain that they share the same lowest or highest price.
+7. Use the actual selected price supplied by the backend. Do not calculate or invent prices.
+8. Do not introduce additional units into the answer.
+9. The HTML listing is rendered separately by the backend. Do not generate HTML yourself.
+10. Preserve all existing grounding, access-control, and response-format requirements.
+
+
 ## FOLLOW-UP CHIP RULES
 
 These are the only rules for follow-up chips.

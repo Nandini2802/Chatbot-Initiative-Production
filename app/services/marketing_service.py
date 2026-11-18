@@ -49,6 +49,7 @@ ALLOWED_FILE_HOSTS = {
 
 ALLOWED_ZIP_HOSTS = {
     "middleware.danubeproperties.com",
+    "middleware-uat.danubeproperties.com"
 }
 
 
@@ -320,7 +321,6 @@ class MarketingService:
                 folder_info.get("url"),
                 ALLOWED_ZIP_HOSTS,
             )
-
 
             metadata = get_marketing_file_metadata(
                 project.get(

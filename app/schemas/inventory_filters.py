@@ -28,6 +28,11 @@ class InventoryFilters(BaseModel):
         "area_desc",
     ] | None = None
 
+    price_selection: Literal[
+        "cheapest",
+        "most_expensive",
+    ] | None = None
+
     requires_pool: bool = False
     requires_duplex: bool = False
 

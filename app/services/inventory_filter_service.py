@@ -273,4 +273,52 @@ class InventoryFilterService:
 
             results = known + unknown
 
+        price_selection = getattr(
+            intent,
+            "price_selection",
+            None,
+        )
+
+        if price_selection in {
+            "cheapest",
+            "most_expensive",
+        }:
+            priced_units = [
+                unit
+                for unit in results
+                if as_decimal(unit.price) is not None
+            ]
+
+            if not priced_units:
+                return []
+
+            currencies = {
+                norm(unit.currency)
+                for unit in priced_units
+            }
+
+            if len(currencies) != 1 or "" in currencies:
+                raise ValueError(
+                    "Cannot compare inventory prices "
+                    "with mixed or missing currencies"
+                )
+
+            target_price = (
+                min(
+                    as_decimal(unit.price)
+                    for unit in priced_units
+                )
+                if price_selection == "cheapest"
+                else max(
+                    as_decimal(unit.price)
+                    for unit in priced_units
+                )
+            )
+
+            results = [
+                unit
+                for unit in priced_units
+                if as_decimal(unit.price) == target_price
+            ]
+
         return results

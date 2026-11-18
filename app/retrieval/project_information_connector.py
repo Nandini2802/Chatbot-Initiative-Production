@@ -5,6 +5,7 @@ from curl_cffi.requests import AsyncSession
 
 from app.core.config import get_settings
 from app.retrieval.inventory_normalizer import normalize_project
+from app.core.middleware_headers import build_middleware_headers
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +43,10 @@ class ProjectInformationConnector:
                 "Salesforce access token is missing."
             )
 
-        headers = {
+        headers = build_middleware_headers({
             "Authorization": f"Bearer {inventory_token}",
-            "salesforce_access_token": access_token,
             "Accept": "*/*",
-        }
+        })
 
         try:
             async with AsyncSession(

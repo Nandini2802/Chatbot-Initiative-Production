@@ -11,6 +11,7 @@ from app.core.exceptions import AppException
 from app.core.keyvault import AppSecrets
 from app.retrieval.salesforce_response_validator import validate_salesforce_response
 from app.observability.logger import audit_event
+from app.core.middleware_headers import build_middleware_headers
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +47,10 @@ class SalesforceClient:
                 error_code="AUTHENTICATION_ERROR",
             )
 
-        headers = {
+        headers = build_middleware_headers({
             "Authorization": f"Bearer {token.strip()}",
             "Accept": "*/*",
-        }
+        })
         if user_id is not None:
             if not user_id.strip():
                 raise AppException(
@@ -274,11 +275,9 @@ class SalesforceClient:
 
         url = f"{base_url}/{unit_id}"
 
-        headers = {
-            "salesforce_access_token": token.strip(),
-            "user_id": user_id.strip(),
+        headers = build_middleware_headers({
             "Accept": "application/json",
-        }
+        })
 
         async def execute(session):
             try:

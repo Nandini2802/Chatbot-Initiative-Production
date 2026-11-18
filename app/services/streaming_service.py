@@ -112,7 +112,10 @@ from app.utils.currency_normalizer import (
     resolve_currency,
     extract_currency_and_format,
 )
-
+from app.core.middleware_headers import (
+    set_middleware_context,
+    reset_middleware_context,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -808,8 +811,7 @@ async def _stream_chat_response_impl(
                 selection_result.has_data and bool(selection_html)
             )
             selection_text = (
-                f"Here is the selected payment plan for "
-                f"{pending_payment_selection['unit_name']}: "
+                f"Here is the selected payment plan - "
                 f"{selected_payment_plan_record['name']}."
                 if selection_succeeded
                 else " ".join(selection_result.messages)
@@ -3395,6 +3397,7 @@ async def _stream_chat_response_impl(
                     "max_area_sqft",
                     "currency",
                     "sort_by",
+                    "price_selection",
                     "requires_pool",
                     "requires_duplex",
                 )
@@ -4412,6 +4415,11 @@ async def stream_chat_response(
         "session_id": str(session_id),
     })
 
+    middleware_tokens = set_middleware_context(
+        user_id=user_id,
+        salesforce_token=access_token,
+    )
+
     status = "failed"
 
     try:
@@ -4451,13 +4459,15 @@ async def stream_chat_response(
         raise
 
     finally:
-        audit_event(
-            "CHAT_PROCESSING_COMPLETED",
-            status=status,
-            latency_ms=round(
-                (time.perf_counter() - started_at) * 1000,
-                2,
-            ),
-        )
-
-        log_context.reset(log_token)
+        try:
+            audit_event(
+                "CHAT_PROCESSING_COMPLETED",
+                status=status,
+                latency_ms=round(
+                    (time.perf_counter() - started_at) * 1000,
+                    2,
+                ),
+            )
+        finally:
+            reset_middleware_context(middleware_tokens)
+            log_context.reset(log_token)

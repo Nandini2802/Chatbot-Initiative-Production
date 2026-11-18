@@ -6,6 +6,7 @@ from urllib.parse import quote
 from curl_cffi.requests import AsyncSession
 
 from app.core.config import get_settings
+from app.core.middleware_headers import build_middleware_headers
 
 
 logger = logging.getLogger(__name__)
@@ -41,10 +42,9 @@ class ProjectCoordinatesConnector:
             f"{quote(str(project_id), safe='')}"
         )
 
-        headers = {
-            "salesforce_access_token": access_token,
+        headers = build_middleware_headers({
             "Accept": "application/json",
-        }
+        })
 
         async with AsyncSession(
             impersonate="chrome"

@@ -6,6 +6,7 @@ import logging
 from curl_cffi.requests import AsyncSession
 
 from app.core.config import get_settings
+from app.core.middleware_headers import build_middleware_headers
 
 
 logger = logging.getLogger(__name__)
@@ -37,10 +38,10 @@ class HowToVideosAPIClient:
 
             response = await session.post(
                 url,
-                headers={
+                headers=build_middleware_headers({
                     "x_api_key": self.api_key,
                     "Accept": "application/json",
-                },
+                }),
                 data="",
                 allow_redirects=False,
             )

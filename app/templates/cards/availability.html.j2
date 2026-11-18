@@ -57,6 +57,26 @@
 
     </div>
 
+    <button type="button"
+       class="avl-copy"
+       aria-label="Copy details"
+       title="Copy details"
+       style="
+         background:transparent;
+         border:1.5px solid #2e3034;
+         color:#e7b32c;
+         width:56px;
+         height:56px;
+         border-radius:50%;
+         display:flex;
+         align-items:center;
+         justify-content:center;
+         flex-shrink:0;
+         cursor:pointer;
+       ">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
+    </button>
+
     <a href="{{ download_url }}"
        download="{{ file_name }}"
        aria-label="Download availability report"
@@ -92,3 +112,58 @@
   </div>
 
 </div>
+
+<script>
+/* Copy the availability file details (name · type/currency · link). Clipboard
+   write with execCommand fallback; also relayed to the host app. */
+(function () {
+  var btn = document.querySelector('.availability-report .avl-copy');
+  if (!btn) return;
+  var a = btn.nextElementSibling; // the download link
+  var info = btn.previousElementSibling; // name + meta block
+
+  function details() {
+    var name = info && info.children[0] ? info.children[0].textContent.trim() : (a.getAttribute('download') || '');
+    var meta = info && info.children[1] ? info.children[1].textContent.replace(/\s+/g, ' ').trim() : '';
+    var url = a ? a.getAttribute('href') || '' : '';
+    return [name, meta, url].filter(Boolean).join('\n');
+  }
+
+  function fallbackCopy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute'; ta.style.left = '-9999px';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    } catch (e) {}
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(fallbackCopy.bind(null, text));
+    } else { fallbackCopy(text); }
+    try { window.parent.postMessage({ source: 'danube-block', type: 'copy', text: text }, '*'); } catch (e) {}
+  }
+
+  var CHECK = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  var COPY = btn.innerHTML;
+
+  btn.addEventListener('click', function () {
+    copyText(details());
+    btn.innerHTML = CHECK;
+    btn.style.borderColor = '#2e7d52';
+    btn.style.color = '#4caf7d';
+    btn.style.background = 'rgba(76,175,125,.12)';
+    btn.title = 'Copied';
+    clearTimeout(btn._t);
+    btn._t = setTimeout(function () {
+      btn.innerHTML = COPY;
+      btn.style.borderColor = '#2e3034';
+      btn.style.color = '#e7b32c';
+      btn.style.background = 'transparent';
+      btn.title = 'Copy details';
+    }, 1600);
+  });
+})();
+</script>

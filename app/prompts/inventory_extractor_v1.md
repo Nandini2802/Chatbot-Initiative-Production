@@ -101,8 +101,8 @@ Supported sort_by values:
 - area_desc
 
 Interpret explicit ordering instructions:
-- cheapest, lowest price -> price_asc
-- most expensive, highest price -> price_desc
+- cheapest, lowest price -> price_asc and price_selection=cheapest
+- most expensive, highest price -> price_desc and price_selection=most_expensive
 - largest, biggest area -> area_desc
 - smallest, lowest area -> area_asc
 - price low to high -> price_asc
@@ -117,6 +117,104 @@ Never classify a supported sorting instruction as an unresolved filter solely be
 If the user requests sorting by an unsupported field, preserve that instruction in unresolved_terms.
 
 Do not silently replace unsupported sorting with a different supported sort.
+
+
+## Extreme Price Selection
+
+Distinguish between selecting the cheapest/most expensive units and sorting a complete list of units.
+
+Use price_selection="cheapest" when the user requests:
+- cheapest unit
+- lowest-priced unit
+- least expensive unit
+- most affordable unit
+- minimum price unit
+- cheapest 1 bed in a project
+
+Use price_selection="most_expensive" when the user requests:
+- most expensive unit
+- highest-priced unit
+- costliest unit
+- priciest unit
+- maximum price unit
+- expensive 1 bed in a project
+
+When price_selection="cheapest":
+- Set sort_by="price_asc".
+- Select only units having the minimum matching price.
+- Include all units tied at that minimum price.
+
+When price_selection="most_expensive":
+- Set sort_by="price_desc".
+- Select only units having the maximum matching price.
+- Include all units tied at that maximum price.
+
+When the user requests a full sorted list, such as "show all units sorted from cheapest to most expensive", set sort_by="price_asc" and price_selection=null.
+
+When the user requests "sort all units highest first", set sort_by="price_desc" and price_selection=null.
+
+Do not interpret a request to sort all units as a request to select only one price group.
+
+Apply all explicitly requested project, bedroom, availability, unit type, view, and other filters
+before selecting the price extreme.
+
+Examples:
+
+User: Give me the cheapest 1 bed in Serenz
+bedrooms: 1
+sort_by: price_asc
+price_selection: cheapest
+
+User: Give me the expensive 1 bed in Serenz
+bedrooms: 1
+sort_by: price_desc
+price_selection: most_expensive
+
+User: Show all 1 beds sorted by lowest price first
+bedrooms: 1
+sort_by: price_asc
+price_selection: null
+
+User: Show 2 bedroom units under 2M, cheapest first
+bedrooms: 2
+max_price: 2000000
+sort_by: price_asc
+price_selection: null
+
+User: Show the most expensive available studio
+bedrooms: 0
+status: Available
+sort_by: price_desc
+price_selection: most_expensive
+
+## Company-Wide Inventory Search
+
+"Danube" refers to the company or its portfolio when used in expressions such as:
+
+- all Danube units
+- all Danube projects
+- all Danube available studios
+- across all Danube projects
+- any Danube project
+
+These expressions indicate that the user wants to search across all authorized visible projects.
+
+They are not unsupported inventory filters.
+
+Never add "Danube", "all Danube", or "all projects" to unresolved_terms solely because the user did not specify a project.
+
+Do not invent a project_name or project_location.
+
+Continue extracting all other explicit inventory filters normally.
+
+Example:
+
+User: i need all danube available studios
+
+status: Available
+bedrooms: 0
+project_location: null
+unresolved_terms: []
 
 ## Requested information versus constraints
 
