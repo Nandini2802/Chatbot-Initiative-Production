@@ -1,0 +1,157 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Arial, sans-serif;
+    background: transparent;
+}
+
+.file-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.file-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    background: #16171a;
+    border-radius: 16px;
+    padding: 14px 16px;
+}
+
+.file-icon {
+    flex-shrink: 0;
+    color: #fff;
+}
+
+.file-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.file-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
+}
+
+.file-meta {
+    font-size: 12.5px;
+    color: #8b8d92;
+    margin-top: 4px;
+}
+
+.download-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(
+        135deg,
+        #e0aa4a 0%,
+        #c9963a 100%
+    );
+    color: #16171a;
+    text-decoration: none;
+    border: 0;
+    cursor: pointer;
+}
+
+.download-btn:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+}
+
+.download-btn svg {
+    width: 20px;
+    height: 20px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="file-stack">
+
+{% for file in files %}
+
+<div class="file-card">
+
+    <span class="file-icon">
+        <svg width="20" height="26"
+             viewBox="0 0 12 16"
+             fill="none"
+             xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M7.5 0L12 4.5V14C12 15.1 11.1 16 10 16H2C0.9 16 0 15.1 0 14V2C0 0.9 0.9 0 2 0H7.5ZM2 1C1.4 1 1 1.4 1 2V14C1 14.6 1.4 15 2 15H10C10.6 15 11 14.6 11 14V4.5H9C8.2 4.5 7.5 3.8 7.5 3V1H2Z"
+                fill="currentColor"/>
+        </svg>
+    </span>
+
+    <div class="file-info">
+
+        <div class="file-name">
+            {{ file.name | e }}
+        </div>
+
+        <div class="file-meta">
+            {{ unit_name | e }} Layout Plan
+
+            {% if file.size_label %}
+                | {{ file.size_label | e }}
+            {% endif %}
+        </div>
+
+    </div>
+
+    <a class="download-btn"
+       href="{{ file.download_url | e }}"
+       target="_blank"
+       rel="noopener noreferrer"
+       download
+       title="Download Layout Plan">
+
+        <svg viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             stroke-width="2.2"
+             stroke-linecap="round"
+             stroke-linejoin="round">
+
+            <path d="M12 3v12"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <path d="M5 21h14"/>
+
+        </svg>
+
+    </a>
+
+</div>
+
+{% endfor %}
+
+</div>
+
+</body>
+</html>

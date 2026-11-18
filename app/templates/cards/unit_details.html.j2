@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<style>
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont,
+      'Segoe UI', Roboto, 'Helvetica Neue',
+      Arial, sans-serif;
+    background: transparent;
+    color: #fff;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .unit-card {
+    width: 100%;
+    background: #16171a;
+    border-radius: 16px;
+    padding: 16px;
+    color: #fff;
+  }
+
+  .unit-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #e0aa4a;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .unit-project {
+    font-size: 13px;
+    color: #8b8d92;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  .unit-intro {
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: #e5e5e5;
+    margin-top: 14px;
+  }
+
+  .unit-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    margin-top: 20px;
+    margin-bottom: 10px;
+  }
+
+  .unit-details {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .unit-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid #26272b;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .unit-row:last-child {
+    border-bottom: none;
+  }
+
+  .unit-label {
+    color: #8b8d92;
+    flex-shrink: 0;
+  }
+
+  .unit-value {
+    color: #fff;
+    font-weight: 500;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .unit-price {
+    color: #e0aa4a;
+    font-weight: 600;
+    font-size: 15px;
+  }
+
+  .unit-status {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: #26272b;
+    color: #e0aa4a;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+
+  .unit-divider {
+    height: 1px;
+    background: #303136;
+    margin-top: 18px;
+  }
+
+  .unit-note {
+    color: #8b8d92;
+    font-size: 11.5px;
+    line-height: 1.6;
+    margin-top: 14px;
+  }
+
+  @media (max-width: 360px) {
+    .unit-card {
+      padding: 14px;
+    }
+
+    .unit-row {
+      gap: 10px;
+      font-size: 12.5px;
+    }
+
+    .unit-label {
+      flex-shrink: 1;
+    }
+  }
+</style>
+</head>
+
+<body>
+
+<div class="unit-card">
+
+  <!-- UNIT HEADER -->
+
+  <div class="unit-title">
+    {{ (unit.unit_name or unit.unit_code or "Unit Details") | e }}
+  </div>
+
+  {% if unit.project_name %}
+  <div class="unit-project">
+    {{ unit.project_name | e }}
+  </div>
+  {% endif %}
+
+
+  <!-- UNIT INTRODUCTION -->
+
+  <div class="unit-intro">
+
+    <strong>
+      {{ (unit.unit_name or unit.unit_code or "This unit") | e }}
+    </strong>
+
+    {% if unit.status %}
+      has a status of
+      <strong>{{ unit.status | e }}</strong>
+    {% endif %}
+
+    {% if unit.unit_type or unit.typology %}
+      and is classified as
+      {{ (unit.unit_type or unit.typology) | e }}
+    {% endif %}
+
+    {% if unit.project_name %}
+      in {{ unit.project_name | e }}
+    {% endif %}.
+
+  </div>
+
+
+  <!-- UNIT KEY HIGHLIGHTS -->
+
+  <div class="unit-section-title">
+    Key highlights
+  </div>
+
+  <div class="unit-details">
+
+    {% if unit.unit_type or unit.typology %}
+    <div class="unit-row">
+      <span class="unit-label">Unit type</span>
+      <span class="unit-value">
+        {{ (unit.unit_type or unit.typology) | e }}
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.category %}
+    <div class="unit-row">
+      <span class="unit-label">Category</span>
+      <span class="unit-value">
+        {{ unit.category | e }}
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.building_name %}
+    <div class="unit-row">
+      <span class="unit-label">Building</span>
+      <span class="unit-value">
+        {{ unit.building_name | e }}
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.floor_number %}
+    <div class="unit-row">
+      <span class="unit-label">Floor</span>
+      <span class="unit-value">
+        {{ unit.floor_number | e }}
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.bedrooms is not none %}
+    <div class="unit-row">
+      <span class="unit-label">Bedrooms</span>
+      <span class="unit-value">
+        {{ unit.bedrooms | e }}
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.bathrooms is not none %}
+    <div class="unit-row">
+      <span class="unit-label">Bathrooms</span>
+      <span class="unit-value">
+        {{ unit.bathrooms | e }}
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.area_sqft is not none %}
+    <div class="unit-row">
+      <span class="unit-label">Area</span>
+      <span class="unit-value">
+        {{ "{:,.2f}".format(unit.area_sqft | float) }} sqft
+      </span>
+    </div>
+
+    {% elif unit.internal_saleable_area is not none %}
+    <div class="unit-row">
+      <span class="unit-label">Saleable area</span>
+      <span class="unit-value">
+        {{ "{:,.2f}".format(unit.internal_saleable_area | float) }} sqft
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.parking_spaces is not none %}
+    <div class="unit-row">
+      <span class="unit-label">Parking</span>
+      <span class="unit-value">
+        {{ unit.parking_spaces | e }}
+        space(s)
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.view %}
+    <div class="unit-row">
+      <span class="unit-label">View</span>
+      <span class="unit-value">
+        {{ unit.view | e }}
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.status %}
+    <div class="unit-row">
+      <span class="unit-label">Availability</span>
+      <span class="unit-value">
+        <span class="unit-status">
+          {{ unit.status | e }}
+        </span>
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.handover_status %}
+    <div class="unit-row">
+      <span class="unit-label">Handover status</span>
+      <span class="unit-value">
+        {{ unit.handover_status | e }}
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.construction_status %}
+    <div class="unit-row">
+      <span class="unit-label">Construction status</span>
+      <span class="unit-value">
+        {{ unit.construction_status | e }}
+      </span>
+    </div>
+    {% endif %}
+
+
+    {% if unit.price is not none %}
+    <div class="unit-row">
+      <span class="unit-label">Price</span>
+      <span class="unit-value unit-price">
+        {{ (unit.currency or "AED") | e }}
+        {{ "{:,.0f}".format(unit.price | float) }}
+      </span>
+    </div>
+    {% endif %}
+
+  </div>
+
+
+  <!-- VERIFIED PROJECT DETAILS -->
+
+  {% if project %}
+
+    {% if project.location
+       or project.construction_status
+       or project.handover_date
+       or project.completion_date
+       or project.payment_plan %}
+
+    <div class="unit-divider"></div>
+
+    <div class="unit-section-title">
+      Project information
+    </div>
+
+    <div class="unit-details">
+
+      {% if project.location %}
+      <div class="unit-row">
+        <span class="unit-label">Location</span>
+        <span class="unit-value">
+          {{ project.location | e }}
+        </span>
+      </div>
+      {% endif %}
+
+
+      {% if project.construction_status %}
+      <div class="unit-row">
+        <span class="unit-label">Project status</span>
+        <span class="unit-value">
+          {{ project.construction_status | e }}
+        </span>
+      </div>
+      {% endif %}
+
+
+      {% if project.completion_date %}
+      <div class="unit-row">
+        <span class="unit-label">Expected completion</span>
+        <span class="unit-value">
+          {{ project.completion_date | e }}
+        </span>
+      </div>
+      {% endif %}
+
+
+      {% if project.handover_date %}
+      <div class="unit-row">
+        <span class="unit-label">Handover date</span>
+        <span class="unit-value">
+          {{ project.handover_date | e }}
+        </span>
+      </div>
+      {% endif %}
+
+
+      {% if project.payment_plan %}
+      <div class="unit-row">
+        <span class="unit-label">Payment plan</span>
+        <span class="unit-value">
+          {{ project.payment_plan | e }}
+        </span>
+      </div>
+      {% endif %}
+
+    </div>
+
+    <div class="unit-note">
+      Project information is based on the matched
+      project record. Payment plans and handover
+      dates may be subject to unit-specific terms.
+    </div>
+
+    {% endif %}
+
+  {% endif %}
+
+</div>
+
+</body>
+</html>

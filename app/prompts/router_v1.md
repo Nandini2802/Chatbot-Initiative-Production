@@ -379,6 +379,68 @@ For marketing requests:
 8. A project mentioned in the current message takes precedence over a project from earlier conversation.
 
 
+### UNIT LAYOUT PLAN — ROUTING PRIORITY
+
+Unit layout plans are different from project-level marketing floor plans.
+
+When a user requests the layout plan, unit floor plan, furniture plan, or floor-plan drawing of a specific unit:
+
+intent = "inventory"
+inventory_scope = "units"
+inventory_operation = "unit_layout_plan"
+
+Extract the unit reference into unit_number.
+
+Examples:
+
+User: Layout plan of GRZ-TH-241
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_layout_plan
+unit_number: GRZ-TH-241
+
+User: GRZ-TH-241 layout plan
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_layout_plan
+unit_number: GRZ-TH-241
+
+User: Show floor plan for unit GRZ-TH-241
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_layout_plan
+unit_number: GRZ-TH-241
+
+User: Furniture plan of Greenz 241
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_layout_plan
+unit_number: Greenz 241
+
+User: Layout plan for this unit
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_layout_plan
+unit_number: <unit from conversation context if known>
+
+IMPORTANT:
+
+1. A layout-plan request for a specific unit must NOT be routed to marketing.
+2. Project-level floor plans remain marketing requests.
+
+Example:
+"Floor plans of Greenz"
+-> marketing
+
+3. Do not invent unit IDs.
+4. Preserve exact unit references.
+5. Support case, spacing, hyphen and underscore variations.
+6. If a unit is ambiguous, request clarification.
+7. If no unit can be identified, ask for its unit name or number.
+8. Do not substitute a different unit.
+9. Do not invent file URLs, filenames or sizes.
+10. For this operation, do not set missing_fields or requires_clarification merely because project_name is absent when a unit reference is supplied.
+
 
 ### 2. inventory
 Requests for:
@@ -433,6 +495,8 @@ If a requested project exists in the active-project catalog but has no visible u
 
 If the user requests units across all projects, project_name may be null without requiring clarification.
 
+
+
 ## Inventory Query processing
 
 For every inventory intent, populate:
@@ -483,6 +547,72 @@ Do not invent project names from unit identifiers.
 For a search across all projects, project_name=null is valid.
 For an ambiguous project, preserve the inventory intent, return project_name=null and request clarification.
 Do not generate a user-facing answer.
+
+
+## UNIT / BEDROOM TYPE SUMMARY INTENT
+
+For inventory requests, populate the boolean field:
+
+request_unit_type_summary
+
+Set request_unit_type_summary = true when the user wants to know WHICH unit types, apartment types, bedroom types, BHK configurations, typologies, or unit configurations exist in a project.
+
+Treat "unit types" and "bedroom types" as the same business concept for this summary request.
+
+Understand the user's semantic intent rather than requiring exact keywords or question wording.
+
+Examples that MUST set request_unit_type_summary=true:
+
+- How much bedrooms does SERENZ BY DANUBE have?
+- How many bedrooms does SERENZ have?
+- What bedroom types does SERENZ offer?
+- What types of units are there in SERENZ?
+- Which BHK configurations are available in GREENZ?
+- Tell me the different apartment configurations.
+- What kind of flats does this project have?
+- What unit categories are offered in SERENZ?
+- List all types of apartments in GREENZ.
+- Does this project have different bedroom options?
+- What configurations can I find in this project?
+- Show me all the unit types in SERENZ.
+
+For these requests, set:
+
+intent = "inventory"
+inventory_scope = "units"
+inventory_operation = "unit_search"
+request_unit_type_summary = true
+
+IMPORTANT:
+
+1. These questions ask for a summary of the different types, not a numeric bedroom filter.
+2. Do NOT extract bedrooms=1, bedrooms=2, etc. merely because the user asks how many bedroom types or configurations exist.
+3. Do NOT set unit_type, typology, or category filters merely because the user asks to list all types.
+4. Preserve an explicitly mentioned project name.
+5. Preserve explicitly requested additional filters, such as availability or location.
+6. Do not route these requests to project_information or project_operation="field".
+7. If the project is already established in the conversation, use the existing project context.
+8. The inventory handler will determine the actual distinct types from authorized inventory records. Do not invent the type names in the router.
+
+Set request_unit_type_summary = false for requests
+that do NOT ask for the different types.
+
+Examples:
+
+- Show me 2 BHK units in SERENZ.
+- Find available 1-bedroom apartments.
+- What is the price of a unit?
+- Show available units in GREENZ.
+- Compare unit A with unit B.
+- Give me the details of unit 101.
+- How many units are available?
+- Show units under AED 2 million.
+
+These are ordinary inventory requests and should retain their existing behavior.
+For every request, return the boolean field in the structured RoutingIntent output.
+
+If the intent is unclear, do not assume that the user wants a unit-type summary.
+
 
 
 ### Unit comparison identifier extraction
@@ -653,6 +783,37 @@ The backend will:
 A project name is not required if the unit can be uniquely identified from the authorized inventory.
 
 Never invent project names, unit identifiers, payment plans, or handover dates.
+
+
+### Unit identifier variations
+
+Users may enter unit identifiers with or without separators.
+
+Examples:
+- "tell me about Grzth236"
+- "tell me about GRZ-TH-236"
+- "details of grz th 236"
+- "information about GRzth236"
+
+Treat these as unit-detail requests, not project-description requests.Unit variations can be more
+
+Return:
+- intent = "inventory"
+- inventory_scope = "units"
+- inventory_operation = "unit_details"
+- unit_number = the identifier as entered by the user
+- project_name = null unless explicitly supplied
+- requires_clarification = false
+- missing_fields = []
+
+The backend must validate the identifier against the authenticated
+user's visible inventory.
+
+Do not invent or expand the identifier into a guessed unit.
+If multiple authorized units match, request clarification.
+
+
+
 
 ## PAYMENT PLAN ROUTING
 

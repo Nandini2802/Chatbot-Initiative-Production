@@ -1016,7 +1016,7 @@ async def _stream_chat_response_impl(
             active_project_context=session_project_context,
             project_codes=project_codes,
         )
-
+        
         print("\n========== ROUTER LLM OUTPUT ==========")
         print("USER MESSAGE:", message)
 
@@ -3671,6 +3671,20 @@ async def _stream_chat_response_impl(
 
         # 5. BUILD RESPONSE USING LLM 2
 
+        unit_details_html_only = (
+            len(routing_result.intents) == 1
+            and routing_result.intents[0].intent == "inventory"
+            and routing_result.intents[0].inventory_operation
+                == "unit_details"
+            and len(handler_results) == 1
+            and handler_results[0].has_data
+            and not clarification_messages
+            and any(
+                block.get("card_type") == "unit_details"
+                for block in all_html_blocks
+            )
+        )
+
         project_details_html_only = (
             len(routing_result.intents) == 1
             and len(handler_results) == 1
@@ -3830,6 +3844,11 @@ async def _stream_chat_response_impl(
             followup_chips = []
             real_llm_streaming = False
 
+        elif unit_details_html_only:
+            response_text = ""
+            followup_chips = []
+            real_llm_streaming = False
+
         elif project_fields_only:
             response_text = " ".join(
                 handler_results[0].messages
@@ -3970,7 +3989,7 @@ async def _stream_chat_response_impl(
 
         display_response_text = response_text.strip()
 
-        if project_details_html_only:
+        if project_details_html_only or unit_details_html_only:
             display_response_text = ""
 
         # Ensure that the assistant message is never empty.
@@ -3985,12 +4004,20 @@ async def _stream_chat_response_impl(
                     "I couldn't find the requested information."
                 )
 
-        if project_details_html_only:
-            persist_response_text = (
-                "Project details displayed in HTML card."
-            )
+        if project_details_html_only or unit_details_html_only:
+
+            if unit_details_html_only:
+                persist_response_text = (
+                    "Unit details displayed in HTML card."
+                )
+            else:
+                persist_response_text = (
+                    "Project details displayed in HTML card."
+                )
+
             response_text = ""
             display_response_text = ""
+
         else:
             persist_response_text = display_response_text
             response_text = display_response_text

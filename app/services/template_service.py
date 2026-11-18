@@ -117,6 +117,29 @@ class TemplateService:
             ),
         )
 
+    def render_unit_layout_plan(
+        self,
+        unit_name: str,
+        files: list[dict],
+    ) -> str:
+
+        formatted_files = []
+
+        for file in files:
+            formatted_files.append({
+                "name": file["name"],
+                "download_url": file["download_url"],
+                "size_label": self.format_file_size(
+                    file.get("file_size_bytes")
+                ),
+            })
+
+        return self.render(
+            "unit_layout_plan.html.j2",
+            unit_name=unit_name,
+            files=formatted_files,
+        )
+
     @staticmethod
     def format_uploaded_at(value):
         if not value:

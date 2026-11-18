@@ -105,6 +105,7 @@ class RoutingIntent(BaseModel):
     unit_type: str | None = None
     category: str | None = None
     status: str | None = None
+    request_unit_type_summary: bool = False
     floor_number: str | None = None
 
     view: str | None = None
@@ -144,6 +145,7 @@ class RoutingIntent(BaseModel):
         "unit_search",
         "unit_details",
         "unit_comparison",
+        "unit_layout_plan",
         "payment_plan",
     ] | None = None
 

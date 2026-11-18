@@ -13,6 +13,16 @@ def norm(value) -> str:
     return str(value or "").strip().casefold()
 
 
+def normalize_unit_identifier(value) -> str:
+    """Normalize unit IDs without changing their letters or digits."""
+    import re
+
+    return re.sub(
+        r"[^a-z0-9]",
+        "",
+        str(value or "").casefold(),
+    )
+
 def as_decimal(value) -> Decimal | None:
     if value is None or isinstance(value, bool):
         return None

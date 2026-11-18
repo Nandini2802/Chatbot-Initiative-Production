@@ -6,6 +6,7 @@ from app.schemas.handler_result import HandlerResult
 from app.schemas.retrieval import InventorySnapshot
 from app.services.inventory_filter_service import (
     InventoryFilterService,
+    normalize_unit_identifier,
     norm,
 )
 from app.services.template_service import TemplateService
@@ -16,6 +17,11 @@ from app.services.unit_comparison_mapper import map_comparison
 from app.handlers.payment_plan_handler import PaymentPlanHandler
 from app.services.unit_comparison_resolver import (
     resolve_comparison_unit,
+)
+
+from app.retrieval.unit_layout_connector import (
+    UnitLayoutConnector,
+    UnitLayoutAPIError,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,12 +45,57 @@ class InventoryHandler:
         self.filter_service = InventoryFilterService()
         self.template_service = TemplateService()
         self.unit_comparison_client = UnitComparisonClient()
+        self.unit_layout_connector = UnitLayoutConnector()
+
+
+    @staticmethod
+    def _get_distinct_unit_types(units) -> list[str]:
+        """
+        Return unique full unit-type descriptions
+        from the matching authorized inventory units.
+
+        Preserve type codes and convertible-bedroom
+        information exactly as supplied.
+        """
+        unique_types = {}
+
+        for unit in units:
+            raw_type = unit.unit_type
+
+            if not isinstance(raw_type, str):
+                continue
+
+            # Remove extra whitespace without
+            # changing the actual description.
+            unit_type = " ".join(raw_type.split())
+
+            if not unit_type:
+                continue
+
+            if unit_type.casefold() in {
+                "none", "null", "n/a", "na", "-"
+            }:
+                continue
+
+            # Case-insensitive deduplication.
+            key = unit_type.casefold()
+
+            if key not in unique_types:
+                unique_types[key] = unit_type
+
+        return list(unique_types.values())
 
     async def handle(self, intent) -> HandlerResult:
 
         result = HandlerResult(intent="inventory")
 
         operation = intent.inventory_operation
+
+        if operation == "unit_layout_plan":
+            return await self._handle_unit_layout_plan(
+                intent,
+                result,
+            )
 
         if operation == "project_comparison":
             return self._handle_project_comparison(intent, result)
@@ -70,15 +121,18 @@ class InventoryHandler:
         # Unit search / details
         if operation == "unit_details" and intent.unit_number:
 
-            requested = norm(intent.unit_number)
+            requested = normalize_unit_identifier(
+                intent.unit_number
+            )
 
             matches = [
                 unit
                 for unit in self.snapshot.units
-                if requested in {
-                    norm(unit.unit_name),
-                    norm(unit.unit_code),
-                    norm(unit.unit_id),
+                if requested
+                and requested in {
+                    normalize_unit_identifier(unit.unit_name),
+                    normalize_unit_identifier(unit.unit_code),
+                    normalize_unit_identifier(unit.unit_id),
                 }
                 and (
                     not intent.project_name
@@ -86,6 +140,7 @@ class InventoryHandler:
                     == normalize_project_name(intent.project_name)
                 )
             ]
+
 
         else:
             matches = self.filter_service.filter_units(
@@ -154,6 +209,24 @@ class InventoryHandler:
             for unit in displayed
         ]
 
+        show_unit_type_summary = (
+            intent.request_unit_type_summary
+            and operation in (None, "unit_search")
+        )
+
+        distinct_unit_types = (
+            self._get_distinct_unit_types(matches)
+            if show_unit_type_summary
+            else []
+        )
+
+        logger.info(
+            "INVENTORY_UNIT_TYPE_SUMMARY | "
+            "enabled=%s | distinct_count=%d",
+            show_unit_type_summary,
+            len(distinct_unit_types),
+        )
+
         # STEP 2: Enrich unit details using Active Projects API data.
         if operation == "unit_details" and len(matches) == 1:
 
@@ -200,6 +273,9 @@ class InventoryHandler:
             "total_matches": len(matches),
             "displayed_count": len(displayed),
             "units": safe_units,
+            "show_unit_type_summary": show_unit_type_summary,
+            "distinct_unit_types": distinct_unit_types,
+            "unit_type_count": len(distinct_unit_types),
             "applied_filters": {
                 "project_name": intent.project_name,
                 "project_location": intent.project_location,
@@ -219,8 +295,29 @@ class InventoryHandler:
             },
         }
 
-        if operation != "unit_details":
+        
+        # Individual unit details: render the same
+        # structured HTML style as project details.
+        if operation == "unit_details" and len(matches) == 1:
 
+            unit_data = safe_units[0]
+
+            project_data = unit_data.get(
+                "project_information"
+            )
+
+            result.html_blocks.append({
+                "card_type": "unit_details",
+                "html": self.template_service.render(
+                    "unit_details.html.j2",
+                    unit=unit_data,
+                    project=project_data,
+                ),
+            })
+
+        elif operation != "unit_details":
+
+            # Preserve existing inventory listing logic.
             html_units = [
                 self._unit_data(unit)
                 for unit in matches
@@ -234,6 +331,151 @@ class InventoryHandler:
                     total_matches=len(matches),
                 ),
             })
+
+
+        result.has_data = True
+
+        return result
+
+    
+    async def _handle_unit_layout_plan(
+        self,
+        intent,
+        result: HandlerResult,
+    ) -> HandlerResult:
+
+        # 1. Get the unit reference supplied by the router.
+        identifier = (
+            getattr(intent, "unit_number", None)
+            or getattr(intent, "unit_name", None)
+            or getattr(intent, "unit_id", None)
+        )
+
+        if not identifier:
+            result.messages.append(
+                "Please provide the unit name or number "
+                "to get its layout plan."
+            )
+            return result
+
+        # 2. Resolve the unit using the existing
+        # authorized inventory matching logic.
+        unit, match_status = resolve_comparison_unit(
+            identifier=identifier,
+            units=self.snapshot.units,
+            project_hint=getattr(
+                intent,
+                "project_name",
+                None,
+            ),
+        )
+
+        if match_status == "ambiguous":
+            result.messages.append(
+                f"Multiple units match '{identifier}'. "
+                "Please provide the full unit name "
+                "or project to identify the correct unit."
+            )
+            return result
+
+        if match_status != "matched" or unit is None:
+            result.messages.append(
+                f"I couldn't find unit '{identifier}' "
+                "in your visible inventory. "
+                "Please check the unit name or number."
+            )
+            return result
+
+        # 3. Salesforce unit ID is required for API.
+        if not unit.unit_id:
+            result.messages.append(
+                "The selected unit does not have a valid "
+                "unit ID. Unable to retrieve its layout plan."
+            )
+            return result
+
+        # 4. Check authentication.
+        if not self.payment_token or not self.user_id:
+            result.messages.append(
+                "Authentication is required to "
+                "retrieve the unit layout plan."
+            )
+            return result
+
+        # 5. Call the new Unit Data API.
+        try:
+            files = (
+                await self.unit_layout_connector.get_layout_plans(
+                    unit_id=str(unit.unit_id),
+                    access_token=self.payment_token,
+                    user_id=self.user_id,
+                )
+            )
+
+        except UnitLayoutAPIError:
+            logger.exception(
+                "UNIT_LAYOUT_PLAN_API_FAILED"
+            )
+            result.messages.append(
+                "Unable to retrieve the layout plan "
+                "right now. Please try again."
+            )
+            return result
+
+        # 6. Handle empty floorPlanFiles.
+        if not files:
+            result.messages.append(
+                f"No layout plan is currently available "
+                f"for {unit.unit_name or identifier}."
+            )
+            return result
+
+        # 7. Render HTML using the new template.
+        unit_name = (
+            unit.unit_name
+            or unit.unit_code
+            or str(identifier)
+        )
+
+        html = self.template_service.render_unit_layout_plan(
+            unit_name=unit_name,
+            files=files,
+        )
+
+        result.html_blocks.append({
+            "card_type": "unit_layout_plan",
+            "html": html,
+        })
+
+        # 8. Add structured file metadata.
+        for file in files:
+            result.files.append({
+                "name": file["name"],
+                "type": "unit_layout_plan",
+                "download_url": file["download_url"],
+                "file_size_bytes": file["file_size_bytes"],
+                "file_size_display": (
+                    self.template_service.format_file_size(
+                        file["file_size_bytes"]
+                    )
+                ),
+                "unit_id": str(unit.unit_id),
+                "unit_name": unit_name,
+            })
+
+        # 9. Verified context for generation LLM.
+        result.generation_context = {
+            "service": "inventory",
+            "operation": "unit_layout_plan",
+            "unit_id": str(unit.unit_id),
+            "unit_name": unit_name,
+            "project_name": unit.project_name,
+            "layout_plan_available": True,
+            "file_count": len(files),
+            "file_names": [
+                file["name"] for file in files
+            ],
+        }
 
         result.has_data = True
 
