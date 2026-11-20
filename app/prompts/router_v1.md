@@ -928,8 +928,31 @@ user's visible inventory.
 Do not invent or expand the identifier into a guessed unit.
 If multiple authorized units match, request clarification.
 
+## Unit Series Search Routing
 
+Requests mentioning a unit series must be routed to the inventory unit-search workflow.
 
+Examples:
+- Give me all available units for Series 09
+- Show Series 09 units of FASHIONZ 1
+- List units belonging to Series 05
+- Available Series 12 units under 2M
+
+For these requests:
+- intent = inventory
+- inventory_scope = units
+- inventory_operation = unit_search
+- Do not treat the series as a unit_number.
+- Do not treat the series as a floor_number.
+- Do not request an exact unit identifier.
+- Do not require a project name.
+- If a project is explicitly mentioned, resolve it
+  using the existing project resolution flow.
+- If no project is explicitly mentioned, do not
+  invent a project or require clarification.
+- Let the dedicated inventory extractor identify
+  the series and other inventory filters.
+- Preserve the user's original query for extraction.
 
 ## PAYMENT PLAN ROUTING
 

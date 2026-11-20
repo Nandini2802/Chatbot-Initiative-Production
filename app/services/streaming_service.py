@@ -3383,6 +3383,7 @@ async def _stream_chat_response_impl(
 
                 filter_fields = (
                     "project_location",
+                    "series",
                     "view",
                     "typology",
                     "unit_type",

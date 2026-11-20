@@ -6,6 +6,10 @@ class InventoryFilters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_location: str | None = None
+    series: str | None = Field(
+        default=None,
+        pattern=r"^[0-9]{2}$",
+    )
     view: str | None = None
     typology: str | None = None
     unit_type: str | None = None

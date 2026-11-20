@@ -25,6 +25,65 @@ Return the structured InventoryFilters schema.
 13. Do not classify that project mention as an unresolved unit filter, category, location, unit type, or typology.
 14. Continue extracting any additional conditions normally. Never discard unrelated unresolved conditions.
 
+## Unit Series Filtering
+
+Series is a supported inventory search constraint.
+
+A unit's series is defined as the final two digits of its unit name or unit number.
+
+Example:
+FNZ-1-F40-4009 -> series="09"
+
+Rules:
+
+1. Extract series only when the user explicitly asks for a unit series.
+2. Preserve leading zeros.
+   Series 09 -> series="09"
+   Series 01 -> series="01"
+
+3. Series must be exactly two digits.
+4. Do not confuse a series with:
+   - Floor number
+   - Bedroom count
+   - Unit identifier
+   - Project number
+
+5. Series matching is based on the final two characters of the unit identifier.
+6. If no project is mentioned, search across all authorized visible projects.
+7. If a project is mentioned, the main router and project resolver handle project selection.
+8. Do not invent or assume a project.
+9. Apply all additional requested filters together with the series filter.
+10. Do not add a valid series request to unresolved_terms.
+11. If the user requests available units, set status="Available".
+12. If availability is not requested, leave status=null.
+13. If no series is requested, set series=null.
+14. Do not treat a series request as a request for one exact unit.
+
+Examples:
+
+User: Give me all available units for Series 09
+series: "09"
+status: Available
+unresolved_terms: []
+
+User: Give me available Series 09 units of FASHIONZ 1
+series: "09"
+status: Available
+unresolved_terms: []
+
+User: Show Series 05 units
+series: "05"
+status: null
+unresolved_terms: []
+
+User: Show Series 12 units below 2M
+series: "12"
+max_price: 2000000
+unresolved_terms: []
+
+User: Show unit FNZ-1-F40-4009
+series: null
+
 ## Floor Filtering
 
 Floor is a supported inventory search constraint.

@@ -26,6 +26,37 @@ def normalize_unit_identifier(value) -> str:
         str(value or "").casefold(),
     )
 
+
+def matches_unit_series(unit: InventoryUnit, series: str) -> bool:
+    """
+    Match a two-digit series against the final two
+    digits of the unit name or unit code.
+
+    Example:
+        FNZ-1-F40-4009 -> 09
+
+    Do not use the Salesforce unit_id because it
+    may be an internal record identifier.
+    """
+    if not re.fullmatch(r"[0-9]{2}", series):
+        return False
+
+    for value in (unit.unit_name, unit.unit_code):
+        if not value:
+            continue
+
+        identifier = str(value).strip()
+
+        # Only match identifiers ending in digits.
+        if (
+            len(identifier) >= 2
+            and identifier[-2:].isdigit()
+            and identifier[-2:] == series
+        ):
+            return True
+
+    return False
+
 def as_decimal(value) -> Decimal | None:
     if value is None or isinstance(value, bool):
         return None
@@ -122,6 +153,13 @@ class InventoryFilterService:
                 if (
                     normalize_project_name(unit.project_name or "")
                     != normalize_project_name(intent.project_name)
+                ):
+                    continue
+
+            if intent.series is not None:
+                if not matches_unit_series(
+                    unit,
+                    intent.series,
                 ):
                     continue
 

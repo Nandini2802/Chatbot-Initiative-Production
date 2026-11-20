@@ -97,6 +97,10 @@ class RoutingIntent(BaseModel):
 
     # Inventory
     inventory_scope: Literal["units", "projects"] | None = None
+    series: str | None = Field(
+        default=None,
+        pattern=r"^[0-9]{2}$",
+    )
     min_price: float | None = None
     max_price: float | None = None
     min_area_sqft: float | None = None
