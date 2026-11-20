@@ -25,6 +25,11 @@ from app.retrieval.unit_layout_connector import (
     UnitLayoutAPIError,
 )
 
+from app.retrieval.unit_details_connector import (
+    UnitDetailsConnector,
+    UnitDetailsAPIError,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,6 +52,7 @@ class InventoryHandler:
         self.template_service = TemplateService()
         self.unit_comparison_client = UnitComparisonClient()
         self.unit_layout_connector = UnitLayoutConnector()
+        self.unit_details_connector = UnitDetailsConnector()
 
 
     @staticmethod
@@ -239,6 +245,41 @@ class InventoryHandler:
             self._unit_data(unit)
             for unit in displayed
         ]
+
+        if operation == "unit_details" and len(matches) == 1:
+
+            selected_unit = matches[0]
+
+            safe_units[0]["area_sqft"] = None
+            safe_units[0]["internal_saleable_area"] = None
+            safe_units[0]["balcony_area_sqm"] = None
+
+            if selected_unit.unit_id:
+
+                try:
+                    areas = await (
+                        self.unit_details_connector.get_unit_areas(
+                            unit_id=str(selected_unit.unit_id),
+                        )
+                    )
+
+                    safe_units[0].update(areas)
+
+                    logger.info(
+                        "UNIT_DETAILS_AREA_FETCH_SUCCESS | unit=%s",
+                        selected_unit.unit_name,
+                    )
+
+                except UnitDetailsAPIError:
+                    logger.warning(
+                        "UNIT_DETAILS_AREA_FETCH_FAILED | unit=%s",
+                        selected_unit.unit_name,
+                    )
+
+            else:
+                logger.warning(
+                    "UNIT_DETAILS_MISSING_SALESFORCE_ID"
+                )
 
         show_unit_type_summary = (
             intent.request_unit_type_summary
@@ -960,6 +1001,7 @@ class InventoryHandler:
             "parking_spaces": unit.parking_spaces,
             "internal_saleable_area": unit.internal_saleable_area,
             "area_sqft": unit.area_sqft,
+            "balcony_area_sqm": unit.balcony_area_sqm,
             "plot_area": unit.plot_area,
             "view": unit.view,
 

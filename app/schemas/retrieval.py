@@ -105,6 +105,7 @@ class InventoryUnit(InventoryBaseModel):
     internal_saleable_area: float | None = None
 
     area_sqft: float | None = None
+    balcony_area_sqm: float | None = None
 
     plot_area: float | None = None
     view: str | None = None

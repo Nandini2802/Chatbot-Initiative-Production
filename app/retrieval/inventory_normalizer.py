@@ -245,6 +245,10 @@ def normalize_unit(raw: dict[str, Any]) -> InventoryUnit:
         area_sqft=data.get(
             "Total_Saleable_Area_In_Sq_Ft__c"
         ),
+        
+        balcony_area_sqm=data.get(
+            "Balcony_Area_Sq_Mt_New__c"
+        ),
 
         plot_area=data.get(
             "PlotArea__c"

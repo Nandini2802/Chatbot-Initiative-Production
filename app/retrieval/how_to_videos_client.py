@@ -38,10 +38,13 @@ class HowToVideosAPIClient:
 
             response = await session.post(
                 url,
-                headers=build_middleware_headers({
-                    "x_api_key": self.api_key,
-                    "Accept": "application/json",
-                }),
+                headers=build_middleware_headers(
+                    {
+                        "x_api_key": self.api_key,
+                        "Accept": "application/json",
+                    },
+                    require_user_context=False,
+                ),
                 data="",
                 allow_redirects=False,
             )

@@ -138,3 +138,162 @@ def test_no_match_does_not_return_everything():
     )
 
     assert result == []
+
+
+def test_general_studio_search_includes_flex_variants():
+    units = [
+        InventoryUnit(
+            unit_name="ST-001",
+            unit_type="Studio",
+            bedrooms=0,
+            status="Available",
+        ),
+        InventoryUnit(
+            unit_name="ST-002",
+            unit_type=(
+                "Flex Studio Type - A / "
+                "Convertible 1 Bedroom"
+            ),
+            bedrooms=1,
+            status="Available",
+        ),
+        InventoryUnit(
+            unit_name="ST-003",
+            unit_type=(
+                "Flex Studio Type - B / "
+                "Convertible 1 Bedroom"
+            ),
+            bedrooms=1,
+            status="Available",
+        ),
+        InventoryUnit(
+            unit_name="BR-001",
+            unit_type="1 Bedroom",
+            bedrooms=1,
+            status="Available",
+        ),
+        InventoryUnit(
+            unit_name="ST-004",
+            unit_type="Flex Studio Type - A",
+            bedrooms=1,
+            status="Sold",
+        ),
+    ]
+
+    intent = make_intent(
+        unit_type="studio",
+        bedrooms=0,
+        status="Available",
+    )
+
+    results = InventoryFilterService().filter_units(
+        units, intent
+    )
+
+    assert [u.unit_name for u in results] == [
+        "ST-001",
+        "ST-002",
+        "ST-003",
+    ]
+
+
+def test_specific_flex_studio_type_a():
+    units = [
+        InventoryUnit(
+            unit_name="ST-001",
+            unit_type="Studio",
+            status="Available",
+        ),
+        InventoryUnit(
+            unit_name="ST-002",
+            unit_type=(
+                "Flex Studio Type - A / "
+                "Convertible 1 Bedroom"
+            ),
+            status="Available",
+        ),
+        InventoryUnit(
+            unit_name="ST-003",
+            unit_type=(
+                "Flex Studio Type - B / "
+                "Convertible 1 Bedroom"
+            ),
+            status="Available",
+        ),
+    ]
+
+    intent = make_intent(
+        unit_type="Flex Studio Type - A",
+        status="Available",
+    )
+
+    results = InventoryFilterService().filter_units(
+        units, intent
+    )
+
+    assert [u.unit_name for u in results] == [
+        "ST-002"
+    ]
+
+
+def test_one_bedroom_search_keeps_existing_behavior():
+    units = [
+        InventoryUnit(
+            unit_name="ST-001",
+            unit_type="Studio",
+            bedrooms=0,
+            status="Available",
+        ),
+        InventoryUnit(
+            unit_name="BR-001",
+            unit_type="1 Bedroom",
+            bedrooms=1,
+            status="Available",
+        ),
+    ]
+
+    intent = make_intent(
+        bedrooms=1,
+        status="Available",
+    )
+
+    results = InventoryFilterService().filter_units(
+        units, intent
+    )
+
+    assert [u.unit_name for u in results] == [
+        "BR-001"
+    ]
+
+
+def test_studio_search_does_not_match_non_studio_types():
+    units = [
+        InventoryUnit(
+            unit_name="BR-001",
+            unit_type="Convertible 1 Bedroom",
+            status="Available",
+        ),
+        InventoryUnit(
+            unit_name="BR-002",
+            unit_type="2 Bedroom",
+            status="Available",
+        ),
+        InventoryUnit(
+            unit_name="ST-001",
+            unit_type="Studio",
+            status="Available",
+        ),
+    ]
+
+    intent = make_intent(
+        unit_type="studio",
+        status="Available",
+    )
+
+    results = InventoryFilterService().filter_units(
+        units, intent
+    )
+
+    assert [u.unit_name for u in results] == [
+        "ST-001"
+    ]

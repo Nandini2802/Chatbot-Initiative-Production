@@ -137,11 +137,21 @@ Do not assume Available unless availability is explicitly requested or clearly i
 
 - 1 BHK, one bedroom, 1 bed -> bedrooms=1
 - 2 BHK, two bedrooms -> bedrooms=2
-- studio -> bedrooms=0
 - 2 bedroom duplex -> bedrooms=2, requires_duplex=true
 - 2 bedroom with pool -> bedrooms=2, requires_pool=true
 
 For commercial offices, shops, suites, and named typologies, preserve the relevant typology or unit_type instead of inventing a residential classification.
+
+- General studio or studios request:
+  - unit_type="studio"
+  - bedrooms=null
+  - typology=null unless independently requested
+
+- A general studio request includes authorized inventory records explicitly labeled as Studio, Flex Studio, or another clearly named Studio variant.
+- Do not convert a generic studio request into bedrooms=0. Some Flex Studio units may have a different NumberOfBedrooms value because they are convertible into a 1-bedroom configuration.
+- Do not expand a studio search to ordinary 1 Bedroom or Convertible 1 Bedroom units unless their actual Unit Type explicitly identifies them as a Studio variant.
+- For an explicitly requested specific type, such as "Flex Studio Type - A", preserve that pecific unit_type rather than broadening it to every studio variant.
+- For an explicitly numeric bedroom request, such as "0 bedroom units" or "1 BHK", keep the existing bedroom filtering behavior.
 
 ## Views
 
@@ -273,7 +283,8 @@ sort_by: price_asc
 price_selection: null
 
 User: Show the most expensive available studio
-bedrooms: 0
+unit_type: studio
+bedrooms: null
 status: Available
 sort_by: price_desc
 price_selection: most_expensive
@@ -302,8 +313,10 @@ Example:
 
 User: i need all danube available studios
 
+unit_type: studio
+bedrooms: null
+typology: null
 status: Available
-bedrooms: 0
 project_location: null
 unresolved_terms: []
 

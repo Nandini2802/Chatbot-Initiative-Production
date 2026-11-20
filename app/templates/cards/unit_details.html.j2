@@ -162,13 +162,8 @@
       {{ (unit.unit_name or unit.unit_code or "This unit") | e }}
     </strong>
 
-    {% if unit.status %}
-      has a status of
-      <strong>{{ unit.status | e }}</strong>
-    {% endif %}
-
     {% if unit.unit_type or unit.typology %}
-      and is classified as
+      is classified as
       {{ (unit.unit_type or unit.typology) | e }}
     {% endif %}
 
@@ -246,25 +241,6 @@
     </div>
     {% endif %}
 
-
-    {% if unit.area_sqft is not none %}
-    <div class="unit-row">
-      <span class="unit-label">Area</span>
-      <span class="unit-value">
-        {{ "{:,.2f}".format(unit.area_sqft | float) }} sqft
-      </span>
-    </div>
-
-    {% elif unit.internal_saleable_area is not none %}
-    <div class="unit-row">
-      <span class="unit-label">Saleable area</span>
-      <span class="unit-value">
-        {{ "{:,.2f}".format(unit.internal_saleable_area | float) }} sqft
-      </span>
-    </div>
-    {% endif %}
-
-
     {% if unit.parking_spaces is not none %}
     <div class="unit-row">
       <span class="unit-label">Parking</span>
@@ -281,18 +257,6 @@
       <span class="unit-label">View</span>
       <span class="unit-value">
         {{ unit.view | e }}
-      </span>
-    </div>
-    {% endif %}
-
-
-    {% if unit.status %}
-    <div class="unit-row">
-      <span class="unit-label">Availability</span>
-      <span class="unit-value">
-        <span class="unit-status">
-          {{ unit.status | e }}
-        </span>
       </span>
     </div>
     {% endif %}
@@ -328,6 +292,33 @@
     </div>
     {% endif %}
 
+    {% if unit.area_sqft is not none %}
+    <div class="unit-row">
+      <span class="unit-label">Total Area</span>
+      <span class="unit-value">
+        {{ "{:,.2f}".format(unit.area_sqft | float) }} sqft
+      </span>
+    </div>
+    {% endif %}
+
+    {% if unit.internal_saleable_area is not none %}
+    <div class="unit-row">
+      <span class="unit-label">Internal Area</span>
+      <span class="unit-value">
+        {{ "{:,.2f}".format(unit.internal_saleable_area | float) }} sqft
+      </span>
+    </div>
+    {% endif %}
+
+    {% if unit.balcony_area_sqm is not none %}
+    <div class="unit-row">
+      <span class="unit-label">Balcony Area</span>
+      <span class="unit-value">
+        {{ "{:,.2f}".format(unit.balcony_area_sqm | float) }} sq m
+      </span>
+    </div>
+    {% endif %}
+
   </div>
 
 
@@ -336,10 +327,9 @@
   {% if project %}
 
     {% if project.location
-       or project.construction_status
-       or project.handover_date
-       or project.completion_date
-       or project.payment_plan %}
+      or project.construction_status
+      or project.handover_date
+      or project.completion_date %}
 
     <div class="unit-divider"></div>
 
@@ -388,21 +378,11 @@
       </div>
       {% endif %}
 
-
-      {% if project.payment_plan %}
-      <div class="unit-row">
-        <span class="unit-label">Payment plan</span>
-        <span class="unit-value">
-          {{ project.payment_plan | e }}
-        </span>
-      </div>
-      {% endif %}
-
     </div>
 
     <div class="unit-note">
       Project information is based on the matched
-      project record. Payment plans and handover
+      project record. Handover
       dates may be subject to unit-specific terms.
     </div>
 

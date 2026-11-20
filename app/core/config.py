@@ -130,6 +130,10 @@ class Settings(BaseSettings):
     unit_comparison_api_url: str = ""
     unit_comparison_timeout_seconds: float = 30.0
 
+    # Unit Details
+    unit_details_api_url: str = ""
+    unit_details_timeout_seconds: float = 60.0
+
     # Unit Layout Plan
     unit_layout_api_url: str = ""
     unit_layout_timeout_seconds: float = 60.0

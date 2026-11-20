@@ -85,6 +85,22 @@ def inferred_bedrooms(unit: InventoryUnit) -> int | None:
     return None
 
 
+def is_studio_family(unit_type: str | None) -> bool:
+    """
+    Match Studio and explicitly studio-labelled variants.
+
+    Examples:
+    - Studio
+    - Flex Studio Type - A / Convertible 1 Bedroom
+    - Flex Studio Type - B / Convertible 1 Bedroom
+
+    Do not match ordinary 1 Bedroom units.
+    """
+    normalized = normalize_text(unit_type)
+
+    return "studio" in normalized.split()
+
+
 class InventoryFilterService:
 
     def filter_units(
@@ -142,15 +158,30 @@ class InventoryFilterService:
                 ):
                     continue
 
+            requested_unit_type = normalize_text(
+                intent.unit_type
+            )
+
+            is_general_studio_request = (
+                requested_unit_type in {"studio", "studios"}
+            )
+
             # Bedrooms
-            if intent.bedrooms is not None:
+            if (
+                intent.bedrooms is not None
+                and not is_general_studio_request
+            ):
                 if inferred_bedrooms(unit) != intent.bedrooms:
                     continue
 
             # Unit type
             if intent.unit_type:
-                if not Resolver.match(
-                    intent.unit_type, unit.unit_type
+                if is_general_studio_request:
+                    if not is_studio_family(unit.unit_type):
+                        continue
+                elif not Resolver.match(
+                    intent.unit_type,
+                    unit.unit_type,
                 ):
                     continue
 

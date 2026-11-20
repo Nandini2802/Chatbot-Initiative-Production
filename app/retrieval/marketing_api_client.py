@@ -34,13 +34,16 @@ class MarketingAPIClient:
                 "Marketing API URL is not configured"
             )
 
-        headers = build_middleware_headers({
-            "x_api_key": self.api_key,
-            "product_name": self.settings.marketing_product_name,
-            "product_feature_name": (
-                self.settings.marketing_product_feature_name
-            ),
-        })
+        headers = build_middleware_headers(
+            {
+                "x_api_key": self.api_key,
+                "product_name": self.settings.marketing_product_name,
+                "product_feature_name": (
+                    self.settings.marketing_product_feature_name
+                ),
+            },
+            require_user_context=False,
+        )
 
 
         logger.info("MARKETING_API_REQUEST_STARTED")

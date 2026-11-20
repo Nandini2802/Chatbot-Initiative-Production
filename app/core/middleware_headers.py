@@ -44,38 +44,47 @@ def reset_middleware_context(tokens):
     _current_user_id.reset(user_token)
 
 
+
 def build_middleware_headers(
     existing_headers: Mapping[str, str] | None = None,
     *,
     require_user_context: bool = True,
 ) -> dict[str, str]:
     """
-    Add middleware headers without removing existing ones.
+    Build headers for middleware API requests.
 
-    For authenticated API calls, require both user_id
-    and Salesforce token.
+    User-specific APIs:
+        Require user_id and Salesforce token.
 
-    Background jobs can use require_user_context=False,
-    but must have a separate authentication strategy
-    if middleware requires these headers.
+    Public/service APIs:
+        Can explicitly disable user context.
     """
 
     headers = dict(existing_headers or {})
 
+    headers["source"] = MIDDLEWARE_SOURCE
+
+    if not require_user_context:
+        for key in list(headers):
+            if key.lower() in (
+                "user_id",
+                "salesforce_access_token",
+            ):
+                headers.pop(key)
+
+        return headers
+
     user_id = _current_user_id.get()
     salesforce_token = _current_salesforce_token.get()
 
-    headers["source"] = MIDDLEWARE_SOURCE
+    if not user_id or not salesforce_token:
+        raise ValueError(
+            "Middleware request context is missing "
+            "user_id or Salesforce token"
+        )
 
-    if require_user_context:
-        if not user_id or not salesforce_token:
-            raise ValueError(
-                "Middleware request context is missing "
-                "user_id or Salesforce token"
-            )
-
-    if user_id and salesforce_token:
-        headers["user_id"] = user_id
-        headers["salesforce_access_token"] = salesforce_token
+    headers["user_id"] = user_id
+    headers["salesforce_access_token"] = salesforce_token
 
     return headers
+
