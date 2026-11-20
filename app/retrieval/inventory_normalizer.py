@@ -23,6 +23,37 @@ def clean_keys(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def clean_project_image_url(value: str | None) -> str | None:
+    """
+    Remove optional HTML paragraph tags from a
+    Salesforce project image URL.
+    """
+
+    if not value or not isinstance(value, str):
+        return None
+
+    url = value.strip()
+
+    # Remove surrounding paragraph tags, if present.
+    import re
+
+    url = re.sub(
+        r"^\s*<p(?:\s[^>]*)?>\s*",
+        "",
+        url,
+        flags=re.IGNORECASE,
+    )
+
+    url = re.sub(
+        r"\s*</p>\s*$",
+        "",
+        url,
+        flags=re.IGNORECASE,
+    )
+
+    return url.strip() or None
+
+
 def normalize_project(raw: dict[str, Any]) -> InventoryProject:
 
     data = clean_keys(raw)
@@ -90,8 +121,8 @@ def normalize_project(raw: dict[str, Any]) -> InventoryProject:
             "Starting_Price_Mob__c"
         ),
 
-        project_image=data.get(
-            "Project_Image__c"
+        project_image=clean_project_image_url(
+            data.get("Project_Image__c")
         ),
 
         unit_of_measurement=data.get(

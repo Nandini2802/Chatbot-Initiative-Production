@@ -36,4 +36,16 @@ class InventoryFilters(BaseModel):
     requires_pool: bool = False
     requires_duplex: bool = False
 
+    floor_number: str | None = None
+
+    min_floor: int | None = Field(
+        default=None, ge=0
+    )
+    max_floor: int | None = Field(
+        default=None, ge=0
+    )
+
+    min_floor_inclusive: bool = True
+    max_floor_inclusive: bool = True
+
     unresolved_terms: list[str] = Field(default_factory=list)

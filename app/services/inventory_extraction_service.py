@@ -168,17 +168,41 @@ class InventoryExtractionService:
         ):
             raise ValueError("Invalid inventory area range")
 
+        if (
+            filters.min_floor is not None
+            and filters.max_floor is not None
+            and (
+                filters.min_floor > filters.max_floor
+                or (
+                    filters.min_floor == filters.max_floor
+                    and (
+                        not filters.min_floor_inclusive
+                        or not filters.max_floor_inclusive
+                    )
+                )
+            )
+        ):
+            raise ValueError("Invalid inventory floor range")
+
         logger.info(
             "INVENTORY_FILTER_EXTRACTION_COMPLETED | "
             "sort_by=%s | unresolved_terms=%s | "
             "project_location=%s | status=%s | "
-            "min_area=%s | max_area=%s",
+            "min_area=%s | max_area=%s | "
+            "floor_number=%s | min_floor=%s | "
+            "max_floor=%s | min_inclusive=%s | "
+            "max_inclusive=%s",
             filters.sort_by,
             filters.unresolved_terms,
             filters.project_location,
             filters.status,
             filters.min_area_sqft,
             filters.max_area_sqft,
+            filters.floor_number,
+            filters.min_floor,
+            filters.max_floor,
+            filters.min_floor_inclusive,
+            filters.max_floor_inclusive,
         )
 
         return filters

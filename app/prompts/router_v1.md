@@ -548,6 +548,122 @@ For a search across all projects, project_name=null is valid.
 For an ambiguous project, preserve the inventory intent, return project_name=null and request clarification.
 Do not generate a user-facing answer.
 
+## INVENTORY FLOOR FILTERING
+
+Floor-based unit searches must be classified as inventory requests.
+
+Set:
+intent = "inventory"
+inventory_scope = "units"
+inventory_operation = "unit_search"
+
+Extract floor conditions into these structured fields:
+- floor_number: exact floor only, as a string
+- min_floor: lower boundary, integer or null
+- max_floor: upper boundary, integer or null
+- min_floor_inclusive: boolean, default true
+- max_floor_inclusive: boolean, default true
+
+INTERPRETATION:
+
+"above floor 30", "higher than 30", "after the 30th floor":
+min_floor=30, min_floor_inclusive=false
+
+"floor 30 and above", "at least floor 30", "30th floor or higher":
+min_floor=30, min_floor_inclusive=true
+
+"below floor 20", "lower than 20", "under the 20th floor":
+max_floor=20, max_floor_inclusive=false
+
+"floor 20 and below", "up to floor 20", "at most floor 20":
+max_floor=20, max_floor_inclusive=true
+
+"between floors 10 and 25", "floors 10 through 25":
+min_floor=10, max_floor=25
+min_floor_inclusive=true, max_floor_inclusive=true
+
+"on floor 15", "15th floor", "units on F15":
+floor_number="15"
+min_floor=null, max_floor=null
+
+"ground floor", "GF", "ground-floor units":
+floor_number="GF"
+min_floor=null, max_floor=null
+
+"top floor", "highest floor":
+Do not invent a floor number. These requests require a separate highest-floor resolution from actual inventory data.
+
+IMPORTANT RULES:
+1. Floor numbers must be extracted from the user's request, not guessed.
+2. Unit identifiers may contain F01, F20, F37, F100, or GF.
+3. Do not interpret the numeric suffix of a unit identifier as a requested floor.
+4. Preserve the exact unit identifier when the user asks about a specific unit.
+5. Floor filtering must not be confused with marketing floor-plan downloads or unit layout plans.
+6. Preserve project_name and other explicitly requested inventory filters.
+7. For floor searches across all projects, project_name may be null.
+8. If the user says "available units", set the appropriate availability status as usual.
+9. Do not assume available status when it was not requested.
+10. For floor ranges, floor_number must be null.
+11. For exact floor searches, min_floor and max_floor must be null.
+12. For queries without a floor condition, floor_number, min_floor and max_floor must all be null.
+13. Do not add a floor filter merely because a unit identifier contains F followed by digits.
+14. Preserve the existing project context for follow-up floor queries.
+15. Do not invent inventory results.
+
+EXAMPLES:
+
+User: Share me units above 30th floor in Serenz
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_search
+project_name: SERENZ BY DANUBE
+min_floor: 30
+min_floor_inclusive: false
+
+User: Show available units below 20th floor in Greenz
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_search
+max_floor: 20
+max_floor_inclusive: false
+
+User: Show units between floors 10 and 25
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_search
+min_floor: 10
+max_floor: 25
+min_floor_inclusive: true
+max_floor_inclusive: true
+
+User: Show units on floor 37
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_search
+floor_number: "37"
+
+User: Show ground floor retail units
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_search
+floor_number: "GF"
+
+User: Show units on floor 30 or higher
+intent: inventory
+inventory_scope: units
+inventory_operation: unit_search
+min_floor: 30
+min_floor_inclusive: true
+
+User: Show me the floor plan of Serenz
+intent: marketing
+
+User: Show the layout plan of SRNZ-A-F01-101
+intent: inventory
+inventory_operation: unit_layout_plan
+unit_number: SRNZ-A-F01-101
+
+
 
 ## UNIT / BEDROOM TYPE SUMMARY INTENT
 

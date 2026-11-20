@@ -108,6 +108,12 @@ class RoutingIntent(BaseModel):
     request_unit_type_summary: bool = False
     floor_number: str | None = None
 
+    min_floor: int | None = None
+    max_floor: int | None = None
+
+    min_floor_inclusive: bool = True
+    max_floor_inclusive: bool = True
+
     view: str | None = None
     typology: str | None = None
     handover_status: str | None = None

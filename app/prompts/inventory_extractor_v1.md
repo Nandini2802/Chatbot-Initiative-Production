@@ -25,6 +25,97 @@ Return the structured InventoryFilters schema.
 13. Do not classify that project mention as an unresolved unit filter, category, location, unit type, or typology.
 14. Continue extracting any additional conditions normally. Never discard unrelated unresolved conditions.
 
+## Floor Filtering
+
+Floor is a supported inventory search constraint.
+
+Extract floor comparisons using:
+- floor_number
+- min_floor
+- max_floor
+- min_floor_inclusive
+- max_floor_inclusive
+
+Floor numbers can be expressed using ordinal numbers:
+1st, 2nd, 3rd, 4th, 20th, 30th, 100th.
+
+Rules:
+
+"above 2nd floor":
+min_floor=2
+min_floor_inclusive=false
+
+"above floor 30":
+min_floor=30
+min_floor_inclusive=false
+
+"below floor 20":
+max_floor=20
+max_floor_inclusive=false
+
+"floor 20 and above":
+min_floor=20
+min_floor_inclusive=true
+
+"floor 20 and below":
+max_floor=20
+max_floor_inclusive=true
+
+"between floors 10 and 25":
+min_floor=10
+max_floor=25
+min_floor_inclusive=true
+max_floor_inclusive=true
+
+"on floor 4":
+floor_number="4"
+
+"ground floor" or "GF":
+floor_number="GF"
+
+For exact floor filters:
+min_floor=null
+max_floor=null
+
+For floor ranges:
+floor_number=null
+
+For queries without floor filters:
+floor_number=null
+min_floor=null
+max_floor=null
+
+IMPORTANT:
+- Floor filtering is supported.
+- Never add a recognized floor condition to unresolved_terms.
+- Preserve all other search filters.
+- Do not invent floor values.
+- Do not interpret unit-number suffixes as floor values.
+- Floor plans and unit layout plans are not floor filters.
+- If a floor condition is genuinely ambiguous or unsupported, preserve it in unresolved_terms.
+- Return unresolved_terms=[] when all conditions are supported.
+
+Examples:
+
+User: Share me units above 2nd floor in Serenz
+min_floor: 2
+min_floor_inclusive: false
+unresolved_terms: []
+
+User: Show units below floor 20
+max_floor: 20
+max_floor_inclusive: false
+unresolved_terms: []
+
+User: Show available units on floor 4
+floor_number: "4"
+status: Available
+unresolved_terms: []
+
+User: Show ground-floor retail units
+floor_number: "GF"
+unresolved_terms: []
+
 ## Price
 
 - 2 million = 2000000

@@ -3400,6 +3400,11 @@ async def _stream_chat_response_impl(
                     "price_selection",
                     "requires_pool",
                     "requires_duplex",
+                    "floor_number",
+                    "min_floor",
+                    "max_floor",
+                    "min_floor_inclusive",
+                    "max_floor_inclusive",
                 )
 
                 for field in filter_fields:

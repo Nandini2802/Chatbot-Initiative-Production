@@ -7,7 +7,10 @@ from app.services.inventory_attribute_resolver import (
     InventoryAttributeResolver as Resolver,
     normalize_text,
 )
-
+from app.utils.floor_utils import (
+    get_unit_floor,
+    matches_floor_filter,
+)
 
 def norm(value) -> str:
     return str(value or "").strip().casefold()
@@ -194,11 +197,17 @@ class InventoryFilterService:
                     continue
 
             # Floor
-            if intent.floor_number:
-                if norm(unit.floor_number) != norm(
-                    intent.floor_number
-                ):
-                    continue
+            unit_floor = get_unit_floor(unit)
+
+            if not matches_floor_filter(
+                floor=unit_floor,
+                exact_floor=intent.floor_number,
+                min_floor=intent.min_floor,
+                max_floor=intent.max_floor,
+                min_inclusive=intent.min_floor_inclusive,
+                max_inclusive=intent.max_floor_inclusive,
+            ):
+                continue
 
             # Currency
             if intent.currency:
