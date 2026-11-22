@@ -152,6 +152,24 @@ def _select(phrase: str, names: list[str], *, threshold: float, method: str) -> 
     exact = _exact(phrase, names, "message_exact" if method == "message_fuzzy" else "exact")
     if exact:
         return exact
+    query = _short(phrase)
+    if len(query) >= 5 and not _numbers(query):
+        prefix_matches = [
+            name for name in names
+            if (
+                _short(name).startswith(query + " ")
+                or (
+                    len(query) >= 5
+                    and _short(name).split()[0].startswith(query)
+                )
+            )
+        ]
+
+        if len(prefix_matches) > 1:
+            return ProjectResolution(
+                status="ambiguous",
+                candidates=tuple(prefix_matches),
+            )
     ranked = _rank(phrase, names)
     if not ranked or ranked[0][0] < threshold:
         return ProjectResolution("not_found")

@@ -148,7 +148,7 @@ def resolve_session_project(
     project_reference_source: ProjectSource = "none",
     explicit_project_reference: str | None = None,
     inherit: bool = True,
-    allow_router_tiebreak: bool = True,
+    allow_router_tiebreak: bool = False,
     project_codes: dict | None = None,
 ) -> ContextDecision:
 

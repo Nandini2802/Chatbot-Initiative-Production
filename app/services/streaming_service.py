@@ -116,6 +116,14 @@ from app.core.middleware_headers import (
     set_middleware_context,
     reset_middleware_context,
 )
+from app.services.project_selection_service import (
+    find_project_candidates,
+    interpret_project_selection,
+    project_selection_question,
+)
+from app.services.project_selection_state import (
+    ProjectSelectionState,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -2005,6 +2013,95 @@ async def _stream_chat_response_impl(
             inventory_catalogs.unit_projects
         )
 
+        availability_denied = set()
+        availability_access = DownloadAvailabilityAccessService()
+        blocked_intents = set()
+        sales_offer_project_errors = {}
+
+        ambiguous_project_clarifications = {}
+        comparison_clarifications: dict[int, str] = {}
+
+        project_selection_state = ProjectSelectionState(
+            clients.redis
+        )
+
+        project_selection_intents = {
+            "marketing",
+            "inventory",
+            "download_availability",
+            "bank_details",
+            "project_information",
+        }
+
+        for index, intent in enumerate(routing_result.intents):
+            if intent.intent not in project_selection_intents:
+                continue
+
+            # Do not interfere with requests that
+            # already explicitly identify a unit.
+            if any([
+                intent.unit_id,
+                intent.unit_name,
+                intent.unit_number,
+            ]):
+                continue
+
+            if intent.intent == "marketing":
+                catalog = list(marketing_names)
+
+            elif intent.intent == "bank_details":
+                catalog = list(inventory_active_names)
+
+            elif intent.intent == "inventory":
+                catalog = list(
+                    inventory_active_names
+                    | inventory_unit_names
+                )
+
+            elif intent.intent == "download_availability":
+                catalog = list(inventory_active_names)
+
+            else:
+                catalog = list(
+                    inventory_active_names
+                    | inventory_unit_names
+                )
+
+            reference = (
+                intent.explicit_project_reference
+                or intent.project_name
+            )
+
+            candidates = find_project_candidates(
+                reference,
+                catalog,
+            )
+
+            if not candidates:
+                continue
+
+            await project_selection_state.save(
+                user_id=user_id,
+                session_id=str(session_id),
+                original_message=message,
+                candidates=candidates,
+                intent_type=intent.intent,
+            )
+
+            ambiguous_project_clarifications[index] = (
+                project_selection_question(candidates)
+            )
+
+            intent.project_name = None
+            intent.requires_clarification = True
+
+            if "project_name" not in intent.missing_fields:
+                intent.missing_fields.append(
+                    "project_name"
+                )
+
+            blocked_intents.add(index)
+
 
         def resolve_visible_unit_project(user_message: str):
             matches = []
@@ -2046,16 +2143,6 @@ async def _stream_chat_response_impl(
 
         project_context_decisions: dict[int, str] = {}
         project_context_has_unresolved_explicit = False
-        
-
-        # Tracks intents that must not execute.
-        availability_denied = set()
-        availability_access = DownloadAvailabilityAccessService()
-        blocked_intents = set()
-        sales_offer_project_errors = {}
-        # index -> "Did you mean A or B?" for ambiguous projects.
-        ambiguous_project_clarifications = {}
-        comparison_clarifications: dict[int, str] = {}
 
         for index, intent in enumerate(routing_result.intents):
             if intent.intent == "download_availability":
@@ -2722,9 +2809,7 @@ async def _stream_chat_response_impl(
                     # Bank details (account numbers) never use the
                     # router's choice to settle an ambiguous name,
                     # nor short project codes.
-                    allow_router_tiebreak=(
-                        intent.intent != "bank_details"
-                    ),
+                    allow_router_tiebreak=False,
                     project_codes=(
                         None
                         if intent.intent == "bank_details"
@@ -3468,6 +3553,21 @@ async def _stream_chat_response_impl(
         for index, intent in enumerate(routing_result.intents):
 
             if index in blocked_intents:
+                # GLOBAL PROJECT AMBIGUITY CLARIFICATION
+                if (
+                    index in ambiguous_project_clarifications
+                    and intent.intent in {
+                        "marketing",
+                        "inventory",
+                        "download_availability",
+                        "bank_details",
+                        "project_information",
+                    }
+                ):
+                    clarification_messages.append(
+                        ambiguous_project_clarifications[index]
+                    )
+                    continue
 
                 if index in availability_denied:
                     clarification_messages.append(
