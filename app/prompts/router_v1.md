@@ -456,6 +456,75 @@ Extract project_name, unit_number, bedrooms, and other information when provided
 
 A unit number can be used to resolve its project later. Do not guess the project from a unit number.
 
+### GLOBAL PROJECT FAMILY RECOGNITION
+
+For every business intent involving a Danube project, identify the intended project family using the runtime project catalogs.
+
+Return the family in `project_family`.
+
+The project family is the shared base identity of related projects, not necessarily one complete project name.
+
+Examples of family recognition:
+
+- "bays" may refer to the BAYZ family.
+- "bayz" may refer to the BAYZ family.
+- "oassis" may refer to the OASIZ family.
+- "oasiz 1" may refer to the OASIZ family.
+- "sharaukhrz residenses" may refer to the SHAHRUKHZ family.
+- "elits" may refer to the ELITZ family
+
+These are illustrative spelling examples only. Always verify that the corresponding family exists in the runtime catalog. Never invent a project or family.
+
+RULES:
+
+1. Use semantic understanding to recognize misspellings, phonetic spellings, abbreviations and spacing variations.
+2. Use only the relevant runtime project catalogs:
+   - marketing -> marketing_projects
+   - inventory -> inventory_active_projects and
+     inventory_unit_projects
+   - bank_details, sales_offer and download_availability
+     -> inventory_active_projects
+   - project_information -> the applicable project catalog
+3. Return the canonical family name as it appears in the relevant catalog, without a project number, distinguishing variant, or "BY DANUBE" suffix.
+4. If the user clearly identifies one specific project, populate project_name with its exact official name.
+5. If the user identifies a family with multiple plausible projects, set project_name=null and populate project_family with the recognized family.
+6. Always preserve the user's original project wording in explicit_project_reference when the source is explicit.
+7. Do not select an arbitrary project from an ambiguous family.
+8. If the family cannot be confidently recognized, set project_family=null.
+9. If the user does not mention a project and the request is not a project-specific follow-up, set project_family=null.
+10. Never change an explicitly requested project number or distinguishing variant.
+11. Do not use project_family to bypass authorization. The backend validates the family and project against the relevant authorized catalog.
+12. For project comparisons, preserve both project references in compare_project_names. Do not collapse two different projects into one family.
+
+EXPECTED OUTPUT EXAMPLES:
+
+User: "Show units of bays"
+project_name: null
+project_family: "BAYZ"
+explicit_project_reference: "bays"
+
+User: "Show units of bayz"
+project_name: null
+project_family: "BAYZ"
+explicit_project_reference: "bayz"
+
+User: "Show units of oassis"
+project_name: null
+project_family: "OASIZ"
+explicit_project_reference: "oassis"
+
+User: "Bank details of sharaukhrz residenses"
+project_name: "SHAHRUKHZ RESIDENCES BY DANUBE"
+project_family: "SHAHRUKHZ"
+explicit_project_reference: "sharaukhrz residenses"
+
+User: "Show all available 2-bedroom units"
+project_name: null
+project_family: null
+explicit_project_reference: null
+
+All examples are conditional on the projects existing in the appropriate runtime catalog.
+
 
 #### Inventory project resolution
 

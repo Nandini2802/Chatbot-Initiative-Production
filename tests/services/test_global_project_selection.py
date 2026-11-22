@@ -9,6 +9,16 @@ from app.services.project_selection_service import (
 )
 from app.services.project_selection_state import ProjectSelectionState
 
+from app.services.project_selection_service import (
+    matching_projects,
+)
+from app.services.project_resolution_service import (
+    match_project_reference,
+    match_project_in_message,
+    match_unique_specific_variant,
+)
+
+
 
 CATALOG = [
     "SHAHRUKHZ BY DANUBE",
@@ -150,3 +160,84 @@ async def test_shared_availability_parameters_roundtrip():
     state = await service.load(user_id="u", session_id="s")
     assert state["phase"] == "availability_parameters"
     assert state["routing_result"]["intents"][0]["currency"] == "AED"
+
+def test_typo_residences_unique_variant():
+    result = match_unique_specific_variant(
+        "sharaukhrz residenses",
+        CATALOG,
+    )
+
+    assert result is not None
+    assert result.status == "matched"
+    assert result.name == "SHAHRUKHZ RESIDENCES BY DANUBE"
+
+
+def test_global_matching_typo_residences():
+    matches = matching_projects(
+        "sharaukhrz residenses",
+        CATALOG,
+    )
+
+    assert matches == [
+        "SHAHRUKHZ RESIDENCES BY DANUBE"
+    ]
+
+
+def test_escrow_message_does_not_ask_for_clarification():
+    mentioned, ambiguous = project_mention_candidates(
+        "escrow account of sharaukhrz residenses",
+        CATALOG,
+    )
+
+    assert mentioned is True
+    assert ambiguous == []
+
+
+def test_bank_message_resolves_correct_project():
+    result = match_project_in_message(
+        "escrow account of sharaukhrz residenses",
+        CATALOG,
+    )
+
+    assert result.status == "matched"
+    assert result.name == "SHAHRUKHZ RESIDENCES BY DANUBE"
+
+
+def test_router_reference_resolves_correct_project():
+    result = match_project_reference(
+        "sharaukhrz residenses",
+        CATALOG,
+    )
+
+    assert result.status == "matched"
+    assert result.name == "SHAHRUKHZ RESIDENCES BY DANUBE"
+
+
+def test_family_only_remains_ambiguous():
+    matches = find_project_candidates(
+        "shahrukhz",
+        CATALOG,
+    )
+
+    assert matches == [
+        "SHAHRUKHZ BY DANUBE",
+        "SHAHRUKHZ RESIDENCES BY DANUBE",
+    ]
+
+
+def test_numbered_projects_are_not_confused():
+    assert match_unique_specific_variant(
+        "oasiz 1",
+        CATALOG,
+    ) is None or match_unique_specific_variant(
+        "oasiz 1",
+        CATALOG,
+    ).name == "OASIZ 1 BY DANUBE"
+
+    assert find_project_candidates(
+        "oasiz",
+        CATALOG,
+    ) == [
+        "OASIZ 1 BY DANUBE",
+        "OASIZ 2 BY DANUBE",
+    ]

@@ -9,6 +9,10 @@ from dataclasses import dataclass
 
 from app.services.project_name_service import normalize_project_name
 
+from app.services.project_resolution_service import (
+    match_unique_specific_variant,
+)
+
 
 @dataclass(frozen=True)
 class SelectionResult:
@@ -40,6 +44,15 @@ def matching_projects(reference: str | None, catalog) -> list[str]:
     explicit_full = [name for name in names if raw.casefold() == name.casefold()]
     if len(explicit_full) == 1:
         return explicit_full
+
+    specific_variant = match_unique_specific_variant(
+        raw,
+        names,
+    )
+
+    if specific_variant is not None:
+        return [specific_variant.name]
+
 
     # A short name is NOT authoritative where other projects share that prefix.
     matches = [
@@ -179,3 +192,40 @@ def project_selection_question(
         f"{options}\n\n"
         f"{reply_instruction}."
     )
+
+
+def projects_in_router_family(
+    project_family: str | None,
+    catalog,
+) -> list[str]:
+    """
+    Validate an LLM-proposed family against the authorized
+    project catalog.
+
+    This function does not perform typo correction.
+    It only checks whether the proposed canonical family
+    exists and returns its authorized projects.
+    """
+    family = _norm(project_family)
+
+    if not family:
+        return []
+
+    names = _catalog(catalog)
+
+    family_names = {}
+
+    for name in names:
+        normalized = _norm(name)
+
+        if not normalized:
+            continue
+
+        first_word = normalized.split()[0]
+
+        family_names.setdefault(
+            first_word,
+            [],
+        ).append(name)
+
+    return family_names.get(family, [])

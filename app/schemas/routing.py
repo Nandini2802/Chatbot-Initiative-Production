@@ -68,6 +68,8 @@ class RoutingIntent(BaseModel):
     ] = "none"
 
     explicit_project_reference: str | None = None
+    project_family: str | None = None
+
 
     feature_name: str | None = None
 

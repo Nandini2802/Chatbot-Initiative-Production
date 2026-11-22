@@ -118,13 +118,7 @@ from app.core.middleware_headers import (
     set_middleware_context,
     reset_middleware_context,
 )
-from app.services.project_selection_service import (
-    find_project_candidates,
-    project_mention_candidates,
-    looks_like_project_selection,
-    interpret_project_selection,
-    project_selection_question,
-)
+from app.services.project_selection_service import *
 from app.services.project_selection_state import (
     ProjectSelectionState,
 )
@@ -1529,6 +1523,7 @@ async def _stream_chat_response_impl(
             print("Intent:", intent.intent)
             print("Inventory Operation:", intent.inventory_operation)
             print("Project Name:", intent.project_name)
+            print("Project Family:", intent.project_family)
             print("Explicit Project Reference:", intent.explicit_project_reference)
             print("Compare Unit Numbers:", intent.compare_unit_numbers)
             print("Original Query:", intent.original_query)
@@ -2684,6 +2679,38 @@ async def _stream_chat_response_impl(
                     if resolution.status == "ambiguous":
                         candidates = list(
                             resolution.candidates
+                        )
+
+                raw_reference = (
+                    intent.explicit_project_reference or ""
+                ).strip()
+
+                reference_words = raw_reference.split()
+
+                if (
+                    not candidates
+                    and intent.project_reference_source == "explicit"
+                    and intent.project_family
+                    and not intent.project_name
+                    and len(reference_words) == 1
+                    and len(raw_reference) >= 4
+                    and not any(char.isdigit() for char in raw_reference)
+                ):
+                    family_matches = projects_in_router_family(
+                        intent.project_family,
+                        catalog,
+                    )
+
+                    if len(family_matches) > 1:
+                        candidates = family_matches
+
+                        logger.info(
+                            "ROUTER_PROJECT_FAMILY_AMBIGUOUS | "
+                            "reference=%s | family=%s | "
+                            "candidates=%s",
+                            raw_reference,
+                            intent.project_family,
+                            family_matches,
                         )
 
                 candidate_data = (

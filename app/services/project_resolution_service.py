@@ -95,6 +95,74 @@ def _score(left: str, right: str) -> float:
     )
 
 
+def match_unique_specific_variant(
+    reference: str | None,
+    projects: Collection[str],
+) -> ProjectResolution | None:
+    """
+    Match a specific multi-word project variant with minor typos.
+
+    Example:
+    sharaukhrz residenses
+    -> SHAHRUKHZ RESIDENCES BY DANUBE
+
+    A family-only reference cannot use this shortcut.
+    """
+    query = _short(reference)
+    query_words = query.split()
+
+    # Do not automatically select a project from
+    # a family-only reference, such as "shahrukhz".
+    if len(query_words) < 2:
+        return None
+
+    requested_numbers = _numbers(query)
+    ranked = []
+
+    for name in _names(projects):
+        name_words = _short(name).split()
+
+        # All meaningful variant words must be present.
+        if len(query_words) != len(name_words):
+            continue
+
+        # Never change an explicitly supplied project number.
+        if _numbers(name) != requested_numbers:
+            continue
+
+        word_scores = [
+            _score(query_word, name_word)
+            for query_word, name_word
+            in zip(query_words, name_words)
+        ]
+
+        # A weak identifying word should not be ignored.
+        if any(score < 0.78 for score in word_scores):
+            continue
+
+        average = sum(word_scores) / len(word_scores)
+
+        if average >= 0.84:
+            ranked.append((average, name))
+
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+
+    if not ranked:
+        return None
+
+    # Multiple similarly likely projects require clarification.
+    if (
+        len(ranked) > 1
+        and ranked[0][0] - ranked[1][0] < 0.10
+    ):
+        return None
+
+    return ProjectResolution(
+        status="matched",
+        name=ranked[0][1],
+        method="specific_variant_typo",
+    )
+
 def _exact(phrase: str, names: list[str], method: str) -> ProjectResolution | None:
     normalized = _norm(phrase)
     if not normalized:
@@ -149,10 +217,26 @@ def _rank(phrase: str, names: list[str]) -> list[tuple[float, str]]:
 
 
 def _select(phrase: str, names: list[str], *, threshold: float, method: str) -> ProjectResolution:
-    exact = _exact(phrase, names, "message_exact" if method == "message_fuzzy" else "exact")
+
+    exact = _exact(
+        phrase,
+        names,
+        "message_exact" if method == "message_fuzzy" else "exact",
+    )
+
     if exact:
         return exact
+
+    specific_variant = match_unique_specific_variant(
+        phrase,
+        names,
+    )
+
+    if specific_variant is not None:
+        return specific_variant
+
     query = _short(phrase)
+
     if len(query) >= 5 and not _numbers(query):
         prefix_matches = [
             name for name in names
@@ -236,6 +320,30 @@ def match_project_in_message(message: str, projects: Collection[str]) -> Project
         return ProjectResolution("ambiguous", candidates=tuple(selected))
 
     phrases = _message_phrases(message)
+    specific_matches = set()
+
+    for phrase in phrases:
+        result = match_unique_specific_variant(
+            phrase,
+            names,
+        )
+
+        if result is not None and result.name:
+            specific_matches.add(result.name)
+
+    if len(specific_matches) == 1:
+        return ProjectResolution(
+            status="matched",
+            name=next(iter(specific_matches)),
+            method="message_specific_variant_typo",
+        )
+
+    if len(specific_matches) > 1:
+        return ProjectResolution(
+            status="ambiguous",
+            candidates=tuple(sorted(specific_matches)),
+        )
+
     if not phrases:
         return ProjectResolution("not_found")
 
