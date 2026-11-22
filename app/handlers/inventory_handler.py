@@ -30,6 +30,8 @@ from app.retrieval.unit_details_connector import (
     UnitDetailsAPIError,
 )
 
+from app.services.inventory_attribute_resolver import match_location
+
 logger = logging.getLogger(__name__)
 
 
@@ -569,8 +571,8 @@ class InventoryHandler:
     def _handle_projects(self, intent, result):
         projects = self.snapshot.projects
 
+        # Filter by exact resolved project name.
         if intent.project_name:
-
             requested = normalize_project_name(
                 intent.project_name
             )
@@ -578,9 +580,28 @@ class InventoryHandler:
             projects = [
                 project
                 for project in projects
-                if normalize_project_name(project.project_name or "")
-                == requested
+                if normalize_project_name(
+                    project.project_name or ""
+                ) == requested
             ]
+
+        # Filter by location, including approved aliases.
+        if intent.project_location:
+            projects = [
+                project
+                for project in projects
+                if match_location(
+                    intent.project_location,
+                    project.location,
+                )
+            ]
+
+        logger.info(
+            "INVENTORY_PROJECT_LOCATION_FILTER | "
+            "location=%r | matches=%d",
+            intent.project_location,
+            len(projects),
+        )
 
         if not projects:
             result.messages.append(

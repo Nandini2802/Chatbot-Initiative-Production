@@ -6,7 +6,9 @@ from app.schemas.routing import RoutingIntent
 from app.services.inventory_attribute_resolver import (
     InventoryAttributeResolver as Resolver,
     normalize_text,
+    match_location,
 )
+
 from app.utils.floor_utils import (
     get_unit_floor,
     matches_floor_filter,
@@ -176,7 +178,7 @@ class InventoryFilterService:
 
             # Location
             if intent.project_location:
-                if not Resolver.match(
+                if not match_location(
                     intent.project_location,
                     unit.project_location,
                 ):

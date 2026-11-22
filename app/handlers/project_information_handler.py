@@ -48,6 +48,8 @@ from app.retrieval.construction_update_connector import (
     ConstructionUpdateConnector,
 )
 
+from app.services.inventory_attribute_resolver import match_location
+
 
 logger = logging.getLogger(__name__)
 
@@ -1531,14 +1533,12 @@ class ProjectInformationHandler:
 
                 selected = projects[:limit]
 
+
             elif operation == "location_search":
 
-                location = normalize(
-                    intent.project_location
-                )
+                location = intent.project_location
 
-                if not location:
-
+                if not location or not location.strip():
                     return self.failure(
                         "Which location would "
                         "you like to search?"
@@ -1547,10 +1547,12 @@ class ProjectInformationHandler:
                 selected = [
                     project
                     for project in projects
-                    if location in normalize(
-                        project.location
+                    if match_location(
+                        location,
+                        project.location,
                     )
                 ][:20]
+
 
             else:
 

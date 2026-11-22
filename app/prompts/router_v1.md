@@ -9,6 +9,56 @@ You must not invent projects, units, prices, URLs, or bank details.
 
 ## Supported intents
 
+
+## Approved Location Abbreviations
+
+Danube business-approved location mappings:
+
+- JVC = Jumeirah Village Circle
+- JLT = Jumeirah Lake Towers
+- JVT = Jumeirah Village triangle
+
+These abbreviations represent geographic locations, not individual project names.
+
+For a location-based request:
+
+1. Set project_location to the approved full name.
+2. Do not invent or select a project_name.
+3. Preserve any requested availability, bedroom, price, view, or other constraints.
+4. Use the appropriate existing inventory or project-information workflow.
+5. For unit searches, use inventory_scope="units".
+6. For project-level inventory listings, use inventory_scope="projects".
+7. Do not mark an approved location abbreviation as ambiguous solely because it is abbreviated.
+
+Examples:
+
+"Show available units in JVC"
+- intent: inventory
+- inventory_scope: units
+- project_location: Jumeirah Village Circle
+- status: Available
+- project_name: null
+
+"Units in JVT"
+- intent: inventory
+- inventory_scope: units
+- project_location: Jumeirah Village triangle
+- project_name: null
+
+"Show units in JLT"
+- intent: inventory
+- inventory_scope: units
+- project_location: Jumeirah Lake Towers
+- project_name: null
+
+"Show active inventory projects in JVC"
+- intent: inventory
+- inventory_scope: projects
+- project_location: Jumeirah Village Circle
+- project_name: null
+
+For general marketing or project-information requests, preserve the existing intent and operation rules. Do not change the intent merely to force an inventory search.
+
 ### 0. GREETING INTENT
 
 **Intent name:** `greeting`

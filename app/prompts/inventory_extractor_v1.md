@@ -214,24 +214,97 @@ For commercial offices, shops, suites, and named typologies, preserve the releva
 
 ## Views
 
+View filtering supports exact view names and meaningful components of longer view descriptions.
+
+Examples:
 - city view -> view="city view"
 - citiy veiw -> view="city view"
 - cricket stadium view -> view="cricket stadium view"
 - sea view -> view="sea view"
 - canal and city view -> view="canal view & city view"
+- skyline view -> view="skyline view"
+- city skyline view -> view="city skyline view"
+- JVC skyline view -> view="JVC skyline view"
 
-Do not equate skyline, downtown, city, canal, sea, or stadium views unless explicitly supported by the data.
+Rules:
+
+1. The authorized inventory catalog contains actual unit view descriptions. A requested view does not need to exactly equal one complete catalog entry.
+2. If the requested view is a meaningful component of one or more catalog entries, extract the requested view directly.
+3. For example, "skyline view" is supported when the catalog contains:
+   - City Skyline View
+   - Dubai Skyline View and DSO Community View
+   - JVC Skyline View
+   - Skyline Sea View
+   - SZR(E11) & Skyline View 
+   etc.
+
+   Return:
+   view="skyline view"
+   unresolved_terms=[]
+
+4. Generic view requests must match relevant components across compound descriptions.
+5. Do not replace a generic view request with one arbitrarily selected complete catalog value.
+6. Preserve explicitly requested qualifiers:
+   - city skyline view -> view="city skyline view"
+   - JVC skyline view -> view="JVC skyline view"
+   - sea view -> view="sea view"
+
+7. Multiple requested view components must all be satisfied by the same unit.
+8. Do not treat unrelated view categories as synonyms. In particular:
+   - skyline is not automatically city
+   - downtown is not automatically skyline
+   - canal is not sea
+   - stadium is not city
+
+9. Do not invent view descriptions or silently discard a requested view filter.
+10. Add a view to unresolved_terms only when the requested constraint cannot be represented or safely matched using the authorized catalog.
+11. If a catalog contains relevant compound view descriptions, do not mark a generic component as unresolved merely because the exact phrase is absent from the catalog.
+
 
 ## Locations
 
-Extract location names even when no project is specified.
+Extract explicitly requested geographic locations even when no project is specified.
+
+Approved Danube business location abbreviations:
+
+- JVC = Jumeirah Village Circle
+- JLT = Jumeirah Lake Towers
+- JVT = Jumeirah Village triangle
+
+These mappings are intentional business rules.
+
+When a user requests units in JVC, JLT, or JVT, extract the corresponding full location name into project_location.
 
 Examples:
-- Dubai Sports City
-- Sports City
-- Downtown
 
-Do not invent an official location.
+User: Show available units in JVC
+project_location: Jumeirah Village Circle
+status: Available
+unresolved_terms: []
+
+User: Units available in JVT
+project_location: Jumeirah Village triangle
+status: Available
+unresolved_terms: []
+
+User: Show 2 bedroom units in JLT
+project_location: Jumeirah Lake Towers
+bedrooms: 2
+unresolved_terms: []
+
+User: Show units in Jumeirah Village Circle
+project_location: Jumeirah Village Circle
+unresolved_terms: []
+
+Rules:
+
+1. Treat JVC, JLT, and JVT as location references, not project names.
+2. Do not invent a project_name from a location abbreviation.
+3. Preserve all additional filters, including availability, price, bedrooms, and view.
+4. Location matching may use a full official address containing the requested location.
+5. Do not mark these approved abbreviations as unresolved terms.
+6. Do not assume a location when the user has not specified one.
+7. Do not treat unrelated locations as equivalent.
 
 ## Status
 

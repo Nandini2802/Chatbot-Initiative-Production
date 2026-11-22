@@ -15,6 +15,56 @@ def normalize_text(value) -> str:
 def tokens(value) -> set[str]:
     return set(normalize_text(value).split())
 
+LOCATION_ALIASES = {
+    "jvc": "jumeirah village circle",
+    "jlt": "jumeirah lake towers",
+    "jvt": "jumeirah village triangle",
+}
+
+
+def normalize_location(value: str | None) -> str:
+    normalized = normalize_text(value)
+
+    if not normalized:
+        return ""
+
+    # Expand abbreviations anywhere in the location.
+    words = normalized.split()
+    expanded = []
+
+    for word in words:
+        replacement = LOCATION_ALIASES.get(word, word)
+        expanded.extend(replacement.split())
+
+    return " ".join(expanded)
+
+
+def match_location(
+    requested: str | None,
+    actual: str | None,
+) -> bool:
+    if not requested or not actual:
+        return False
+
+    requested_norm = normalize_location(requested)
+    actual_norm = normalize_location(actual)
+
+    if not requested_norm or not actual_norm:
+        return False
+
+    if requested_norm == actual_norm:
+        return True
+
+    requested_words = requested_norm.split()
+    actual_words = actual_norm.split()
+
+    length = len(requested_words)
+
+    return any(
+        actual_words[i:i + length] == requested_words
+        for i in range(len(actual_words) - length + 1)
+    )
+
 
 class InventoryAttributeResolver:
 
@@ -89,6 +139,7 @@ class InventoryAttributeResolver:
 
         return score >= 90
 
+
     @classmethod
     def match_view(
         cls,
@@ -102,29 +153,39 @@ class InventoryAttributeResolver:
         requested_norm = normalize_text(requested)
         actual_norm = normalize_text(actual)
 
-        # A request for multiple view components must
-        # satisfy every component.
+        if not requested_norm or not actual_norm:
+            return False
+
+        # Split multiple requested view conditions.
+        # Every condition must match the same unit.
         parts = [
-            p.strip()
-            for p in re.split(
-                r"\s+(?:and)\s+|\s*&\s*|,",
-                requested_norm.replace(" & ", " and "),
+            part.strip()
+            for part in re.split(
+                r"\s+and\s+|\s*&\s*|,",
+                requested_norm,
             )
-            if p.strip()
+            if part.strip()
         ]
 
-        if len(parts) > 1:
-            return all(
-                cls.match(
-                    part,
-                    actual_norm,
-                    allow_components=True,
-                )
-                for part in parts
+        actual_tokens = tokens(actual_norm)
+
+        def matches_component(part: str) -> bool:
+            requested_tokens = tokens(part)
+
+            # "view" is a descriptive word, not
+            # a distinguishing view category.
+            requested_tokens.discard("view")
+
+            if not requested_tokens:
+                return False
+
+            # Match actual view components without
+            # assuming unrelated view synonyms.
+            return requested_tokens.issubset(
+                actual_tokens
             )
 
-        return cls.match(
-            requested_norm,
-            actual_norm,
-            allow_components=True,
+        return all(
+            matches_component(part)
+            for part in parts
         )

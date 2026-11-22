@@ -64,6 +64,39 @@ class InventoryExtractionService:
 
         catalog = self._catalog(snapshot)
 
+        view_values = [
+            str(unit.view).strip()
+            for unit in snapshot.units
+            if unit.view is not None and str(unit.view).strip()
+        ]
+
+        skyline_views = sorted({
+            value
+            for value in view_values
+            if "skyline" in value.casefold()
+        })
+
+        logger.info(
+            "VIEW_DEBUG_SNAPSHOT | total_units=%s | "
+            "units_with_view=%s | skyline_units=%s | "
+            "skyline_values=%s",
+            len(snapshot.units),
+            len(view_values),
+            sum("skyline" in value.casefold() for value in view_values),
+            skyline_views,
+        )
+
+        logger.info(
+            "VIEW_DEBUG_CATALOG | total_views=%s | "
+            "skyline_catalog_values=%s",
+            len(catalog.get("views", [])),
+            [
+                value
+                for value in catalog.get("views", [])
+                if "skyline" in value.casefold()
+            ],
+        )
+
         # Only recent textual context is passed.
         recent_history = [
             {
@@ -148,6 +181,15 @@ class InventoryExtractionService:
         )
 
         filters = response.output_parsed
+
+        logger.info(
+            "VIEW_DEBUG_EXTRACTOR_OUTPUT | "
+            "requested_message=%s | extracted_view=%s | "
+            "unresolved_terms=%s",
+            message,
+            filters.view if filters else None,
+            filters.unresolved_terms if filters else None,
+        )
 
         if filters is None:
             raise ValueError(
