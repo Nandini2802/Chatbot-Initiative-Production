@@ -122,6 +122,9 @@ from app.services.project_selection_service import *
 from app.services.project_selection_state import (
     ProjectSelectionState,
 )
+from app.services.unit_selection_state import UnitSelectionState
+from app.services.shared_unit_resolver import *
+
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -831,6 +834,214 @@ async def _stream_chat_response_impl(
             )
         )
 
+        shared_unit_state = UnitSelectionState(
+            clients.redis
+        )
+
+        pending_unit_choice = (
+            await shared_unit_state.load(
+                user_id=user_id,
+                session_id=str(session_id),
+            )
+        )
+
+        shared_unit_resumption = None
+
+        if (
+            pending_unit_choice
+            and action is None
+            and selected_payment_plan is None
+            and selected_payment_plan_names is None
+        ):
+            normalized_reply = message.strip().casefold()
+
+            if normalized_reply in {
+                "cancel",
+                "cancel selection",
+                "stop",
+                "never mind",
+                "nevermind",
+            }:
+                await shared_unit_state.clear(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+
+                async for event in emit_global_project_reply(
+                    clients=clients,
+                    session_id=session_id,
+                    user_id=user_id,
+                    correlation_id=correlation_id,
+                    message=message,
+                    reply="Unit selection cancelled.",
+                    started_at=started_at,
+                    intent_name="unit_selection",
+                ):
+                    yield event
+
+                return
+
+            allowed_ids = set(
+                pending_unit_choice.get(
+                    "candidate_ids", []
+                )
+            )
+
+            candidates = [
+                unit
+                for unit in inventory_snapshot.units
+                if unit.unit_id
+                and str(unit.unit_id) in allowed_ids
+            ]
+
+            # Revalidate every candidate against
+            # the current authenticated inventory.
+            if len({
+                str(unit.unit_id)
+                for unit in candidates
+            }) != len(allowed_ids):
+
+                await shared_unit_state.clear(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+
+                async for event in emit_global_project_reply(
+                    clients=clients,
+                    session_id=session_id,
+                    user_id=user_id,
+                    correlation_id=correlation_id,
+                    message=message,
+                    reply=(
+                        "The available units have changed. "
+                        "Please start the request again."
+                    ),
+                    started_at=started_at,
+                    intent_name="unit_selection",
+                ):
+                    yield event
+
+                return
+
+            selection = select_candidate(
+                message,
+                candidates,
+            )
+
+            if selection.status == "matched":
+                selected_unit = selection.units[0]
+
+                shared_unit_resumption = (
+                    RoutingResult.model_validate(
+                        pending_unit_choice["routing_result"]
+                    )
+                )
+
+                selected_intent = (
+                    shared_unit_resumption.intents[
+                        pending_unit_choice["intent_index"]
+                    ]
+                )
+
+                apply_selected_unit(
+                    selected_intent,
+                    selected_unit,
+                    pending_unit_choice.get("slot_index"),
+                )
+
+                shared_unit_resumption.requires_clarification = any(
+                    item.requires_clarification
+                    for item in shared_unit_resumption.intents
+                )
+
+                await shared_unit_state.clear(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+
+                logger.info(
+                    "SHARED_UNIT_SELECTED | "
+                    "unit_id=%s | operation=%s",
+                    selected_unit.unit_id,
+                    selected_intent.inventory_operation
+                    or selected_intent.intent,
+                )
+
+            elif selection.status == "ambiguous":
+
+                await shared_unit_state.save(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                    routing_result=(
+                        pending_unit_choice["routing_result"]
+                    ),
+                    intent_index=(
+                        pending_unit_choice["intent_index"]
+                    ),
+                    slot_index=(
+                        pending_unit_choice.get("slot_index")
+                    ),
+                    candidate_ids=[
+                        str(unit.unit_id)
+                        for unit in selection.units
+                    ],
+                    reference=(
+                        pending_unit_choice.get("reference")
+                    ),
+                )
+
+                reply = format_unit_choices(
+                    selection.units,
+                    pending_unit_choice.get("reference"),
+                )
+
+                async for event in emit_global_project_reply(
+                    clients=clients,
+                    session_id=session_id,
+                    user_id=user_id,
+                    correlation_id=correlation_id,
+                    message=message,
+                    reply=reply,
+                    started_at=started_at,
+                    intent_name="unit_selection",
+                ):
+                    yield event
+
+                return
+
+            elif looks_like_unit_selection(message):
+
+                reply = (
+                    "I couldn't identify that selection "
+                    "among the available units.\n\n"
+                    + format_unit_choices(
+                        candidates,
+                        pending_unit_choice.get("reference"),
+                    )
+                )
+
+                async for event in emit_global_project_reply(
+                    clients=clients,
+                    session_id=session_id,
+                    user_id=user_id,
+                    correlation_id=correlation_id,
+                    message=message,
+                    reply=reply,
+                    started_at=started_at,
+                    intent_name="unit_selection",
+                ):
+                    yield event
+
+                return
+
+            else:
+                # A new unrelated request supersedes
+                # the pending selection.
+                await shared_unit_state.clear(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+
         # Short project codes (GRZ, DMZ, ...) from this user's units.
         project_codes = build_project_code_map(
             getattr(inventory_snapshot, "units", None) or [],
@@ -843,7 +1054,6 @@ async def _stream_chat_response_impl(
             ],
         )
 
-        # BANK ACCOUNT CLICK SELECTION
 
         if (
             action is not None
@@ -1297,7 +1507,10 @@ async def _stream_chat_response_impl(
         project_choice_is_both = len(project_choice_projects) > 1
         selected_unit_comparison_projects = ()
 
-        if project_choice:
+        if shared_unit_resumption is not None:
+            routing_result = shared_unit_resumption
+
+        elif project_choice:
             route_data = project_choice["routing_result"]
             route = RoutingResult.model_validate(route_data)
             old_index = project_choice["intent_index"]
@@ -3964,6 +4177,139 @@ async def _stream_chat_response_impl(
             for item in routing_result.intents
         )
 
+        for index, intent in enumerate(routing_result.intents):
+
+            references = get_unit_references(
+                intent,
+                intent.original_query or message,
+            )
+
+            if (
+                intent.intent == "inventory"
+                and intent.inventory_operation == "unit_comparison"
+                and len(intent.compare_unit_numbers or []) != 2
+                and len(references) == 2
+            ):
+                intent.compare_unit_numbers = [
+                    reference
+                    for _, reference in references
+                ]
+
+                intent.missing_fields = [
+                    field
+                    for field in intent.missing_fields
+                    if field != "compare_unit_numbers"
+                ]
+                intent.requires_clarification = bool(
+                    intent.missing_fields
+                )
+
+            if not references:
+                continue
+
+            for slot_index, reference in references:
+
+                project_hint = getattr(
+                    intent, "project_name", None
+                )
+
+                # Comparison references can each have a
+                # different explicit project.
+                # The resolver handles this independently.
+                resolution = resolve_units(
+                    identifier=reference,
+                    units=inventory_snapshot.units,
+                    project_hint=project_hint,
+                )
+
+                logger.info(
+                    "SHARED_UNIT_RESOLUTION | "
+                    "intent=%s | operation=%s | "
+                    "reference=%s | status=%s | count=%s",
+                    intent.intent,
+                    intent.inventory_operation,
+                    reference,
+                    resolution.status,
+                    len(resolution.units),
+                )
+
+                if resolution.status == "ambiguous":
+
+                    await shared_unit_state.save(
+                        user_id=user_id,
+                        session_id=str(session_id),
+                        routing_result=(
+                            routing_result.model_dump(
+                                mode="json"
+                            )
+                        ),
+                        intent_index=index,
+                        slot_index=slot_index,
+                        candidate_ids=[
+                            str(unit.unit_id)
+                            for unit in resolution.units
+                        ],
+                        reference=reference,
+                    )
+
+                    reply = format_unit_choices(
+                        resolution.units,
+                        reference,
+                    )
+
+                    async for event in emit_global_project_reply(
+                        clients=clients,
+                        session_id=session_id,
+                        user_id=user_id,
+                        correlation_id=correlation_id,
+                        message=message,
+                        reply=reply,
+                        started_at=started_at,
+                        intent_name="unit_selection",
+                    ):
+                        yield event
+
+                    return
+
+                if resolution.status == "matched":
+
+                    selected_unit = resolution.units[0]
+
+                    apply_selected_unit(
+                        intent,
+                        selected_unit,
+                        slot_index,
+                    )
+
+                    if not intent.requires_clarification:
+                        blocked_intents.discard(index)
+                        forced_ambiguous_intents.discard(index)
+
+                        ambiguous_project_clarifications.pop(
+                            index, None
+                        )
+                        sales_offer_project_errors.pop(
+                            index, None
+                        )
+
+                    logger.info(
+                        "SHARED_UNIT_CONFIRMED | "
+                        "unit_id=%s | unit_name=%s | "
+                        "operation=%s",
+                        selected_unit.unit_id,
+                        selected_unit.unit_name,
+                        intent.inventory_operation
+                        or intent.intent,
+                    )
+
+                # For not_found, preserve existing
+                # handler fallback behavior.
+
+        routing_result.requires_clarification = any(
+            item.requires_clarification
+            for item in routing_result.intents
+        )
+
 
         detected_intents = [
             item.intent
@@ -5127,8 +5473,16 @@ async def _stream_chat_response_impl(
                 2,
             ),
         )
+        if error_code == "INVENTORY_SESSION_INVALID":
+            response_code = "SESSION EXPIRED OR INVALID"
+            user_message = (
+                "We couldn't retrieve the property information "
+                "from Danube's service right now. "
+                "Please try again later."
+            )
+            retryable = True
 
-        if error_code == "INVENTORY_RATE_LIMITED":
+        elif error_code == "INVENTORY_RATE_LIMITED":
             response_code = "INVENTORY_RATE_LIMITED"
             user_message = (
                 "The property information service is "

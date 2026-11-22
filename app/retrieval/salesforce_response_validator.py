@@ -55,6 +55,16 @@ def validate_salesforce_response(
             status_code,
             str(metadata.get("developerMsg", ""))[:300],
         )
+        if (
+            status_code == 401
+            and "session expired or invalid"
+            in str(metadata.get("developerMsg", "")).lower()
+        ):
+            raise AppException(
+                "Session expired or invalid",
+                status_code=401,
+                error_code="INVENTORY_SESSION_INVALID",
+            )
 
         raise AppException(
             "The upstream service reported a failure",

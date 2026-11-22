@@ -92,12 +92,17 @@ def find_project_units(intent, snapshot):
 PROJECT_UNIT_PREFIXES = {
     "aspirz": ("aspz",),
     "shahrukhz": ("srkz",),
+    "shahrukhz residences": ("srkr",),
     "eleganz": ("elgz",),
     "greenz": ("grz",),
     "diamondz": ("dmz",),
     "elitz": ("etz",),
+    "elitz 2": ("etz-2",),
+    "elitz 3": ("etz-3",),
     "fashionz": ("fnz",),
     "oasiz": ("oaz",),
+    "oasiz 1": ("oaz-1",),
+    "oasiz 2": ("oaz-2",),
     "oceanz": ("ocz",),
     "viewz": ("vwz",),
     "jewelz": ("jwz",),
@@ -105,6 +110,10 @@ PROJECT_UNIT_PREFIXES = {
     "bayz 102": ("b102z",),
     "timez": ("tmz",),
     "sparklz": ("splz",),
+    "serenz": ("srnz",),
+    "sportz": ("spz",),
+    "breez": ("brz",),
+    "bayz 101": ("b101z",),
 }
 
 for _project_alias, _unit_prefixes in list(
