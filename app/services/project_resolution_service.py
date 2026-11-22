@@ -306,6 +306,14 @@ def match_project_in_message(message: str, projects: Collection[str]) -> Project
                     return exact
                 return ProjectResolution("ambiguous", candidates=tuple(sorted(members)))
 
+    # Shared partial prefixes are ambiguous; do not let fuzzy ranking
+    # silently choose one of them for bank accounts or other services.
+    from app.services.project_selection_service import find_project_candidates
+    for phrase in phrases:
+        candidates = find_project_candidates(phrase, names)
+        if candidates:
+            return ProjectResolution("ambiguous", candidates=tuple(candidates))
+
     # Prefer full extracted phrase; a single token is not enough if a
     # numbered project was explicitly requested.
     per_name: dict[str, float] = {}

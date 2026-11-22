@@ -48,7 +48,8 @@ from app.services.payment_plan_selection_service import (
 )
 
 from app.utils.bank_debug import bank_debug
-from app.schemas.routing import RoutingIntent
+from app.schemas.routing import RoutingIntent, RoutingResult
+from app.schemas.handler_result import HandlerResult
 from app.handlers.payment_plan_handler import PaymentPlanHandler
 from app.handlers.walkthrough_handler import WALKTHROUGH_FALLBACK
 from app.services.router_service import RouterService
@@ -59,6 +60,7 @@ from app.services.project_resolution_service import (
     match_project_reference,
     match_project_in_message,
     resolve_comparison_project,
+    parse_comparison_references,
     format_project_comparison_clarification,
 )
 from app.services.project_codes import (
@@ -118,6 +120,8 @@ from app.core.middleware_headers import (
 )
 from app.services.project_selection_service import (
     find_project_candidates,
+    project_mention_candidates,
+    looks_like_project_selection,
     interpret_project_selection,
     project_selection_question,
 )
@@ -317,6 +321,46 @@ async def load_previous_inventory_context(
             user_id=user_id,
         )
 
+async def emit_global_project_reply(
+    *, clients, session_id, user_id, correlation_id,
+    message, reply, started_at, intent_name="project_selection",
+):
+    """Use the same persisted SSE contract as the regular chat."""
+    await persist_completed_chat(
+        clients=clients,
+        session_id=session_id,
+        user_id=user_id,
+        user_message=message,
+        assistant_message=reply,
+        intents=[intent_name],
+        latency_ms=int((time.perf_counter() - started_at) * 1000),
+        response_payload={
+            "version": 1,
+            "html_blocks": [],
+            "files": [],
+            "followups": [],
+            "inventory_context": None,
+        },
+    )
+    response = ChatResponse(
+        response=reply,
+        session_id=session_id,
+        correlation_id=correlation_id,
+        followups=[],
+        data={
+            "files": [],
+            "classification": {
+                "intents": [{"intent": intent_name}],
+                "requires_clarification": True,
+            },
+        },
+    )
+    yield format_sse("token", {"text": reply})
+    yield format_sse("followups", {"chips": []})
+    yield format_sse("final", response.model_dump(mode="json"))
+    yield format_sse("done", {"status": "completed"})
+
+
 async def _stream_chat_response_impl(
     message: str,
     session_id: uuid.UUID,
@@ -390,6 +434,236 @@ async def _stream_chat_response_impl(
             else None
         )
 
+        # GLOBAL PROJECT FOLLOW-UP: runs before payment, availability or
+        # sales-offer follow-up interpreters. All saved routes are user/session scoped.
+        project_selection_state = ProjectSelectionState(clients.redis)
+        pending_project_choice = await project_selection_state.load(
+            user_id=user_id, session_id=str(session_id),
+        )
+        project_choice = None
+        project_choice_projects = ()
+        project_choice_original_message = None
+        project_queue_active = False
+        project_queue_position = 0
+        project_queue_projects = ()
+
+        # UI callbacks (selected_payment_plan) also need to know that a
+        # sequential Both request is in progress, even though they bypass
+        # normal free-text reply interpretation.
+        if pending_project_choice and pending_project_choice.get("phase") == "multi_queue":
+            project_queue_active = True
+            project_queue_position = pending_project_choice.get("queue_position", 0)
+            project_queue_projects = tuple(pending_project_choice["selected_projects"])
+
+        if (
+            pending_project_choice
+            and action is None
+            and selected_payment_plan_names is None
+            and selected_payment_plan is None
+        ):
+            phase = pending_project_choice.get("phase", "choose_project")
+            if phase == "multi_queue":
+                project_queue_active = True
+                project_queue_position = pending_project_choice.get("queue_position", 0)
+                project_queue_projects = tuple(pending_project_choice["selected_projects"])
+                normalized_next = message.strip().casefold()
+                if normalized_next in {"cancel all", "cancel both projects"}:
+                    await project_selection_state.clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    await SalesOfferState(clients.redis).clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    await clear_pending_payment_selection(
+                        redis_client=clients.redis,
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    async for event in emit_global_project_reply(
+                        clients=clients, session_id=session_id, user_id=user_id,
+                        correlation_id=correlation_id, message=message,
+                        reply="Cancelled the remaining projects in this request.",
+                        started_at=started_at,
+                    ):
+                        yield event
+                    return
+                if normalized_next in {"next", "next project", "continue next", "continue with next project"}:
+                    has_sales_pending = await SalesOfferState(clients.redis).load(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    has_payment_pending = await load_pending_payment_selection(
+                        redis_client=clients.redis,
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    if has_sales_pending or has_payment_pending:
+                        async for event in emit_global_project_reply(
+                            clients=clients, session_id=session_id, user_id=user_id,
+                            correlation_id=correlation_id, message=message,
+                            reply="Please finish or cancel the current project's selection before moving to the next project.",
+                            started_at=started_at,
+                        ):
+                            yield event
+                        return
+                    if project_queue_position + 1 >= len(project_queue_projects):
+                        await project_selection_state.clear(
+                            user_id=user_id, session_id=str(session_id),
+                        )
+                        async for event in emit_global_project_reply(
+                            clients=clients, session_id=session_id, user_id=user_id,
+                            correlation_id=correlation_id, message=message,
+                            reply="There are no more projects in this request.",
+                            started_at=started_at,
+                        ):
+                            yield event
+                        return
+                    project_queue_position += 1
+                    project_choice = pending_project_choice
+                    project_choice_projects = (project_queue_projects[project_queue_position],)
+                    project_choice_original_message = pending_project_choice["original_message"]
+                    await project_selection_state.save(
+                        user_id=user_id, session_id=str(session_id),
+                        original_message=pending_project_choice["original_message"],
+                        candidates=pending_project_choice["candidates"],
+                        intent_type=pending_project_choice["intent_type"],
+                        routing_result=pending_project_choice["routing_result"],
+                        intent_index=pending_project_choice["intent_index"],
+                        slot=pending_project_choice["slot"],
+                        slot_index=pending_project_choice.get("slot_index"),
+                        phase="multi_queue",
+                        selected_projects=list(project_queue_projects),
+                        queue_position=project_queue_position,
+                    )
+                # Other replies continue the native selection; here 'first'
+                # means first unit or plan, not first project.
+            elif phase == "availability_parameters":
+                if message.strip().casefold() in {
+                    "cancel", "stop", "never mind", "nevermind",
+                }:
+                    await project_selection_state.clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    async for event in emit_global_project_reply(
+                        clients=clients, session_id=session_id, user_id=user_id,
+                        correlation_id=correlation_id, message=message,
+                        reply="Cancelled the project selection.",
+                        started_at=started_at,
+                    ):
+                        yield event
+                    return
+                selected = tuple(pending_project_choice["selected_projects"])
+                detected_currency, detected_format = extract_currency_and_format(message)
+                restored = pending_project_choice["routing_result"]
+                stored_intent = restored["intents"][pending_project_choice["intent_index"]]
+                if detected_currency:
+                    stored_intent["currency"] = detected_currency
+                if detected_format:
+                    stored_intent["file_format"] = detected_format
+                if not stored_intent.get("currency") or not stored_intent.get("file_format"):
+                    await project_selection_state.save(
+                        user_id=user_id, session_id=str(session_id),
+                        original_message=pending_project_choice["original_message"],
+                        candidates=pending_project_choice["candidates"],
+                        intent_type=pending_project_choice["intent_type"],
+                        routing_result=restored,
+                        intent_index=pending_project_choice["intent_index"],
+                        slot=pending_project_choice["slot"],
+                        slot_index=pending_project_choice.get("slot_index"),
+                        phase="availability_parameters",
+                        selected_projects=list(selected),
+                    )
+                    missing = []
+                    if not stored_intent.get("currency"):
+                        missing.append("currency (for example AED or USD)")
+                    if not stored_intent.get("file_format"):
+                        missing.append("file format (PDF or Excel)")
+                    reply = "For both projects, please provide " + " and ".join(missing) + "."
+                    async for event in emit_global_project_reply(
+                        clients=clients, session_id=session_id, user_id=user_id,
+                        correlation_id=correlation_id, message=message,
+                        reply=reply, started_at=started_at,
+                    ):
+                        yield event
+                    return
+                project_choice = pending_project_choice
+                project_choice_projects = selected
+                project_choice_original_message = pending_project_choice["original_message"]
+            else:
+                interpretation = interpret_project_selection(
+                    message, pending_project_choice["candidates"],
+                )
+                
+                pending_intent = pending_project_choice[
+                    "routing_result"
+                ]["intents"][
+                    pending_project_choice["intent_index"]
+                ]
+
+                single_project_only = (
+                    pending_intent.get("intent") == "sales_offer"
+                    or (
+                        pending_intent.get("intent") == "inventory"
+                        and pending_intent.get("inventory_operation")
+                        == "payment_plan"
+                    )
+                )
+
+                if (
+                    single_project_only
+                    and interpretation.status == "selected"
+                    and len(interpretation.projects) > 1
+                ):
+                    reply = project_selection_question(
+                        pending_project_choice["candidates"],
+                        allow_both=False,
+                    )
+
+                    async for event in emit_global_project_reply(
+                        clients=clients,
+                        session_id=session_id,
+                        user_id=user_id,
+                        correlation_id=correlation_id,
+                        message=message,
+                        reply=reply,
+                        started_at=started_at,
+                    ):
+                        yield event
+
+                    return
+
+                if interpretation.status == "cancelled":
+                    await project_selection_state.clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    async for event in emit_global_project_reply(
+                        clients=clients, session_id=session_id, user_id=user_id,
+                        correlation_id=correlation_id, message=message,
+                        reply="Cancelled the project selection.",
+                        started_at=started_at,
+                    ):
+                        yield event
+                    return
+                if interpretation.status == "selected":
+                    project_choice = pending_project_choice
+                    project_choice_projects = interpretation.projects
+                    project_choice_original_message = pending_project_choice["original_message"]
+                elif looks_like_project_selection(message):
+                    reply = project_selection_question(
+                        pending_project_choice["candidates"],
+                        allow_both=not single_project_only,
+                    )
+                    async for event in emit_global_project_reply(
+                        clients=clients, session_id=session_id, user_id=user_id,
+                        correlation_id=correlation_id, message=message,
+                        reply=reply, started_at=started_at,
+                    ):
+                        yield event
+                    return
+                else:
+                    # A new, non-selection request supersedes the pending choice.
+                    await project_selection_state.clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    pending_project_choice = None
+
         pending_payment_selection = await load_pending_payment_selection(
             redis_client=clients.redis,
             user_id=user_id,
@@ -430,7 +704,7 @@ async def _stream_chat_response_impl(
                     ),
                 )
 
-        elif pending_payment_selection:
+        elif pending_payment_selection and not project_choice:
             payment_selection_decision = (
                 await interpret_payment_selection(
                     message=message,
@@ -825,6 +1099,16 @@ async def _stream_chat_response_impl(
                 else " ".join(selection_result.messages)
                 or "The selected payment plan could not be displayed."
             )
+            if project_queue_active and selection_succeeded:
+                if project_queue_position + 1 < len(project_queue_projects):
+                    selection_text += (
+                        " Reply 'next' to continue with the next selected project."
+                    )
+                else:
+                    await project_selection_state.clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+
             selection_payload = {
                 "version": 1,
                 "html_blocks": selection_html,
@@ -1013,19 +1297,230 @@ async def _stream_chat_response_impl(
             for guide in walkthrough_engine.guides.values()
         ]
         
-        # LLM 1 receives the official project catalog
-        routing_result = await router_service.classify(
-            message=routing_message,
-            history=history,
-            available_projects=available_projects,
-            inventory_active_projects=inventory_catalogs.active_projects,
-            inventory_unit_projects=inventory_catalogs.unit_projects,
-            active_project_names=active_project_names,
-            previous_inventory_context=previous_inventory_context,
-            walkthrough_features=walkthrough_features,
-            active_project_context=session_project_context,
-            project_codes=project_codes,
-        )
+        # A choice never goes through the LLM router as a new request.
+        # Revalidate names against CURRENT service-specific catalogs.
+        confirmed_project_names = {}
+        project_choice_is_both = len(project_choice_projects) > 1
+        selected_unit_comparison_projects = ()
+
+        if project_choice:
+            route_data = project_choice["routing_result"]
+            route = RoutingResult.model_validate(route_data)
+            old_index = project_choice["intent_index"]
+            old_intent = route.intents[old_index]
+            service = old_intent.intent
+            if service == "marketing":
+                authorized_names = available_projects
+            elif service == "bank_details":
+                authorized_names = inventory_catalogs.active_projects
+            else:
+                authorized_names = list(dict.fromkeys(
+                    inventory_catalogs.active_projects
+                    + inventory_catalogs.unit_projects
+                ))
+
+            validated = []
+            for chosen in project_choice_projects:
+                exact = [
+                    name for name in authorized_names
+                    if str(name).strip().casefold() == str(chosen).strip().casefold()
+                ]
+                if len(exact) != 1:
+                    await project_selection_state.clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    async for event in emit_global_project_reply(
+                        clients=clients, session_id=session_id, user_id=user_id,
+                        correlation_id=correlation_id, message=message,
+                        reply="The chosen project is no longer available in your current project catalog. Please start the request again.",
+                        started_at=started_at,
+                    ):
+                        yield event
+                    return
+                validated.append(exact[0])
+
+            # A comparison of two selected projects still needs two specific
+            # units. Enter the existing unit-comparison follow-up state rather
+            # than guessing the unit from either project.
+            if (
+                old_intent.intent == "inventory"
+                and old_intent.inventory_operation == "unit_comparison"
+                and len(validated) > 1
+                and len(old_intent.compare_unit_numbers or []) < 2
+            ):
+                await UnitComparisonState(clients.redis).save(
+                    user_id=user_id, session_id=str(session_id),
+                    unit_ids=[],
+                )
+                await project_selection_state.clear(
+                    user_id=user_id, session_id=str(session_id),
+                )
+                reply = (
+                    "You selected " + " and ".join(validated) + ". "
+                    "Please provide one exact, visible unit ID from each "
+                    "project to compare them."
+                )
+                async for event in emit_global_project_reply(
+                    clients=clients, session_id=session_id, user_id=user_id,
+                    correlation_id=correlation_id, message=message,
+                    reply=reply, started_at=started_at,
+                ):
+                    yield event
+                return
+
+            # Sales offers and payment plans have one pending selection per
+            # session. Process Both sequentially, not as competing cards.
+            is_sequential_workflow = (
+                len(validated) > 1
+                and (
+                    old_intent.intent == "sales_offer"
+                    or (
+                        old_intent.intent == "inventory"
+                        and old_intent.inventory_operation == "payment_plan"
+                    )
+                )
+            )
+            if is_sequential_workflow:
+                project_queue_active = True
+                project_queue_position = 0
+                project_queue_projects = tuple(validated)
+                await project_selection_state.save(
+                    user_id=user_id, session_id=str(session_id),
+                    original_message=project_choice_original_message or message,
+                    candidates=project_choice["candidates"],
+                    intent_type=project_choice["intent_type"],
+                    routing_result=route_data,
+                    intent_index=old_index,
+                    slot=project_choice["slot"],
+                    slot_index=project_choice.get("slot_index"),
+                    phase="multi_queue",
+                    selected_projects=list(validated),
+                    queue_position=0,
+                )
+                validated = [validated[0]]
+                project_choice_is_both = False
+
+            if (
+                old_intent.intent == "download_availability"
+                and len(validated) > 1
+                and (not old_intent.currency or not old_intent.file_format)
+            ):
+                missing = []
+                if not old_intent.currency:
+                    missing.append("currency (for example AED or USD)")
+                if not old_intent.file_format:
+                    missing.append("file format (PDF or Excel)")
+                await project_selection_state.save(
+                    user_id=user_id, session_id=str(session_id),
+                    original_message=project_choice_original_message or message,
+                    candidates=project_choice["candidates"],
+                    intent_type=project_choice["intent_type"],
+                    routing_result=route_data,
+                    intent_index=old_index,
+                    slot=project_choice["slot"],
+                    slot_index=project_choice.get("slot_index"),
+                    phase="availability_parameters",
+                    selected_projects=validated,
+                )
+                async for event in emit_global_project_reply(
+                    clients=clients, session_id=session_id, user_id=user_id,
+                    correlation_id=correlation_id, message=message,
+                    reply=(
+                        "For both projects, please provide "
+                        + " and ".join(missing) + "."
+                    ),
+                    started_at=started_at,
+                ):
+                    yield event
+                return
+
+            # Project comparison chooses projects INTO the comparison, not
+            # separate requests for project 1 and project 2.
+            if (
+                old_intent.intent == "inventory"
+                and old_intent.inventory_operation == "project_comparison"
+            ):
+                names = list(old_intent.compare_project_names or [])
+                if project_choice["slot"] == "compare_project_names":
+                    slot = project_choice["slot_index"]
+                    if slot is None or slot < 0 or slot >= len(names):
+                        raise ValueError("Invalid saved comparison selection")
+                    if len(validated) > 1 and len(names) > 1:
+                        reply = "Please choose only one project for that comparison position (option 1 or 2)."
+                        async for event in emit_global_project_reply(
+                            clients=clients, session_id=session_id, user_id=user_id,
+                            correlation_id=correlation_id, message=message,
+                            reply=reply, started_at=started_at,
+                        ):
+                            yield event
+                        return
+                    names[slot:slot + 1] = validated
+                else:
+                    names = validated
+                old_intent.compare_project_names = names
+                old_intent.project_name = None
+                old_intent.explicit_project_reference = None
+                old_intent.project_reference_source = "none"
+                old_intent.missing_fields = [
+                    x for x in old_intent.missing_fields
+                    if x not in {"project_name", "project_identifier", "compare_project_names"}
+                ]
+                old_intent.requires_clarification = bool(old_intent.missing_fields)
+                routing_result = route
+            elif (
+                old_intent.intent == "inventory"
+                and old_intent.inventory_operation == "unit_comparison"
+                and len(validated) > 1
+            ):
+                selected_unit_comparison_projects = tuple(validated)
+                routing_result = route
+            else:
+                intents = []
+                for idx, route_intent in enumerate(route.intents):
+                    if idx != old_index:
+                        intents.append(route_intent)
+                        continue
+                    for name in validated:
+                        clone = route_intent.model_copy(deep=True)
+                        clone.project_name = name
+                        clone.explicit_project_reference = name
+                        clone.project_reference_source = "explicit"
+                        # Do not use an LLM-generated project ID from the
+                        # original ambiguous user reference.
+                        clone.project_id = None
+                        clone.project_number = None
+                        clone.missing_fields = [
+                            x for x in clone.missing_fields
+                            if x not in {
+                                "project_name", "project_identifier",
+                                "project_or_unit_identifier",
+                            }
+                        ]
+                        clone.requires_clarification = bool(clone.missing_fields)
+                        confirmed_project_names[len(intents)] = name
+                        intents.append(clone)
+                route.intents = intents
+                routing_result = route
+            routing_result.requires_clarification = any(
+                item.requires_clarification for item in routing_result.intents
+            )
+            if not project_queue_active:
+                await project_selection_state.clear(
+                    user_id=user_id, session_id=str(session_id),
+                )
+        else:
+            routing_result = await router_service.classify(
+                message=routing_message,
+                history=history,
+                available_projects=available_projects,
+                inventory_active_projects=inventory_catalogs.active_projects,
+                inventory_unit_projects=inventory_catalogs.unit_projects,
+                active_project_names=active_project_names,
+                previous_inventory_context=previous_inventory_context,
+                walkthrough_features=walkthrough_features,
+                active_project_context=session_project_context,
+                project_codes=project_codes,
+            )
         
         print("\n========== ROUTER LLM OUTPUT ==========")
         print("USER MESSAGE:", message)
@@ -2017,90 +2512,223 @@ async def _stream_chat_response_impl(
         availability_access = DownloadAvailabilityAccessService()
         blocked_intents = set()
         sales_offer_project_errors = {}
-
         ambiguous_project_clarifications = {}
         comparison_clarifications: dict[int, str] = {}
-
-        project_selection_state = ProjectSelectionState(
-            clients.redis
-        )
+        forced_ambiguous_intents = set()
+        saved_pending_project_choice = False
+        untouched_routing_result = routing_result.model_dump(mode="json")
 
         project_selection_intents = {
-            "marketing",
-            "inventory",
-            "download_availability",
-            "bank_details",
-            "project_information",
+            "marketing", "inventory", "download_availability",
+            "bank_details", "project_information", "sales_offer",
         }
 
         for index, intent in enumerate(routing_result.intents):
             if intent.intent not in project_selection_intents:
                 continue
 
-            # Do not interfere with requests that
-            # already explicitly identify a unit.
-            if any([
-                intent.unit_id,
-                intent.unit_name,
-                intent.unit_number,
-            ]):
+            if intent.intent == "download_availability":
+                allowed, _reason = availability_access.check(key_features=key_features)
+                if not allowed:
+                    availability_denied.add(index)
+                    blocked_intents.add(index)
+                    await availability_state.clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
+                    continue
+
+            # Restored choices are verified against the live catalog above;
+            # preserve their explicit chosen name and avoid reinterpreting 'Both'.
+            if index in confirmed_project_names:
+                selected_name = confirmed_project_names[index]
+                matches = [
+                    project for project in inventory_snapshot.projects
+                    if project.project_name
+                    and project.project_name.casefold() == selected_name.casefold()
+                    and project.project_id
+                ]
+                visible_unit_project = any(
+                    unit.project_name
+                    and unit.project_name.casefold() == selected_name.casefold()
+                    for unit in inventory_snapshot.units
+                )
+                requires_active_project = intent.intent in {
+                    "bank_details", "download_availability", "sales_offer",
+                }
+                missing_authorization = (
+                    (requires_active_project and len(matches) != 1)
+                    or (
+                        intent.intent in {"inventory", "project_information"}
+                        and len(matches) != 1
+                        and not visible_unit_project
+                    )
+                )
+                if missing_authorization:
+                    blocked_intents.add(index)
+                    intent.requires_clarification = True
+                    ambiguous_project_clarifications[index] = (
+                        f"{selected_name} is no longer uniquely available to your account. "
+                        "Please start a new request."
+                    )
+                    continue
+
+                intent.project_name = selected_name
+                if len(matches) == 1:
+                    project = matches[0]
+                    intent.project_id = str(project.project_id)
+                    intent.project_number = project.project_number
+                intent.explicit_project_reference = selected_name
+                intent.project_reference_source = "explicit"
+                intent.missing_fields = [
+                    field for field in intent.missing_fields
+                    if field not in {
+                        "project_name", "project_identifier",
+                        "project_or_unit_identifier",
+                    }
+                ]
+
+                if intent.intent == "marketing":
+                    if not intent.marketing_assets:
+                        _, found_assets = extract_marketing_parts(
+                            project_choice_original_message or message
+                        )
+                        intent.marketing_assets = list(found_assets)
+                    # MarketingHandler itself asks which assets when unspecified.
+                    intent.missing_fields = [
+                        field for field in intent.missing_fields
+                        if field != "marketing_assets"
+                    ]
+
+                if intent.intent == "download_availability":
+                    required = set(intent.missing_fields)
+                    if not intent.currency:
+                        required.add("currency")
+                    else:
+                        required.discard("currency")
+                    if not intent.file_format:
+                        required.add("file_format")
+                    else:
+                        required.discard("file_format")
+                    intent.missing_fields = sorted(required)
+                    if required:
+                        blocked_intents.add(index)
+                        # A one-project request can use the existing availability
+                        # follow-up flow. A Both request is collected earlier.
+                        await availability_state.save(
+                            user_id=user_id, session_id=str(session_id),
+                            state={
+                                "intent": "download_availability",
+                                "project_id": intent.project_id,
+                                "project_name": selected_name,
+                                "currency": intent.currency,
+                                "file_format": intent.file_format,
+                            },
+                        )
+                intent.requires_clarification = bool(intent.missing_fields)
                 continue
 
-            if intent.intent == "marketing":
-                catalog = list(marketing_names)
+            # Unit IDs are more specific than project family names; do not
+            # break existing unit comparison, sales offer, or unit card flows.
+            if any((intent.unit_id, intent.unit_name, intent.unit_number)):
+                continue
+            if intent.intent == "marketing" and intent.action == "company_profile":
+                continue
+            if intent.intent == "project_information" and intent.project_operation in {
+                "latest", "list", "location_search",
+            }:
+                continue
 
-            elif intent.intent == "bank_details":
-                catalog = list(inventory_active_names)
-
-            elif intent.intent == "inventory":
-                catalog = list(
-                    inventory_active_names
-                    | inventory_unit_names
+            if intent.intent == "inventory" and intent.inventory_operation == "project_comparison":
+                extracted = parse_comparison_references(
+                    project_choice_original_message or message
                 )
-
-            elif intent.intent == "download_availability":
-                catalog = list(inventory_active_names)
-
+                if extracted and len(extracted) == 2:
+                    intent.compare_project_names = list(extracted)
+                refs = list(intent.compare_project_names or [])
+                candidate_data = None
+                for slot, ref in enumerate(refs):
+                    matches = find_project_candidates(ref, inventory_active_names)
+                    if matches:
+                        candidate_data = (matches, "compare_project_names", slot)
+                        break
+                if candidate_data is None and not refs:
+                    ref = intent.explicit_project_reference or intent.project_name
+                    matches = find_project_candidates(ref, inventory_active_names)
+                    if not matches:
+                        _found, matches = project_mention_candidates(
+                            project_choice_original_message or message,
+                            inventory_active_names,
+                        )
+                    if matches:
+                        candidate_data = (matches, "project_name", None)
             else:
-                catalog = list(
-                    inventory_active_names
-                    | inventory_unit_names
+                if intent.intent == "marketing":
+                    catalog = marketing_names
+                elif intent.intent in {"bank_details", "download_availability", "sales_offer"}:
+                    catalog = inventory_active_names
+                else:
+                    catalog = inventory_active_names | inventory_unit_names
+
+                mentioned, candidates = project_mention_candidates(
+                    project_choice_original_message or message, catalog,
+                )
+                if not mentioned:
+                    reference = intent.explicit_project_reference or intent.project_name
+                    candidates = find_project_candidates(reference, catalog)
+                if not candidates:
+                    resolution = match_project_in_message(
+                        project_choice_original_message or message,
+                        catalog,
+                    )
+
+                    if resolution.status == "ambiguous":
+                        candidates = list(
+                            resolution.candidates
+                        )
+
+                candidate_data = (
+                    (candidates, "project_name", None)
+                    if len(candidates) > 1
+                    else None
                 )
 
-            reference = (
-                intent.explicit_project_reference
-                or intent.project_name
-            )
-
-            candidates = find_project_candidates(
-                reference,
-                catalog,
-            )
-
-            if not candidates:
+            if not candidate_data:
                 continue
 
-            await project_selection_state.save(
-                user_id=user_id,
-                session_id=str(session_id),
-                original_message=message,
-                candidates=candidates,
-                intent_type=intent.intent,
+            candidates, slot_name, slot_index = candidate_data
+            single_project_only = (
+                intent.intent == "sales_offer"
+                or (
+                    intent.intent == "inventory"
+                    and intent.inventory_operation == "payment_plan"
+                )
             )
-
-            ambiguous_project_clarifications[index] = (
-                project_selection_question(candidates)
-            )
-
+            if not saved_pending_project_choice:
+                await project_selection_state.save(
+                    user_id=user_id, session_id=str(session_id),
+                    original_message=project_choice_original_message or message,
+                    candidates=list(candidates), intent_type=intent.intent,
+                    routing_result=untouched_routing_result,
+                    intent_index=index, slot=slot_name, slot_index=slot_index,
+                )
+                saved_pending_project_choice = True
+                ambiguous_project_clarifications[index] = (
+                    project_selection_question(
+                        list(candidates),
+                        allow_both=not single_project_only,
+                    )
+                )
+            else:
+                # Only prompt for the first ambiguous intent this turn; the
+                # remaining ones will be resolved after it is selected.
+                ambiguous_project_clarifications[index] = ""
+            forced_ambiguous_intents.add(index)
+            blocked_intents.add(index)
             intent.project_name = None
             intent.requires_clarification = True
-
             if "project_name" not in intent.missing_fields:
-                intent.missing_fields.append(
-                    "project_name"
-                )
+                intent.missing_fields.append("project_name")
 
-            blocked_intents.add(index)
 
 
         def resolve_visible_unit_project(user_message: str):
@@ -2163,6 +2791,13 @@ async def _stream_chat_response_impl(
         for index, intent in enumerate(routing_result.intents):
 
             if index in availability_denied:
+                continue
+
+            # A deterministic global decision takes precedence over any
+            # later per-handler fuzzy resolution or LLM tiebreak.
+            if index in forced_ambiguous_intents:
+                continue
+            if index in confirmed_project_names:
                 continue
 
             if (
@@ -3292,6 +3927,11 @@ async def _stream_chat_response_impl(
                 blocked_intents.discard(index)
 
 
+        # Reassert global unresolved ambiguities after all legacy
+        # handlers have had their chance to mutate blocked_intents.
+        blocked_intents.update(forced_ambiguous_intents)
+        for index in forced_ambiguous_intents:
+            routing_result.intents[index].requires_clarification = True
         routing_result.requires_clarification = any(
             item.requires_clarification
             for item in routing_result.intents
@@ -3553,26 +4193,28 @@ async def _stream_chat_response_impl(
         for index, intent in enumerate(routing_result.intents):
 
             if index in blocked_intents:
-                # GLOBAL PROJECT AMBIGUITY CLARIFICATION
-                if (
-                    index in ambiguous_project_clarifications
-                    and intent.intent in {
-                        "marketing",
-                        "inventory",
-                        "download_availability",
-                        "bank_details",
-                        "project_information",
-                    }
-                ):
-                    clarification_messages.append(
-                        ambiguous_project_clarifications[index]
-                    )
-                    continue
-
                 if index in availability_denied:
                     clarification_messages.append(
                         "Download Availability is not available "
                         "for your account."
+                    )
+                    continue
+
+                if index in forced_ambiguous_intents:
+                    question = ambiguous_project_clarifications.get(index)
+                    if question:
+                        clarification_messages.append(question)
+                    continue
+
+                if (
+                    index in ambiguous_project_clarifications
+                    and intent.intent in {
+                        "marketing", "inventory", "download_availability",
+                        "bank_details", "project_information", "sales_offer",
+                    }
+                ):
+                    clarification_messages.append(
+                        ambiguous_project_clarifications[index]
                     )
                     continue
 
@@ -3684,7 +4326,10 @@ async def _stream_chat_response_impl(
 
                 continue
 
-            result = await dispatcher.execute(intent)
+            result = await dispatcher.execute(
+                intent,
+                confirmed_project_name=confirmed_project_names.get(index),
+            )
             if (
                 intent.intent == "inventory"
                 and intent.inventory_operation == "unit_comparison"
@@ -3743,6 +4388,36 @@ async def _stream_chat_response_impl(
                 len(result.html_blocks),
             )
 
+
+        if project_queue_active and handler_results:
+            completed_current_project = any(
+                result.generation_context.get("generated") is True
+                for result in handler_results
+                if result.intent == "sales_offer"
+            )
+            if not completed_current_project and any(
+                intent.intent == "inventory"
+                and intent.inventory_operation == "payment_plan"
+                for intent in routing_result.intents
+            ):
+                pending_plans = await load_pending_payment_selection(
+                    redis_client=clients.redis,
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+                completed_current_project = (
+                    not pending_plans
+                    and any(result.has_data for result in handler_results)
+                )
+            if completed_current_project:
+                if project_queue_position + 1 < len(project_queue_projects):
+                    handler_results[-1].messages.append(
+                        "Reply 'next' to continue with the next selected project."
+                    )
+                else:
+                    await project_selection_state.clear(
+                        user_id=user_id, session_id=str(session_id),
+                    )
 
         # 4A. COMBINE HANDLER RESULTS
 

@@ -32,7 +32,9 @@ class BankDetailsHandler:
         self.service = BankDetailsService()
         self.templates = TemplateService()
 
-    async def handle(self, intent) -> HandlerResult:
+    async def handle(
+        self, intent, *, confirmed_project_name: str | None = None,
+    ) -> HandlerResult:
 
         result = HandlerResult(intent="bank_details")
 
@@ -47,10 +49,9 @@ class BankDetailsHandler:
             resolved = resolve_bank_details_project(
                 message=self.message,
                 snapshot=self.inventory_snapshot,
-                confirmed_project_name=(
-                    getattr(intent, "project_name", None)
-                    or self.confirmed_project_name
-                ),
+                # Only a server-validated selection can bypass
+                # verification against the user's original raw message.
+                confirmed_project_name=confirmed_project_name,
             )
 
             project_id = resolved.project_id

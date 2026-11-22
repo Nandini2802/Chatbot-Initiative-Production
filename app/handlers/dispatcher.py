@@ -139,7 +139,9 @@ class IntentDispatcher:
                 )
             )
 
-    async def execute(self, intent) -> HandlerResult:
+    async def execute(
+        self, intent, *, confirmed_project_name: str | None = None,
+    ) -> HandlerResult:
 
         started_at = time.perf_counter()
 
@@ -189,7 +191,13 @@ class IntentDispatcher:
                         ],
                     )
             else:
-                result = await handler.handle(intent)
+                if intent.intent == "bank_details":
+                    result = await handler.handle(
+                        intent,
+                        confirmed_project_name=confirmed_project_name,
+                    )
+                else:
+                    result = await handler.handle(intent)
 
             audit_event(
                 "HANDLER_COMPLETED",
