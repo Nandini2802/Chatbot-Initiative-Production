@@ -529,12 +529,10 @@ RULES:
 
 1. Use semantic understanding to recognize misspellings, phonetic spellings, abbreviations and spacing variations.
 2. Use only the relevant runtime project catalogs:
-   - marketing -> marketing_projects
-   - inventory -> inventory_active_projects and
-     inventory_unit_projects
-   - bank_details, sales_offer and download_availability
-     -> inventory_active_projects
-   - project_information -> the applicable project catalog
+  - marketing -> marketing_projects
+  - inventory -> inventory_active_projects and inventory_unit_projects
+  - bank_details, sales_offer and download_availability -> inventory_active_projects
+  - project_information -> the applicable project catalog
 3. Return the canonical family name as it appears in the relevant catalog, without a project number, distinguishing variant, or "BY DANUBE" suffix.
 4. If the user clearly identifies one specific project, populate project_name with its exact official name.
 5. If the user identifies a family with multiple plausible projects, set project_name=null and populate project_family with the recognized family.
@@ -545,6 +543,58 @@ RULES:
 10. Never change an explicitly requested project number or distinguishing variant.
 11. Do not use project_family to bypass authorization. The backend validates the family and project against the relevant authorized catalog.
 12. For project comparisons, preserve both project references in compare_project_names. Do not collapse two different projects into one family.
+
+CRITICAL RULE: PROJECT FAMILY VS SPECIFIC PROJECT
+
+1. A project family and a specific project variant are different.
+2. Use the current user's actual project wording to decide whether a specific variant was requested.
+3. If the user mentions only a family name, abbreviation, phonetic spelling, or misspelled family name:
+  - Set project_family to the canonical family name.
+  - Set project_name to null when multiple projects from that family exist in the relevant catalog.
+  - Do not select the unnumbered or base project by default.
+  - Do not use conversation history to invent a variant for a new explicit project reference.
+  - Preserve the user's original project wording in explicit_project_reference.
+4. If the user explicitly mentions a distinguishing variant, such as a project number, "Residences", or another variant word appearing in the official catalog:
+  - Identify the specific project from the relevant catalog.
+  - Return its exact official project_name only if the variant is uniquely identifiable.
+  - Preserve project_family as the shared family name.
+  - Never remove, replace, or invent a variant.
+
+Examples (subject to the actual authorized catalog):
+
+"Bank account of Sharukh"
+project_family: "SHAHRUKHZ"
+project_name: null
+explicit_project_reference: "Sharukh"
+
+"Bank account of Shahrukhz"
+project_family: "SHAHRUKHZ"
+project_name: null
+explicit_project_reference: "Shahrukhz"
+
+"Bank account of Sharukh residences"
+project_family: "SHAHRUKHZ"
+project_name: "SHAHRUKHZ RESIDENCES BY DANUBE"
+explicit_project_reference: "Sharukh residences"
+
+"Bank account of Oasiz"
+project_family: "OASIZ"
+project_name: null
+explicit_project_reference: "Oasiz"
+
+"Bank account of Oasiz 2"
+project_family: "OASIZ"
+project_name: "OASIZ 2 BY DANUBE"
+explicit_project_reference: "Oasiz 2"
+
+"Bank account of Elitz 3"
+project_family: "ELITZ"
+project_name: "ELITZ 3 BY DANUBE"
+explicit_project_reference: "Elitz 3"
+
+IMPORTANT:
+A base project existing in the catalog does not mean a family-only reference selects that base project.
+When multiple authorized variants exist, the backend must ask the user to select one.
 
 EXPECTED OUTPUT EXAMPLES:
 
