@@ -841,6 +841,74 @@ class InventoryHandler:
                                 "COMPARISON_INSTALLMENT_NORMALIZATION_FAILED"
                             )
 
+        async def fetch_comparison_extras(unit):
+
+            async def fetch_unit_details():
+                try:
+                    return await self.unit_details_connector.get_unit_areas(
+                        unit_id=str(unit.unit_id)
+                    )
+                except Exception:
+                    logger.exception(
+                        "COMPARISON_UNIT_DETAILS_FETCH_FAILED"
+                    )
+                    return {}
+
+            async def fetch_layout_plans():
+                if not self.payment_token or not self.user_id:
+                    return []
+
+                try:
+                    return await self.unit_layout_connector.get_layout_plans(
+                        unit_id=str(unit.unit_id),
+                        access_token=self.payment_token,
+                        user_id=self.user_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "COMPARISON_LAYOUT_PLAN_FETCH_FAILED"
+                    )
+                    return []
+
+            details, layout_plans = await asyncio.gather(
+                fetch_unit_details(),
+                fetch_layout_plans(),
+            )
+
+            return {
+                "details": details,
+                "layout_plans": layout_plans,
+            }
+
+        # Fetch data concurrently for both selected units.
+        extra_results = await asyncio.gather(
+            *(
+                fetch_comparison_extras(unit)
+                for unit in selected
+            )
+        )
+
+        for comparison, extra in zip(
+            comparisons,
+            extra_results,
+        ):
+            details = extra["details"]
+
+            view = details.get("view")
+            floor = details.get("floor")
+
+            comparison["unit"]["view"] = (
+                view if view is not None and str(view).strip()
+                else "--"
+            )
+
+            comparison["unit"]["floor"] = (
+                floor if floor is not None and str(floor).strip()
+                else "--"
+            )
+
+            comparison["layout_plans"] = extra["layout_plans"]
+
 
         result.generation_context = {
             "service": "inventory",

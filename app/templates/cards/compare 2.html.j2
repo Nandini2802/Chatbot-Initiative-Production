@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,7 +11,7 @@
         href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Poppins:wght@400;500;600&display=swap"
         rel="stylesheet"
     >
-   	<style>
+    <style>
         *,
         *::before,
         *::after {
@@ -522,6 +523,19 @@
                     <div class="uc-label">Parking</div>
                     <div class="uc-value">{{ item.unit.parking | default('--', true) | e }}</div>
                 </div>
+
+                <!-- NEW DYNAMIC FIELD: VIEW -->
+                <div class="uc-field">
+                    <div class="uc-label">View</div>
+                    <div class="uc-value">{{ item.unit.view | default('--', true) | e }}</div>
+                </div>
+
+                <!-- NEW DYNAMIC FIELD: FLOOR -->
+                <div class="uc-field">
+                    <div class="uc-label">Floor</div>
+                    <div class="uc-value">{{ item.unit.floor | default('--', true) | e }}</div>
+                </div>
+
             </div>
             {% endfor %}
         </div>
@@ -547,6 +561,60 @@
                     <div class="uc-label">Plot Area</div>
                     <div class="uc-value">{{ item.unit.plot_area | default('--', true) | e }}</div>
                 </div>
+            </div>
+            {% endfor %}
+        </div>
+    </details>
+
+    <!-- =====================================
+         NEW DYNAMIC SECTION: LAYOUT PLANS
+    ===================================== -->
+    <details class="uc-section" open>
+        <summary>LAYOUT PLANS</summary>
+        <div class="uc-grid">
+            {% for item in comparisons %}
+            <div>
+                {% if item.layout_plans is defined and item.layout_plans %}
+
+                    {% for file in item.layout_plans %}
+                    <div class="uc-field">
+                        <div class="uc-label">
+                            {{ file.name | default('Layout Plan', true) | e }}
+                        </div>
+
+                        {% if file.download_url %}
+                            {% set image_url = file.download_url.split('?')[0].lower() %}
+
+                            <a
+                                href="{{ file.download_url | e }}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                {% if image_url.endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')) %}
+
+                                    <img
+                                        src="{{ file.download_url | e }}"
+                                        alt="{{ file.name | default('Layout Plan', true) | e }}"
+                                        width="100%"
+                                    >
+
+                                {% else %}
+
+                                    <span class="uc-value">
+                                        View Layout Plan
+                                    </span>
+
+                                {% endif %}
+                            </a>
+                        {% else %}
+                            <div class="uc-value">--</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+
+                {% else %}
+                    <div class="uc-value">--</div>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
@@ -586,6 +654,7 @@
                     <div class="uc-plan">
                         <!-- PLAN NAME -->
                         <div class="uc-plan-name">{{ plan.name | default('--', true) | e }}</div>
+
                         <!-- INSTALLMENT COUNT -->
                         <div class="uc-plan-count">
                             {% if plan.installment_count is none or plan.installment_count == '--' %}
@@ -594,6 +663,7 @@
                                 {{ plan.installment_count | e }} INSTALLMENTS
                             {% endif %}
                         </div>
+
                         <!-- EXPANDABLE DETAILS -->
                         {% if plan.schedule %}
                         <details class="uc-plan-details">
@@ -601,43 +671,54 @@
                                 <span class="view-text">View Details</span>
                                 <span class="close-text">Close Details</span>
                             </summary>
+
                             <div class="uc-plan-expanded">
                                 {% for year, installments in plan.schedule.items() %}
                                 <div class="uc-plan-year">
-                                    <div class="uc-plan-year-title">{{ year | e }}</div>
+
+                                    <div class="uc-plan-year-title">
+                                        {{ year | e }}
+                                    </div>
+
+                                    <!-- AMOUNT COLUMN REMOVED -->
                                     <table class="uc-installment-table">
                                         <thead>
                                             <tr>
                                                 <th>Milestone</th>
                                                 <th>Percent</th>
-                                                <th>Amount</th>
                                             </tr>
                                         </thead>
+
                                         <tbody>
                                             {% for installment in installments %}
                                             <tr>
                                                 <td>
-                                                    <span class="uc-installment-date">{{ installment.display_date | default('--', true) | e }}</span>
-                                                    <span class="uc-installment-note">{{ installment.description | default('--', true) | e }}</span>
+                                                    <span class="uc-installment-date">
+                                                        {{ installment.display_date | default('--', true) | e }}
+                                                    </span>
+
+                                                    <span class="uc-installment-note">
+                                                        {{ installment.description | default('--', true) | e }}
+                                                    </span>
                                                 </td>
-                                                <td>{{ installment.display_percentage | default('--', true) | e }}</td>
-                                                <td class="uc-installment-amount">
-                                                    {% if installment.display_amount == 'Not provided' %}
-                                                        --
-                                                    {% else %}
-                                                        {{ installment.display_amount | default('--', true) | e }}
-                                                    {% endif %}
+
+                                                <td>
+                                                    {{ installment.display_percentage | default('--', true) | e }}
                                                 </td>
                                             </tr>
                                             {% endfor %}
                                         </tbody>
                                     </table>
+
                                 </div>
                                 {% endfor %}
                             </div>
                         </details>
+
                         {% else %}
-                        <div class="uc-plan-unavailable">Installment details unavailable</div>
+                        <div class="uc-plan-unavailable">
+                            Installment details unavailable
+                        </div>
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -648,6 +729,7 @@
             {% endfor %}
         </div>
     </details>
+
 </div>
 
 <script>
@@ -689,5 +771,6 @@
     });
 })();
 </script>
+
 </body>
 </html>

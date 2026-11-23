@@ -116,6 +116,7 @@ class UnitDetailsConnector:
                 "Invalid unit API data"
             )
 
+
         return {
             "area_sqft": self._number(
                 data.get("Total_Saleable_Area_In_Sq_Ft__c")
@@ -126,4 +127,7 @@ class UnitDetailsConnector:
             "balcony_area_sqm": self._number(
                 data.get("Balcony_Area_Sq_Mt_New__c")
             ),
+
+            "view": data.get("View__c"),
+            "floor": data.get("FloorNumber__c"),
         }
