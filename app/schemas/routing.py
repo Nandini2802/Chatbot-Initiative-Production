@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from decimal import Decimal
 
 
@@ -59,6 +59,10 @@ ProjectFieldName = Literal[
 
 class RoutingIntent(BaseModel):
     intent: IntentType
+
+    _previous_selection_ids: list[str] = PrivateAttr(
+        default_factory=list
+    )
 
     project_reference_source: Literal[
         "explicit",
@@ -150,6 +154,8 @@ class RoutingIntent(BaseModel):
         "area_asc",
         "area_desc",
     ] | None = None
+
+    followup_unit_ids: list[str] | None = None
 
     price_selection: Literal[
         "cheapest",

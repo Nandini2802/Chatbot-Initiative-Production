@@ -152,22 +152,52 @@ class InventoryHandler:
 
 
         else:
+            previous_selection_ids = getattr(
+                intent,
+                "_previous_selection_ids",
+                [],
+            )
+
+            if previous_selection_ids:
+                allowed_ids = set(previous_selection_ids)
+
+                candidate_units = [
+                    unit
+                    for unit in self.snapshot.units
+                    if unit.unit_id
+                    and str(unit.unit_id) in allowed_ids
+                ]
+
+            else:
+                candidate_units = self.snapshot.units
+
             matches = self.filter_service.filter_units(
-                units=self.snapshot.units,
+                units=candidate_units,
                 intent=intent,
             )
 
+        followup_unit_ids = getattr(
+            intent,
+            "followup_unit_ids",
+            None,
+        )
+
+        if followup_unit_ids is not None:
+            allowed_ids = set(followup_unit_ids)
+
+            matches = [
+                unit
+                for unit in matches
+                if (
+                    unit.unit_id is not None
+                    and str(unit.unit_id) in allowed_ids
+                )
+            ]
+
             logger.info(
-                "INVENTORY_FILTER_AUDIT | "
-                "view=%r | location=%r | status=%r | "
-                "min_price=%r | max_price=%r | "
-                "total_visible=%d | filtered_matches=%d",
-                intent.view,
-                intent.project_location,
-                intent.status,
-                intent.min_price,
-                intent.max_price,
-                len(self.snapshot.units),
+                "INVENTORY_FOLLOWUP_SCOPE_APPLIED | "
+                "previous_count=%d | matched_count=%d",
+                len(allowed_ids),
                 len(matches),
             )
 
@@ -202,6 +232,12 @@ class InventoryHandler:
             result.has_data = True
             return result
 
+        result.matching_unit_ids = [
+            str(unit.unit_id)
+            for unit in matches
+            if unit.unit_id is not None
+        ]
+
         # Unit details require exactly one match.
         if operation == "unit_details" and len(matches) != 1:
             result.messages.append(
@@ -223,23 +259,32 @@ class InventoryHandler:
             }
         )
 
-        def price_sort_key(unit):
-            price = as_decimal(unit.price)
+        sort_by = getattr(intent, "sort_by", None)
 
-            return (
-                price is None,
-                price if price is not None else 0,
+        if sort_by:
+            ordered_matches = list(matches)
+        else:
+            ordered_matches = sorted(
+                matches,
+                key=lambda unit: (
+                    as_decimal(unit.price) is None,
+                    as_decimal(unit.price)
+                    if as_decimal(unit.price) is not None
+                    else 0,
+                ),
             )
 
-        price_sorted_matches = sorted(
-            matches,
-            key=price_sort_key,
+        logger.info(
+            "INVENTORY_SORT_APPLIED | "
+            "sort_by=%s | total_matches=%d",
+            sort_by or "price_asc_default",
+            len(ordered_matches),
         )
 
         displayed = (
-            price_sorted_matches
+            ordered_matches
             if is_extreme_price_search
-            else price_sorted_matches[:self.MAX_DISPLAY_UNITS]
+            else ordered_matches[:self.MAX_DISPLAY_UNITS]
         )
 
 
@@ -407,7 +452,7 @@ class InventoryHandler:
         elif operation != "unit_details":
             html_units = [
                 self._unit_data(unit)
-                for unit in price_sorted_matches
+                for unit in ordered_matches
             ]
 
             result.html_blocks.append({
