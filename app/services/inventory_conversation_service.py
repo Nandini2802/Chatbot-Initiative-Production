@@ -63,45 +63,6 @@ def build_inventory_context(intent, handler_result, inventory_snapshot):
     }:
         return None
 
-    if operation == "unit_search":
-        from app.services.inventory_filter_service import (
-            InventoryFilterService,
-        )
-
-        previous_selection_ids = getattr(
-            intent,
-            "_previous_selection_ids",
-            [],
-        )
-
-        if previous_selection_ids:
-            allowed_ids = set(previous_selection_ids)
-
-            candidate_units = [
-                unit
-                for unit in inventory_snapshot.units
-                if unit.unit_id
-                and str(unit.unit_id) in allowed_ids
-            ]
-        else:
-            candidate_units = inventory_snapshot.units
-
-        all_matches = InventoryFilterService().filter_units(
-            units=candidate_units,
-            intent=intent,
-        )
-
-        return {
-            "project_name": intent.project_name,
-            "unit_ids": [
-                str(unit.unit_id)
-                for unit in all_matches
-                if unit.unit_id
-            ],
-            "operation": "unit_search",
-            "total_matches": len(all_matches),
-        }
-
     unit_names = set()
 
     if operation == "unit_comparison":
@@ -126,23 +87,11 @@ def build_inventory_context(intent, handler_result, inventory_snapshot):
         )
     ]
 
-    if operation == "unit_search":
-        matched_ids = handler_result.matching_unit_ids
-    else:
-        matched_ids = [
-            str(unit.unit_id)
-            for unit in selected_units
-            if unit.unit_id is not None
-        ]
-
     return {
         "project_name": intent.project_name,
-        "unit_ids": matched_ids,
+        "unit_ids": [str(unit.unit_id) for unit in selected_units if unit.unit_id],
         "operation": operation,
-        "total_matches": context.get(
-            "total_matches",
-            len(matched_ids),
-        ),
+        "total_matches": context.get("total_matches", len(selected_units)),
     }
 
 def resolve_unit_from_previous_context(

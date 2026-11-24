@@ -152,52 +152,22 @@ class InventoryHandler:
 
 
         else:
-            previous_selection_ids = getattr(
-                intent,
-                "_previous_selection_ids",
-                [],
-            )
-
-            if previous_selection_ids:
-                allowed_ids = set(previous_selection_ids)
-
-                candidate_units = [
-                    unit
-                    for unit in self.snapshot.units
-                    if unit.unit_id
-                    and str(unit.unit_id) in allowed_ids
-                ]
-
-            else:
-                candidate_units = self.snapshot.units
-
             matches = self.filter_service.filter_units(
-                units=candidate_units,
+                units=self.snapshot.units,
                 intent=intent,
             )
 
-        followup_unit_ids = getattr(
-            intent,
-            "followup_unit_ids",
-            None,
-        )
-
-        if followup_unit_ids is not None:
-            allowed_ids = set(followup_unit_ids)
-
-            matches = [
-                unit
-                for unit in matches
-                if (
-                    unit.unit_id is not None
-                    and str(unit.unit_id) in allowed_ids
-                )
-            ]
-
             logger.info(
-                "INVENTORY_FOLLOWUP_SCOPE_APPLIED | "
-                "previous_count=%d | matched_count=%d",
-                len(allowed_ids),
+                "INVENTORY_FILTER_AUDIT | "
+                "view=%r | location=%r | status=%r | "
+                "min_price=%r | max_price=%r | "
+                "total_visible=%d | filtered_matches=%d",
+                intent.view,
+                intent.project_location,
+                intent.status,
+                intent.min_price,
+                intent.max_price,
+                len(self.snapshot.units),
                 len(matches),
             )
 
@@ -232,12 +202,6 @@ class InventoryHandler:
             result.has_data = True
             return result
 
-        result.matching_unit_ids = [
-            str(unit.unit_id)
-            for unit in matches
-            if unit.unit_id is not None
-        ]
-
         # Unit details require exactly one match.
         if operation == "unit_details" and len(matches) != 1:
             result.messages.append(
@@ -259,32 +223,23 @@ class InventoryHandler:
             }
         )
 
-        sort_by = getattr(intent, "sort_by", None)
+        def price_sort_key(unit):
+            price = as_decimal(unit.price)
 
-        if sort_by:
-            ordered_matches = list(matches)
-        else:
-            ordered_matches = sorted(
-                matches,
-                key=lambda unit: (
-                    as_decimal(unit.price) is None,
-                    as_decimal(unit.price)
-                    if as_decimal(unit.price) is not None
-                    else 0,
-                ),
+            return (
+                price is None,
+                price if price is not None else 0,
             )
 
-        logger.info(
-            "INVENTORY_SORT_APPLIED | "
-            "sort_by=%s | total_matches=%d",
-            sort_by or "price_asc_default",
-            len(ordered_matches),
+        price_sorted_matches = sorted(
+            matches,
+            key=price_sort_key,
         )
 
         displayed = (
-            ordered_matches
+            price_sorted_matches
             if is_extreme_price_search
-            else ordered_matches[:self.MAX_DISPLAY_UNITS]
+            else price_sorted_matches[:self.MAX_DISPLAY_UNITS]
         )
 
 
@@ -452,7 +407,7 @@ class InventoryHandler:
         elif operation != "unit_details":
             html_units = [
                 self._unit_data(unit)
-                for unit in ordered_matches
+                for unit in price_sorted_matches
             ]
 
             result.html_blocks.append({
@@ -885,74 +840,6 @@ class InventoryHandler:
                             logger.warning(
                                 "COMPARISON_INSTALLMENT_NORMALIZATION_FAILED"
                             )
-
-        async def fetch_comparison_extras(unit):
-
-            async def fetch_unit_details():
-                try:
-                    return await self.unit_details_connector.get_unit_areas(
-                        unit_id=str(unit.unit_id)
-                    )
-                except Exception:
-                    logger.exception(
-                        "COMPARISON_UNIT_DETAILS_FETCH_FAILED"
-                    )
-                    return {}
-
-            async def fetch_layout_plans():
-                if not self.payment_token or not self.user_id:
-                    return []
-
-                try:
-                    return await self.unit_layout_connector.get_layout_plans(
-                        unit_id=str(unit.unit_id),
-                        access_token=self.payment_token,
-                        user_id=self.user_id,
-                    )
-                except Exception:
-                    logger.exception(
-                        "COMPARISON_LAYOUT_PLAN_FETCH_FAILED"
-                    )
-                    return []
-
-            details, layout_plans = await asyncio.gather(
-                fetch_unit_details(),
-                fetch_layout_plans(),
-            )
-
-            return {
-                "details": details,
-                "layout_plans": layout_plans,
-            }
-
-        # Fetch data concurrently for both selected units.
-        extra_results = await asyncio.gather(
-            *(
-                fetch_comparison_extras(unit)
-                for unit in selected
-            )
-        )
-
-        for comparison, extra in zip(
-            comparisons,
-            extra_results,
-        ):
-            details = extra["details"]
-
-            view = details.get("view")
-            floor = details.get("floor")
-
-            comparison["unit"]["view"] = (
-                view if view is not None and str(view).strip()
-                else "--"
-            )
-
-            comparison["unit"]["floor"] = (
-                floor if floor is not None and str(floor).strip()
-                else "--"
-            )
-
-            comparison["layout_plans"] = extra["layout_plans"]
 
 
         result.generation_context = {

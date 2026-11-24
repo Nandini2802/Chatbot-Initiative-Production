@@ -126,203 +126,6 @@ from app.services.unit_selection_state import UnitSelectionState
 from app.services.shared_unit_resolver import *
 
 
-def parse_inventory_sort_followup(message: str) -> str | None:
-    """
-    Detect standalone sorting follow-ups.
-
-    Examples:
-      sort them highest to lowest -> price_desc
-      sort lowest to highest -> price_asc
-      now sort by area descending -> area_desc
-
-    Combined search queries are handled by the
-    existing inventory extractor instead.
-    """
-
-    normalized = re.sub(
-        r"[^a-z0-9\s]",
-        " ",
-        message.casefold(),
-    )
-    normalized = " ".join(normalized.split())
-
-    if not normalized:
-        return None
-
-    allowed_words = {
-        "please", "now", "can", "could", "you",
-        "sort", "order", "arrange",
-        "them", "these", "those", "units", "results",
-        "by", "price", "area", "from", "to",
-        "highest", "lowest", "ascending",
-        "descending", "first",
-    }
-
-    words = normalized.split()
-
-    if any(word not in allowed_words for word in words):
-        return None
-
-    has_sort_action = any(
-        word in words
-        for word in {"sort", "order", "arrange"}
-    )
-
-    has_direction = any(
-        word in words
-        for word in {
-            "highest", "lowest",
-            "ascending", "descending",
-        }
-    )
-
-    if not has_direction:
-        return None
-
-    # Accept standalone "highest to lowest" as well.
-    if not has_sort_action and not (
-        "highest to lowest" in normalized
-        or "lowest to highest" in normalized
-    ):
-        return None
-
-    descending = (
-        "highest to lowest" in normalized
-        or "descending" in words
-        or (
-            "highest" in words
-            and "lowest" not in words
-        )
-    )
-
-    ascending = (
-        "lowest to highest" in normalized
-        or "ascending" in words
-        or (
-            "lowest" in words
-            and "highest" not in words
-        )
-    )
-
-    if descending == ascending:
-        return None
-
-    field = "area" if "area" in words else "price"
-    direction = "desc" if descending else "asc"
-
-    return f"{field}_{direction}"
-
-def detect_inventory_sort_followup(message: str) -> str | None:
-    """
-    Recognize sorting-only inventory follow-ups.
-
-    Returns:
-        price_asc, price_desc, area_asc, area_desc
-        or None.
-
-    Deliberately conservative: complex requests go to LLM1.
-    """
-    text = " ".join((message or "").lower().split())
-
-    if not text or len(text) > 120:
-        return None
-
-    # Do not intercept a new search or a compound request.
-    if re.search(
-        r"\b(show|find|search|filter|compare|download|"
-        r"bedroom|bedrooms|bhk|studio|project|"
-        r"under|above|below|between|only|"
-        r"payment|plan|offer)\b",
-        text,
-    ):
-        return None
-
-    # A follow-up must explicitly request ordering.
-    if not re.search(
-        r"\b(sort|order|arrange|rank|sorted)\b",
-        text,
-    ):
-        return None
-
-    is_area = bool(
-        re.search(r"\b(area|size|sqft|square feet)\b", text)
-    )
-
-    descending = bool(
-        re.search(
-            r"highest\s+to\s+lowest|"
-            r"high\s+to\s+low|"
-            r"largest\s+to\s+smallest|"
-            r"biggest\s+to\s+smallest|"
-            r"descending|"
-            r"most expensive|"
-            r"price\s+high",
-            text,
-        )
-    )
-
-    ascending = bool(
-        re.search(
-            r"lowest\s+to\s+highest|"
-            r"low\s+to\s+high|"
-            r"smallest\s+to\s+largest|"
-            r"ascending|"
-            r"cheapest\s+first|"
-            r"price\s+low",
-            text,
-        )
-    )
-
-    if descending == ascending:
-        return None
-
-    if is_area:
-        return "area_desc" if descending else "area_asc"
-
-    return "price_desc" if descending else "price_asc"
-
-
-def make_inventory_sort_route(
-    message: str,
-    sort_by: str,
-    previous_context: dict,
-) -> RoutingResult:
-    """
-    Build a valid RoutingResult without calling LLM1.
-    """
-    intent = RoutingIntent(
-        intent="inventory",
-        original_query=message,
-        expanded_query=message,
-        action="sort",
-        project_name=None,
-        unit_number=None,
-        bedrooms=None,
-        currency=None,
-        file_format=None,
-        bank_account_types=[],
-        marketing_assets=[],
-        missing_fields=[],
-        requires_clarification=False,
-        inventory_scope="units",
-        inventory_operation="unit_search",
-        sort_by=sort_by,
-        project_reference_source="context",
-    )
-
-    # The complete selection remains private to Python.
-    intent._previous_selection_ids = [
-        str(unit_id)
-        for unit_id in previous_context.get("unit_ids", [])
-        if unit_id
-    ]
-
-    return RoutingResult(
-        language="en",
-        intents=[intent],
-        requires_clarification=False,
-    )
-
 logger = logging.getLogger(__name__)
 settings = get_settings()
 real_llm_streaming = False
@@ -1648,13 +1451,6 @@ async def _stream_chat_response_impl(
             user_id=user_id,
         )
 
-        previous_inventory_backend_context = (
-            previous_inventory_context.copy()
-            if isinstance(previous_inventory_context, dict)
-            else None
-        )
-
-
         previous_authorized_units = resolve_authorized_units(
             previous_inventory_context,
             inventory_snapshot,
@@ -1662,57 +1458,16 @@ async def _stream_chat_response_impl(
 
         previous_inventory_context = (
             {
-                "project_name": previous_inventory_context.get(
-                    "project_name"
-                ),
-                "operation": previous_inventory_context.get(
-                    "operation"
-                ),
-                "unit_ids": [
-                    str(unit.unit_id)
-                    for unit in previous_authorized_units
-                    if unit.unit_id is not None
-                ],
+                "project_name": previous_inventory_context.get("project_name"),
+                "operation": previous_inventory_context.get("operation"),
                 "unit_numbers": [
                     unit.unit_name
                     for unit in previous_authorized_units
                     if unit.unit_name
                 ],
-                "total_matches": len(
-                    previous_authorized_units
-                ),
+                "total_matches": len(previous_authorized_units),
             }
             if previous_inventory_context
-            else None
-        )
-
-        previous_inventory_llm_context = (
-            {
-                "project_name": previous_inventory_context.get(
-                    "project_name"
-                ),
-                "operation": previous_inventory_context.get(
-                    "operation"
-                ),
-                "total_matches": previous_inventory_context.get(
-                    "total_matches", 0
-                ),
-            }
-            if previous_inventory_context
-            else None
-        )
-
-        requested_followup_sort = (
-            parse_inventory_sort_followup(message)
-            if (
-                previous_inventory_context
-                and previous_inventory_context.get(
-                    "operation"
-                ) == "unit_search"
-                and previous_inventory_context.get(
-                    "unit_ids"
-                )
-            )
             else None
         )
 
@@ -1961,55 +1716,18 @@ async def _stream_chat_response_impl(
                     user_id=user_id, session_id=str(session_id),
                 )
         else:
-            sort_followup = detect_inventory_sort_followup(
-                routing_message
+            routing_result = await router_service.classify(
+                message=routing_message,
+                history=history,
+                available_projects=available_projects,
+                inventory_active_projects=inventory_catalogs.active_projects,
+                inventory_unit_projects=inventory_catalogs.unit_projects,
+                active_project_names=active_project_names,
+                previous_inventory_context=previous_inventory_context,
+                walkthrough_features=walkthrough_features,
+                active_project_context=session_project_context,
+                project_codes=project_codes,
             )
-
-            previous_operation = (
-                previous_inventory_backend_context.get("operation")
-                if previous_inventory_backend_context
-                else None
-            )
-
-            can_sort_previous_selection = (
-                sort_followup is not None
-                and previous_operation == "unit_search"
-                and bool(previous_authorized_units)
-                and len(previous_authorized_units)
-                == len(
-                    previous_inventory_backend_context.get(
-                        "unit_ids", []
-                    )
-                )
-            )
-
-            if can_sort_previous_selection:
-                routing_result = make_inventory_sort_route(
-                    message=routing_message,
-                    sort_by=sort_followup,
-                    previous_context=previous_inventory_backend_context,
-                )
-
-                logger.info(
-                    "INVENTORY_SORT_LLM1_BYPASSED | "
-                    "sort_by=%s | selected_count=%d",
-                    sort_followup,
-                    len(previous_authorized_units),
-                )
-
-            else:
-                routing_result = await router_service.classify(
-                    message=routing_message,
-                    history=history,
-                    available_projects=available_projects,
-                    inventory_active_projects=inventory_catalogs.active_projects,
-                    inventory_unit_projects=inventory_catalogs.unit_projects,
-                    active_project_names=active_project_names,
-                    previous_inventory_context=previous_inventory_llm_context,
-                    walkthrough_features=walkthrough_features,
-                    active_project_context=session_project_context,
-                    project_codes=project_codes,
-                )
         
         print("\n========== ROUTER LLM OUTPUT ==========")
         print("USER MESSAGE:", message)
@@ -2026,72 +1744,6 @@ async def _stream_chat_response_impl(
         print("=======================================\n")
 
         # Preserve explicit project-unit pairs only for comparison requests.
-
-        if (
-            requested_followup_sort
-            and len(routing_result.intents) == 1
-        ):
-            intent = routing_result.intents[0]
-
-            reset_fields = (
-                "series",
-                "project_location",
-                "view",
-                "typology",
-                "unit_type",
-                "category",
-                "status",
-                "handover_status",
-                "construction_status",
-                "bedrooms",
-                "min_price",
-                "max_price",
-                "min_area_sqft",
-                "max_area_sqft",
-                "currency",
-                "price_selection",
-                "floor_number",
-                "min_floor",
-                "max_floor",
-            )
-
-            for field in reset_fields:
-                setattr(intent, field, None)
-
-            intent.requires_pool = False
-            intent.requires_duplex = False
-            intent.min_floor_inclusive = True
-            intent.max_floor_inclusive = True
-
-            intent.intent = "inventory"
-            intent.inventory_scope = "units"
-            intent.inventory_operation = "unit_search"
-
-            intent.project_name = None
-            intent.project_id = None
-            intent.project_number = None
-            intent.unit_number = None
-            intent.project_reference_source = "none"
-            intent.explicit_project_reference = None
-
-            intent.sort_by = requested_followup_sort
-            intent.followup_unit_ids = list(
-                previous_inventory_context["unit_ids"]
-            )
-
-            intent.original_query = message
-            intent.expanded_query = message
-            intent.missing_fields = []
-            intent.requires_clarification = False
-
-            routing_result.requires_clarification = False
-
-            logger.info(
-                "INVENTORY_SORT_FOLLOWUP | "
-                "sort_by=%s | authorized_units=%d",
-                requested_followup_sort,
-                len(intent.followup_unit_ids),
-            )
         # The resolver validates project names against visible inventory and
         # allows only confident typo matches; unit numbers remain exact.
         has_unit_comparison_intent = any(
@@ -4812,12 +4464,6 @@ async def _stream_chat_response_impl(
 
             if intent.inventory_operation != "unit_search":
                 continue
-            
-            if intent.followup_unit_ids is not None:
-                logger.info(
-                    "INVENTORY_EXTRACTION_SKIPPED_FOR_SORT_FOLLOWUP"
-                )
-                continue
 
             try:
                 extracted = await inventory_extractor.extract(
@@ -5367,40 +5013,6 @@ async def _stream_chat_response_impl(
             followup_chips = []
             real_llm_streaming = False
 
-        elif (
-            len(routing_result.intents) == 1
-            and routing_result.intents[0].intent == "inventory"
-            and routing_result.intents[0].inventory_operation == "unit_search"
-            and bool(
-                routing_result.intents[0]._previous_selection_ids
-            )
-            and bool(routing_result.intents[0].sort_by)
-            and len(handler_results) == 1
-            and handler_results[0].has_data
-        ):
-            sort_by = routing_result.intents[0].sort_by
-
-            sort_labels = {
-                "price_asc": "price, lowest to highest",
-                "price_desc": "price, highest to lowest",
-                "area_asc": "area, smallest to largest",
-                "area_desc": "area, largest to smallest",
-            }
-
-            count = handler_results[0].generation_context.get(
-                "total_matches", 0
-            )
-
-            response_text = (
-                f"Sorted {count} matching units by "
-                f"{sort_labels[sort_by]}. "
-                f"Showing the first "
-                f"{min(count, 10)} units."
-            )
-
-            followup_chips = []
-            real_llm_streaming = False
-
 
         elif generation_contexts:
 
@@ -5413,43 +5025,6 @@ async def _stream_chat_response_impl(
                     "service": "multi_intent",
                     "results": generation_contexts,
                 }
-
-            def sanitize_inventory_generation_context(value):
-                if isinstance(value, list):
-                    return [
-                        sanitize_inventory_generation_context(item)
-                        for item in value
-                    ]
-
-                if not isinstance(value, dict):
-                    return value
-
-                if (
-                    value.get("service") == "inventory"
-                    and value.get("operation") == "unit_search"
-                ):
-                    return {
-                        key: sanitize_inventory_generation_context(val)
-                        for key, val in value.items()
-                        if key not in {
-                            "units",
-                            "exact_matches",
-                            "related_units",
-                            "unit_ids",
-                            "unit_numbers",
-                        }
-                    }
-
-                return {
-                    key: sanitize_inventory_generation_context(val)
-                    for key, val in value.items()
-                }
-
-            generation_context = (
-                sanitize_inventory_generation_context(
-                    generation_context
-                )
-            )
 
             # LLM 2 still runs for dynamic follow-up chips.
                         # Keep the original approved Excel steps as a safe fallback.
@@ -5476,11 +5051,7 @@ async def _stream_chat_response_impl(
                             language=routing_result.language,
                             intents=detected_intents,
                             service_results=generation_context,
-                            history=[
-                                turn
-                                for turn in history
-                                if turn.get("role") == "user"
-                            ],
+                            history=history,
                         )
                     ):
                         if event_type == "token":
@@ -5506,11 +5077,7 @@ async def _stream_chat_response_impl(
                             language=routing_result.language,
                             intents=detected_intents,
                             service_results=generation_context,
-                            history=[
-                                turn
-                                for turn in history
-                                if turn.get("role") == "user"
-                            ],
+                            history=history,
                         )
                     )
 

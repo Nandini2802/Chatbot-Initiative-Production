@@ -219,19 +219,6 @@ class RouterService:
                 })
 
         if previous_inventory_context:
-            previous_inventory_context = {
-                "project_name": previous_inventory_context.get(
-                    "project_name"
-                ),
-                "operation": previous_inventory_context.get(
-                    "operation"
-                ),
-                "total_matches": previous_inventory_context.get(
-                    "total_matches", 0
-                ),
-            }
-
-        if previous_inventory_context:
             conversation.append({
                 "role": "developer",
                 "content": (
@@ -245,10 +232,9 @@ class RouterService:
                     "references such as 'the two', 'them', "
                     "'these units', 'sort them', and "
                     "'the cheaper one'.\n"
-                    "The previous selection is stored in the "
-                    "backend and is not included in this prompt. "
-                    "Never invent or request a list of stored "
-                    "unit identifiers from the model.\n"
+                    "For 'compare the two', use the exact two "
+                    "unit_numbers when the selection contains "
+                    "exactly two units.\n"
                     "For sorting or filtering, preserve the "
                     "previous selection as the target set.\n"
                     "Do not invent unit identifiers.\n"
@@ -365,10 +351,13 @@ class RouterService:
             role = turn.get("role")
             content = turn.get("content")
 
-            if role == "user" and isinstance(content, str):
+            if (
+                role in ("user", "assistant")
+                and isinstance(content, str)
+            ):
                 conversation.append({
-                    "role": "user",
-                    "content": content[:2000],
+                    "role": role,
+                    "content": content[:4000],
                 })
 
         # 3. Add current user message

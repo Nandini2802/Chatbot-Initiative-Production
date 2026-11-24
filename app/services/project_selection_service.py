@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 from app.services.project_name_service import normalize_project_name
 
@@ -32,19 +33,130 @@ def _catalog(catalog) -> list[str]:
     })
 
 
-def matching_projects(reference: str | None, catalog) -> list[str]:
-    """All catalog projects consistent with the reference, not a chosen project."""
+def fuzzy_project_family_candidates(
+    reference: str | None,
+    catalog,
+) -> list[str]:
+    """
+    Find projects belonging to a similarly spelled family.
+
+    Examples:
+        shahrukz -> Shahrukhz family
+        sharukz  -> Shahrukhz family
+        bays     -> BAYZ family
+
+    Uses the live catalog, not hardcoded project names.
+    """
+    query = _norm(reference)
+
+    # This fallback is only for a single, unnumbered
+    # family reference. Specific variants are handled
+    # by the existing matching logic.
+    if (
+        not query
+        or len(query) < 4
+        or len(query.split()) != 1
+        or any(char.isdigit() for char in query)
+    ):
+        return []
+
+    families = {}
+
+    for name in _catalog(catalog):
+        normalized = _norm(name)
+
+        if not normalized:
+            continue
+
+        family = normalized.split()[0]
+
+        families.setdefault(family, []).append(name)
+
+    ranked = []
+
+    for family, projects in families.items():
+
+        # Only families with multiple projects
+        # require a project-selection question.
+        if len(projects) < 2:
+            continue
+
+        score = SequenceMatcher(
+            None,
+            query,
+            family,
+        ).ratio()
+
+        ranked.append((score, family, projects))
+
+    ranked.sort(
+        key=lambda item: (-item[0], item[1])
+    )
+
+    if not ranked:
+        return []
+
+    best_score, _, best_projects = ranked[0]
+
+    # Short words need a different threshold,
+    # because a single typo changes their score more.
+    threshold = 0.74 if len(query) <= 4 else 0.84
+
+    if best_score < threshold:
+        return []
+
+
+    if (
+        len(ranked) > 1
+        and best_score - ranked[1][0] < 0.10
+    ):
+        return []
+
+    return best_projects
+
+
+
+
+def matching_projects(
+    reference: str | None,
+    catalog,
+) -> list[str]:
+    """
+    Return catalog projects consistent with
+    the user's actual project reference.
+
+    Priority:
+    1. Explicit full project name
+    2. Specific variant
+    3. Exact or prefix family matching
+    4. Fuzzy family matching
+    """
     names = _catalog(catalog)
     raw = str(reference or "").strip()
     query = _norm(raw)
+
     if not query or len(query) < 3:
         return []
 
-    # The user's complete official name always uniquely identifies the project.
-    explicit_full = [name for name in names if raw.casefold() == name.casefold()]
-    if len(explicit_full) == 1:
+    # A complete official name identifies one project.
+    # A single-word base name, however, may still
+    # belong to a family with multiple variants.
+    explicit_full = [
+        name for name in names
+        if raw.casefold() == name.casefold()
+    ]
+
+    if (
+        len(explicit_full) == 1
+        and (
+            len(raw.split()) > 1
+            or len(query.split()) > 1
+        )
+    ):
         return explicit_full
 
+    # Preserve existing specific-variant matching.
+    # Example: misspelled Shahrukhz Residences.
     specific_variant = match_unique_specific_variant(
         raw,
         names,
@@ -53,23 +165,45 @@ def matching_projects(reference: str | None, catalog) -> list[str]:
     if specific_variant is not None:
         return [specific_variant.name]
 
-
-    # A short name is NOT authoritative where other projects share that prefix.
+    # Original matching logic for exact and
+    # prefix-based references.
     matches = [
         name for name in names
-        if _norm(name) == query
-        or _norm(name).startswith(query + " ")
-        or (len(query) >= 5 and _norm(name).startswith(query))
+        if (
+            _norm(name) == query
+            or _norm(name).startswith(query + " ")
+            or (
+                len(query) >= 5
+                and _norm(name).startswith(query)
+            )
+        )
     ]
 
-    # An explicit number must never resolve to a differently numbered project.
+    # Preserve project-number protection.
     numbers = re.findall(r"\b\d+\b", query)
+
     if numbers:
         matches = [
             name for name in matches
-            if re.findall(r"\b\d+\b", _norm(name)) == numbers
+            if re.findall(
+                r"\b\d+\b",
+                _norm(name),
+            ) == numbers
         ]
-    return matches
+
+    if matches:
+        return matches
+
+    if len(explicit_full) == 1:
+        return explicit_full
+
+    # New fallback: detect an ambiguous project
+    # family even when LLM1 chose one project.
+    return fuzzy_project_family_candidates(
+        raw,
+        names,
+    )
+
 
 
 def find_project_candidates(reference: str | None, catalog) -> list[str]:
@@ -90,15 +224,6 @@ def project_mention_candidates(message: str, catalog) -> tuple[bool, list[str]]:
 
     # Complete canonical names in the user's message are authoritative. A
     # request explicitly containing multiple names is for the comparison flow.
-    canonical = [
-        name for name in names
-        if re.search(
-            r"(?<![a-z0-9])" + re.escape(name.casefold()) + r"(?![a-z0-9])",
-            raw.casefold(),
-        )
-    ]
-    if canonical:
-        return True, []
 
     words = re.findall(r"[a-z0-9]+", raw.casefold())
     best: tuple[int, int, int, list[str]] | None = None

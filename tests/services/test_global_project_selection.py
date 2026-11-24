@@ -241,3 +241,158 @@ def test_numbered_projects_are_not_confused():
         "OASIZ 1 BY DANUBE",
         "OASIZ 2 BY DANUBE",
     ]
+
+
+# --------------------------------------------------
+# Dynamic fuzzy project-family regression tests
+# --------------------------------------------------
+
+MARKETING_CATALOG = [
+    "Shahrukhz",
+    "Shahrukhz Residences",
+    "BAYZ",
+    "BAYZ101",
+    "Bayz 102",
+    "Greenz",
+]
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "shahrukz",
+        "sharukz",
+        "shahrukhz",
+        "shahrukh",
+    ],
+)
+def test_fuzzy_shahrukhz_family(reference):
+    matches = matching_projects(
+        reference,
+        MARKETING_CATALOG,
+    )
+
+    assert matches == [
+        "Shahrukhz",
+        "Shahrukhz Residences",
+    ]
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "bays",
+        "bayz",
+        "BAYZ",
+    ],
+)
+def test_fuzzy_bayz_family(reference):
+    matches = matching_projects(
+        reference,
+        MARKETING_CATALOG,
+    )
+
+    assert matches == [
+        "BAYZ",
+        "BAYZ101",
+        "Bayz 102",
+    ]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "send me brochure for shahrukz",
+        "send me brochure for sharukz",
+        "send me brochure for shahrukhz",
+    ],
+)
+def test_marketing_message_requests_family_selection(
+    message,
+):
+    mentioned, candidates = project_mention_candidates(
+        message,
+        MARKETING_CATALOG,
+    )
+
+    assert mentioned is True
+
+    assert candidates == [
+        "Shahrukhz",
+        "Shahrukhz Residences",
+    ]
+
+
+def test_router_choice_does_not_override_ambiguity():
+    # LLM1 might select "Shahrukhz" directly.
+    # The original user message must still
+    # identify both family candidates.
+    message = "send me brochure for shahrukz"
+
+    mentioned, candidates = project_mention_candidates(
+        message,
+        MARKETING_CATALOG,
+    )
+
+    assert mentioned is True
+    assert len(candidates) == 2
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "Shahrukhz Residences",
+        "shahrukz residences",
+    ],
+)
+def test_specific_residences_variant(reference):
+    matches = matching_projects(
+        reference,
+        MARKETING_CATALOG,
+    )
+
+    assert matches == ["Shahrukhz Residences"]
+
+
+def test_complete_project_name_is_unique():
+    matches = matching_projects(
+        "SHAHRUKHZ BY DANUBE",
+        [
+            "SHAHRUKHZ BY DANUBE",
+            "SHAHRUKHZ RESIDENCES BY DANUBE",
+        ],
+    )
+
+    assert matches == ["SHAHRUKHZ BY DANUBE"]
+
+
+def test_numbered_project_is_unique():
+    matches = matching_projects(
+        "bayz 102",
+        MARKETING_CATALOG,
+    )
+
+    assert matches == ["Bayz 102"]
+
+
+def test_unrelated_project_is_not_selected():
+    matches = matching_projects(
+        "completelyunknown",
+        MARKETING_CATALOG,
+    )
+
+    assert matches == []
+
+
+def test_fuzzy_family_clarification_format():
+    candidates = matching_projects(
+        "shahrukz",
+        MARKETING_CATALOG,
+    )
+
+    question = project_selection_question(candidates)
+
+    assert "Shahrukhz" in question
+    assert "Shahrukhz Residences" in question
+    assert "1." in question
+    assert "2." in question

@@ -6,10 +6,6 @@ from typing import Any
 class HandlerResult:
     intent: str
 
-    matching_unit_ids: list[str] = field(
-        default_factory=list
-    )
-
     # Verified data for LLM 2
     generation_context: dict[str, Any] = field(
         default_factory=dict
