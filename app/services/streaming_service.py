@@ -131,6 +131,34 @@ settings = get_settings()
 real_llm_streaming = False
 streamed_answer = ""
 
+def is_general_inventory_unit_search(
+    intent: RoutingIntent,
+) -> bool:
+    """
+    Identify inventory unit searches that do not require project-name resolution.
+
+    The Router LLM determines whether a project reference exists. Do not infer project names from inventory attributes when no project reference was detected.
+
+    Preserve explicit project references, contextual follow-ups and identifier-based requests.
+    """
+
+    return (
+        intent.intent == "inventory"
+        and intent.inventory_operation == "unit_search"
+        and intent.inventory_scope in (None, "units")
+        and intent.project_reference_source == "none"
+        and not any((
+            intent.project_name,
+            intent.project_family,
+            intent.explicit_project_reference,
+            intent.project_id,
+            intent.project_number,
+            intent.unit_id,
+            intent.unit_name,
+            intent.unit_number,
+        ))
+    )
+
 def is_real_streaming_enabled() -> bool:
     return (
         os.getenv(
@@ -1738,6 +1766,12 @@ async def _stream_chat_response_impl(
             print("Project Name:", intent.project_name)
             print("Project Family:", intent.project_family)
             print("Explicit Project Reference:", intent.explicit_project_reference)
+            print("Project Reference Source:", intent.project_reference_source)
+            print("Inventory Scope:", intent.inventory_scope)
+            print(
+                "General Unit Search:",
+                is_general_inventory_unit_search(intent),
+            )
             print("Compare Unit Numbers:", intent.compare_unit_numbers)
             print("Original Query:", intent.original_query)
 
@@ -2839,6 +2873,18 @@ async def _stream_chat_response_impl(
             # break existing unit comparison, sales offer, or unit card flows.
             if any((intent.unit_id, intent.unit_name, intent.unit_number)):
                 continue
+            if is_general_inventory_unit_search(intent):
+                logger.info(
+                    "PROJECT_AMBIGUITY_SKIPPED | "
+                    "intent=%s | operation=%s | "
+                    "reference_source=%s | "
+                    "reason=no_project_reference",
+                    intent.intent,
+                    intent.inventory_operation,
+                    intent.project_reference_source,
+                )
+
+                continue
             if intent.intent == "marketing" and intent.action == "company_profile":
                 continue
             if intent.intent == "project_information" and intent.project_operation in {
@@ -2847,11 +2893,12 @@ async def _stream_chat_response_impl(
                 continue
 
             if intent.intent == "inventory" and intent.inventory_operation == "project_comparison":
-                extracted = parse_comparison_references(
-                    project_choice_original_message or message
-                )
-                if extracted and len(extracted) == 2:
-                    intent.compare_project_names = list(extracted)
+                if not project_choice:
+                    extracted = parse_comparison_references(message)
+
+                    if extracted and len(extracted) == 2:
+                        intent.compare_project_names = list(extracted)
+
                 refs = list(intent.compare_project_names or [])
                 candidate_data = None
                 for slot, ref in enumerate(refs):
@@ -3535,18 +3582,17 @@ async def _stream_chat_response_impl(
             # Only project-name matching is corrected. Feature-specific IDs,
             # account filters, and user permissions remain unchanged.
             is_general_unit_search = (
-                intent.intent == "inventory"
-                and intent.inventory_scope == "units"
-                and intent.inventory_operation == "unit_search"
-                and intent.project_reference_source == "none"
-                and not intent.explicit_project_reference
-                and not intent.project_name
-                and not intent.project_id
-                and not intent.project_number
-                and not intent.unit_id
-                and not intent.unit_name
-                and not intent.unit_number
+                is_general_inventory_unit_search(intent)
             )
+
+            if is_general_unit_search:
+                logger.info(
+                    "PROJECT_RESOLUTION_SKIPPED | "
+                    "intent=%s | operation=%s | "
+                    "reason=general_inventory_unit_search",
+                    intent.intent,
+                    intent.inventory_operation,
+                )
 
             if is_general_unit_search:
                 intent.project_name = None

@@ -4,6 +4,7 @@ import re
 
 from app.schemas.handler_result import HandlerResult
 from app.handlers.inventory_handler import InventoryHandler
+from app.services.inventory_filter_service import as_decimal
 from app.services.template_service import TemplateService
 from app.services.sales_offer_state import SalesOfferState
 
@@ -214,6 +215,19 @@ class SalesOfferHandler:
             )
 
         mapper = InventoryHandler(self.snapshot)
+
+        def price_sort_key(unit):
+            price = as_decimal(unit.price)
+
+            return (
+                price is None,
+                price if price is not None else 0,
+            )
+
+        units = sorted(
+            units,
+            key=price_sort_key,
+        )
 
         displayed = units
 
