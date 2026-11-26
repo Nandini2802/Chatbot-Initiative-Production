@@ -815,9 +815,22 @@ class RouterService:
 
                 item.project_operation = operation
 
-                if operation in {"latest", "list", "location_search"}:
+                if operation in {
+                    "latest",
+                    "list",
+                    "location_search",
+                    "filter",
+                }:
                     missing.discard("project_name")
                     missing.discard("project_identifier")
+
+                if operation == "filter":
+                    item.project_name = None
+                    item.project_id = None
+                    item.project_number = None
+
+                    item.project_filter_result = None
+                    missing.clear()
 
                 if operation == "location_search":
                     if not item.project_location:
@@ -839,17 +852,17 @@ class RouterService:
                     else:
                         missing.add("project_identifier")
 
-                if operation == "latest":
-                    item.project_limit = min(
-                        max(item.project_limit or 3, 1),
-                        20,
-                    )
+                if operation in {"latest", "list"}:
+                    default_limit = 3 if operation == "latest" else 5
 
-                elif operation == "list":
-                    item.project_limit = min(
-                        max(item.project_limit or 5, 1),
-                        20,
-                    )
+                    if item.project_limit == -1:
+                        pass
+
+                    elif item.project_limit is None or item.project_limit <= 0:
+                        item.project_limit = default_limit
+
+                    else:
+                        item.project_limit = int(item.project_limit)
 
             elif item.intent == "inventory":
                 if item.inventory_operation == "project_comparison":

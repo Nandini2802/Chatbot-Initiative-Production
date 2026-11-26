@@ -2,6 +2,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from decimal import Decimal
 
+from app.schemas.project_filters import ProjectFilterResult
 
 IntentType = Literal[
     "greeting",
@@ -20,10 +21,7 @@ IntentType = Literal[
 ]
 
 
-# Project facts that can be answered directly (project_operation="field").
-# Deliberately excluded: total_available_* (answered by inventory from
-# live units), total_selling_price (needs business approval), BrandMorph
-# and internal flags.
+
 ProjectFieldName = Literal[
     "project_number",
     "project_code",
@@ -183,8 +181,11 @@ class RoutingIntent(BaseModel):
         "amenities",
         "faq",
         "field",
+        "filter",
     ] | None = None
 
+    project_filter_result: ProjectFilterResult | None = None
+    
     # Specific project facts requested (project_operation = "field").
     # Only these names are allowed; see app/services/project_fields.py.
     project_fields: list[ProjectFieldName] = Field(

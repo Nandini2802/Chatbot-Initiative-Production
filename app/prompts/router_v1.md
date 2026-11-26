@@ -1051,11 +1051,52 @@ RULE A: If the user's request mentions, filters, sorts, lists, counts or asks ab
 
 RULE B: Phrases about "what types/options/configurations/sizes/prices exist in <project>" are unit questions. They are answered from unit records. Examples: "unit type in greenz", "what bedrooms in greenz", "unit types", "typologies", "configurations", "options in greenz", "price range in greenz", "sizes available".
 
-RULE C: Queries phrased around projects but filtered by a unit attribute are still unit searches with project_name=null: "projects having 5 bed units", "5 bed unit type projects", "show projects with 3 bedrooms", "projects with city view units". Set inventory_scope="units".
+RULE C: Queries phrased around projects but filtered by an individual unit attribute are unit searches.
 
-RULE D: Availability phrasing ("available", "any ... available", "do you have", "I need", "my customer wants", "looking for", "options for") combined with any noun a unit can be (studio, penthouse, villa, 2bhk, townhouse, unit, inventory, apartment) is a unit search.
+  Examples:
+  - Projects having available 5 bedroom units.
+  - Projects with city view units.
+  - Projects with units priced below AED 2 million.
+  - Projects having units above 1500 square feet.
 
-RULE E (tie-breaker): If a request could be either a unit search or project-level info and it mentions any unit attribute, ALWAYS choose inventory/unit_search. Never choose project_information for it.
+  Use inventory / units / unit_search.
+  However, project-level aggregate fields must use project_information / filter.
+
+  Examples:
+  - Projects having more than 1000 total units.
+  - Projects having more than 100 available units.
+  - Projects with more than 500 sold units.
+  - Projects with total saleable area above 2 billion.
+  - Projects starting below AED 1 million.
+
+RULE D: Availability phrasing combined with an individual unit type, bedroom requirement, unit price, unit area, view or floor continues to use inventory.
+
+  Examples:
+  - Show available studio units.
+  - Find 2 BHK units in Greenz.
+  - Which projects have available penthouses?
+
+  Project aggregate availability-count filters use project_information / filter.
+
+  Example:
+  - Show projects with more than 100 available units.
+
+RULE E: Determine whether the requested condition belongs to an individual unit or an aggregate project.
+
+  Individual unit conditions use inventory/unit_search.
+  Project-level conditions from the ActiveProjects API use project_information/filter.
+  Do not classify a project aggregate count as an individual unit search merely because the query contains the word "units".
+  Project-level filtering is different from requesting a specific fact about one project.
+
+  Examples:
+  - Total units in Greenz -> project_information / field
+  - Projects with more than 1000 units
+    -> project_information / filter
+  - Available units in Greenz -> inventory
+  - Projects with more than 100 available units
+    -> project_information / filter
+
+  Project information also supports project descriptions, amenities, latest launches, project listings, project counts, project-level construction progress, handover timelines, 3D tours and project locations.
 
 project_information applies ONLY when the request is about things NOT stored on unit records: project description, amenities list, developer story, latest/new launches, list of all projects, project count, project-level construction progress, handover timeline of the project as a whole, 3D tour, or "projects in <location>" with no unit attribute.
 
@@ -1982,62 +2023,110 @@ Do not confuse project information with unit inventory search, marketing-materia
 
 Supported operations:
 
-1. latest
-   - Latest projects, newest projects, recent launches.
-   - project_operation = "latest"
-   - project_limit = 3 unless user specifies another count.
-   - Project order is determined by the API.
-   - Do not sort by date, project number, or sequence.
+  1. latest
+    - Latest projects, newest projects, recent launches.
+    - project_operation = "latest"
+    - If the user explicitly requests a number of projects, extract that exact number into project_limit.
+    - Understand both numeric and written numbers, such as 2, 10, two, ten, etc.
+    - If the user requests all latest projects, every latest project, or the complete list of latest projects, set project_limit = -1.
+    - If no count is specified and the user does not request all projects, set project_limit = 3.
+    - Do not restrict an explicitly requested project count.
+    - Project order is determined by the API.
+    - Do not sort by date, project number, or sequence.
 
-2. list
-   - General lists of Danube projects.
-   - project_operation = "list"
-   - project_limit = 5 unless specified.
+  2. list
+    - General lists of Danube projects.
+    - project_operation = "list"
+    - If the user explicitly requests a number of projects, extract that exact number into project_limit.
+    - If the user requests all projects, every project, or the complete project list, set project_limit = -1.
+    - If no count is specified, set project_limit = 5.
+    - Do not restrict an explicitly requested project count.
 
-3. details
-   - Information about one specific project.
-   - project_operation = "details"
-   - Extract any available project or unit identifier.
+  3. details
+    - Information about one specific project.
+    - project_operation = "details"
+    - Extract any available project or unit identifier.
 
-4. location_search
-   - Projects in a requested area or location.
-   - project_operation = "location_search"
-   - Extract the requested location into project_location.
-   - Do not require a project name.
+  4. location_search
+    - Projects in a requested area or location.
+    - project_operation = "location_search"
+    - Extract the requested location into project_location.
+    - Do not require a project name.
 
-5. amenities
-   - User requests the amenities or facilities available in a specific Danube project.
-   - intent = "project_information"
-   - project_operation = "amenities"
-   - Extract the project name into project_name.
-   - Resolve using inventory_active_projects.
-   - If project is missing, use conversation history.
-   - If the project cannot be identified,
-     request clarification.
-   - Do not invent amenity names or images.
+  5. amenities
+    - User requests the amenities or facilities available in a specific Danube project.
+    - intent = "project_information"
+    - project_operation = "amenities"
+    - Extract the project name into project_name.
+    - Resolve using inventory_active_projects.
+    - If project is missing, use conversation history.
+    - If the project cannot be identified,
+      request clarification.
+    - Do not invent amenity names or images.
+  
+  ### PROJECT LIMIT EXTRACTION RULES
 
-   Examples:
+    - project_limit must be a positive integer when the user explicitly requests a specific number of projects.
+    - project_limit = -1 represents all available projects.
+    - Never replace an explicitly requested count with the default count of 3 or 5.
+    - Do not confuse project numbers, bedroom counts, prices, years, or unit numbers with the requested project count.
+    - Apply these rules regardless of the user's language.
+    - Requests for all latest projects must retain project_operation = "latest"
 
-   User: Show amenities of Greenz
-   intent: project_information
-   project_operation: amenities
-   project_name: GREENZ BY DANUBE
+  Examples:
 
-   User: Breez amenities
-   intent: project_information
-   project_operation: amenities
-   project_name: BREEZ BY DANUBE
+    User: Show me the latest Danube projects
+    intent: project_information
+    project_operation: latest
+    project_limit: 3
 
-   User: Show amenities for the same project
-   intent: project_information
-   project_operation: amenities
-   project_name: <project from conversation context>
+    User: Show me 2 latest projects of Danube
+    intent: project_information
+    project_operation: latest
+    project_limit: 2
 
-   The backend retrieves amenities using the existing
-   OSF Portfolio API connector.
+    User: Show me the latest ten Danube projects
+    intent: project_information
+    project_operation: latest
+    project_limit: 10
 
-   Ordinary amenity information requests are not
-   marketing-asset download requests.
+    User: Show me 25 latest projects of Danube
+    intent: project_information
+    project_operation: latest
+    project_limit: 25
+
+    User: Show me all latest projects of Danube
+    intent: project_information
+    project_operation: latest
+    project_limit: -1
+
+    User: Show me all recent launches
+    intent: project_information
+    project_operation: latest
+    project_limit: -1
+
+    User: List all Danube projects
+    intent: project_information
+    project_operation: list
+    project_limit: -1
+
+    User: List 10 Danube projects
+    intent: project_information
+    project_operation: list
+    project_limit: 10
+
+    User: List Danube projects
+    intent: project_information
+    project_operation: list
+    project_limit: 5
+
+    User: Show amenities for the same project
+    intent: project_information
+    project_operation: amenities
+    project_name: <project from conversation context>
+
+    The backend retrieves amenities using the existing OSF Portfolio API connector.
+    Ordinary amenity information requests are not marketing-asset download requests.
 
 6. tour
    - User requests a 3D tour, virtual tour, project tour, or project walkthrough video.
@@ -2226,6 +2315,107 @@ Requests for general marketing videos, promotional videos, or downloadable marke
    intent: project_information
    project_operation: details
 
+9. filter
+
+Use this operation when the user requests multiple projects matching one or more project-level conditions.
+
+intent = "project_information"
+project_operation = "filter"
+
+Supported project-level search conditions include:
+  - Project name or project family.
+  - Project number and project identifiers.
+  - Construction status.
+  - Starting price.
+  - Completion and handover dates.
+  - Project configuration.
+  - Project-level bedroom categories.
+  - Project payment plan.
+  - Total units.
+  - Sold, booked and available unit counts.
+  - Residential and commercial unit counts.
+  - Total floors and buildings.
+  - Total saleable area.
+  - Total built-up area.
+  - Plot size.
+  - Service charge.
+  - Project location.
+  - EOI status.
+  - Other supported ActiveProjects API attributes.
+
+A dedicated Project Extractor LLM will extract the actual filter fields, operators and values.
+The router must NOT extract project_filter_result.
+Always set project_filter_result = null.
+For this operation:
+  - Preserve all conditions in original_query.
+  - Preserve all conditions in expanded_query.
+  - Do not invent or remove numeric thresholds.
+  - Do not resolve a project-family search to one project.
+  - Do not require a single project identifier.
+  - Do not ask which project when the user wants
+    all projects belonging to a project family.
+  - Set project_name = null.
+  - Set project_id = null.
+  - Set project_number = null.
+  - Set missing_fields = [].
+  - Set requires_clarification = false.
+  - The dedicated extractor handles filter clarification.
+
+Examples:
+
+  User: How many Shahrukhz projects are there in Danube?
+  intent: project_information
+  project_operation: filter
+
+  User: Show all Oasiz projects
+  intent: project_information
+  project_operation: filter
+
+  User: Show projects with more than 1000 units
+  intent: project_information
+  project_operation: filter
+
+  User: Projects with saleable area above 2000000000
+  intent: project_information
+  project_operation: filter
+
+  User: Show off-plan projects
+  intent: project_information
+  project_operation: filter
+
+  User: Show projects with starting prices below 1 million
+  intent: project_information
+  project_operation: filter
+
+  User: Show projects completing in 2028
+  intent: project_information
+  project_operation: filter
+
+  User: Show the latest 5 projects with more than 500 units
+  intent: project_information
+  project_operation: filter
+
+  User: Show projects with EOI active
+  intent: project_information
+  project_operation: filter
+
+  User: Show projects in Sports City with more than 500 units
+  intent: project_information
+  project_operation: filter
+
+IMPORTANT:
+
+  - Simple latest-project requests continue to use latest.
+  - General project listings continue to use list.
+  - Simple location-only searches continue to use location_search.
+  - Single-project details continue to use details.
+  - Single-project factual questions continue to use field.
+  - Brochures, bank details, Sales Offers, FAQs and
+    3D tours retain their existing routing.
+  - Individual unit inventory searches retain their
+    existing routing.
+
+
 Supported identifiers:
 - project_name
 - project_id
@@ -2236,7 +2426,7 @@ Supported identifiers:
 
 Project name is not mandatory when another identifier uniquely identifies the project.
 
-For latest, list, and location_search:
+For latest, list, location_search, and filter:
 - Do not require a project identifier.
 - Do not invent project names.
 - Do not set requires_clarification just because
@@ -2705,6 +2895,21 @@ For download_availability, extract both currency and file_format when supplied i
 For sales_offer, preserve the existing currency confirmation and payment-plan selection flow.
 Never invent a currency code.
 If the currency is unclear or unsupported, request clarification rather than guessing.
+
+## FINAL PROJECT FILTER PRECEDENCE
+
+These rules take precedence over conflicting earlier project-resolution and inventory tie-breaker rules.
+When the requested result is a collection of projects matching project-level API attributes, use:
+
+intent = "project_information"
+project_operation = "filter"
+
+Do not resolve a project-family search to one project.
+Do not require project_name or project_identifier.
+Do not classify project aggregate unit counts as individual unit inventory searches.
+The dedicated Project Extractor LLM handles all filter extraction and validation.
+For all routing operations:
+  project_filter_result = null
 
 
 ## GLOBAL INTENT DISAMBIGUATION

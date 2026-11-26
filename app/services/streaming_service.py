@@ -54,6 +54,7 @@ from app.handlers.payment_plan_handler import PaymentPlanHandler
 from app.handlers.walkthrough_handler import WALKTHROUGH_FALLBACK
 from app.services.router_service import RouterService
 from app.services.inventory_extraction_service import InventoryExtractionService
+from app.services.project_extraction_service import ProjectExtractionService
 from app.services.project_resolution_service import ProjectResolution
 from app.services.project_resolution_service import (
     resolve_project,
@@ -3012,7 +3013,10 @@ async def _stream_chat_response_impl(
             if intent.intent == "marketing" and intent.action == "company_profile":
                 continue
             if intent.intent == "project_information" and intent.project_operation in {
-                "latest", "list", "location_search",
+                "latest",
+                "list",
+                "location_search",
+                "filter",
             }:
                 continue
 
@@ -3743,7 +3747,7 @@ async def _stream_chat_response_impl(
                 and intent.inventory_operation == "project_comparison"
             ) and not (
                 intent.intent == "project_information"
-                and intent.project_operation in {"latest", "list", "location_search"}
+                and intent.project_operation in {"latest", "list", "location_search", "filter"}
             ) and not (
                 intent.intent == "marketing" and intent.action == "company_profile"
             ):
@@ -3782,6 +3786,7 @@ async def _stream_chat_response_impl(
                             "latest",
                             "list",
                             "location_search",
+                            "filter",
                         }
                     )
                     or (
@@ -4129,6 +4134,7 @@ async def _stream_chat_response_impl(
                     "latest",
                     "list",
                     "location_search",
+                    "filter",
                 }:
                     intent.missing_fields = [
                         field
@@ -4607,6 +4613,57 @@ async def _stream_chat_response_impl(
             clarification_messages = []
 
         # 4. PROCESS CLASSIFIED INTENTS
+
+        # PROJECT EXTRACTION — dedicated LLM call.
+
+        for index, intent in enumerate(
+            routing_result.intents
+        ):
+
+            if index in blocked_intents:
+                continue
+
+            if intent.intent != "project_information":
+                continue
+
+            if intent.project_operation != "filter":
+                continue
+
+            try:
+
+                project_extractor = ProjectExtractionService(
+                    client=clients.foundry_openai,
+                    model=settings.foundry_openai_model,
+                )
+
+                extracted = await project_extractor.extract(
+                    message=(
+                        intent.original_query or message
+                    ),
+                    snapshot=inventory_snapshot,
+                    history=history,
+                )
+
+                intent.project_filter_result = extracted
+
+                logger.info(
+                    "PROJECT_EXTRACTION_APPLIED | "
+                    "session_id=%s | filters=%s",
+                    session_id,
+                    extracted.model_dump(
+                        exclude_none=True,
+                    ),
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "PROJECT_EXTRACTION_FAILED | "
+                    "session_id=%s",
+                    session_id,
+                )
+
+                intent.project_filter_result = None
 
         # INVENTORY EXTRACTION — dedicated LLM call.
 
@@ -5495,6 +5552,7 @@ async def _stream_chat_response_impl(
                     "latest",
                     "list",
                     "location_search",
+                    "filter",
                 }
             ):
                 continue

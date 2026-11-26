@@ -57,6 +57,8 @@ from app.scripts.refresh_api_cache import (
     fetch_and_cache_project_faqs,
 )
 
+from app.services.project_filter_service import ProjectFilterService
+
 
 logger = logging.getLogger(__name__)
 
@@ -1522,6 +1524,8 @@ class ProjectInformationHandler:
                 or "details"
             )
 
+            total_matching_count = None
+
             if operation == "amenities":
 
                 return await self.handle_project_amenities(
@@ -1563,29 +1567,91 @@ class ProjectInformationHandler:
                 )
 
             # Step 3: Select projects.
-            elif operation == "latest":
 
-                limit = min(
-                    max(
-                        intent.project_limit or 3,
-                        1,
-                    ),
-                    20,
+            elif operation == "filter":
+
+                extracted = intent.project_filter_result
+
+                if extracted is None:
+
+                    return self.failure(
+                        "I couldn't process the requested "
+                        "project filters. Please try again."
+                    )
+
+                if extracted.requires_clarification:
+
+                    return self.failure(
+                        extracted.clarification_message
+                        or (
+                            "Could you please clarify "
+                            "the project filters?"
+                        )
+                    )
+
+                try:
+
+                    filter_service = ProjectFilterService()
+
+                    matched_projects = (
+                        filter_service.filter_projects(
+                            projects=projects,
+                            extracted=extracted,
+                        )
+                    )
+
+                except ValueError:
+
+                    logger.exception(
+                        "PROJECT_FILTER_VALIDATION_FAILED"
+                    )
+
+                    return self.failure(
+                        "I couldn't apply the requested "
+                        "project filters. Please check "
+                        "the filter values."
+                    )
+
+                total_matching_count = len(
+                    matched_projects
                 )
 
-                selected = projects[:limit]
+                if extracted.limit is not None:
 
-            elif operation == "list":
+                    selected = matched_projects[
+                        :extracted.limit
+                    ]
 
-                limit = min(
-                    max(
-                        intent.project_limit or 5,
-                        1,
-                    ),
-                    20,
+                else:
+
+                    selected = matched_projects
+
+                logger.info(
+                    "PROJECT_FILTER_APPLIED | "
+                    "total_projects=%s | "
+                    "matched_projects=%s | "
+                    "displayed_projects=%s",
+                    len(projects),
+                    total_matching_count,
+                    len(selected),
                 )
 
-                selected = projects[:limit]
+            elif operation in {"latest", "list"}:
+
+                default_limit = 3 if operation == "latest" else 5
+
+                requested_limit = intent.project_limit
+
+                if requested_limit == -1:
+                    # Return all available projects in API order.
+                    selected = projects
+
+                else:
+                    # Use the requested count or the existing default.
+                    if requested_limit is None or requested_limit <= 0:
+                        requested_limit = default_limit
+
+                    selected = projects[:requested_limit]
 
 
             elif operation == "location_search":
@@ -1668,16 +1734,33 @@ class ProjectInformationHandler:
                 messages=[],
 
                 generation_context={
-                    "service": (
-                        "project_information"
-                    ),
+
+                    "service": "project_information",
 
                     "operation": operation,
 
                     "result_count": len(selected),
 
+                    "total_matching_count": (
+                        total_matching_count
+                        if total_matching_count is not None
+                        else len(selected)
+                    ),
+
                     "requested_location": (
                         intent.project_location
+                    ),
+
+                    "project_filters": (
+                        intent.project_filter_result.model_dump(
+                            exclude_none=True,
+                        )
+                        if (
+                            operation == "filter"
+                            and intent.project_filter_result
+                            is not None
+                        )
+                        else None
                     ),
 
                     "projects": summaries,
