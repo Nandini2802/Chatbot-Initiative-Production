@@ -126,4 +126,9 @@ class UnitDetailsConnector:
             "balcony_area_sqm": self._number(
                 data.get("Balcony_Area_Sq_Mt_New__c")
             ),
+
+            # Additional unit comparison fields
+            "view": data.get("View__c"),
+            "floor": data.get("FloorNumber__c"),
         }
+

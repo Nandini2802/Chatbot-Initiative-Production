@@ -10,32 +10,124 @@ from app.schemas.marketing import (
 )
 
 
+
 FOLDER_ALIASES = {
+    # Brochures
     "brochure": "brochures",
     "brochures": "brochures",
+
+    # Videos
     "video": "videos",
     "videos": "videos",
+
+    # Walkthrough
     "walkthrough": "walkthrough",
+    "walkthroughs": "walkthrough",
     "walkthrough video": "walkthrough",
+    "walkthrough videos": "walkthrough",
+
+    # Floor plans
     "floor plan": "floor-plans",
     "floor plans": "floor-plans",
     "floor_plan": "floor-plans",
+    "floor_plans": "floor-plans",
+    "floor-plan": "floor-plans",
+    "floor-plans": "floor-plans",
+    "floorplan": "floor-plans",
+    "floorplans": "floor-plans",
+
+    # Interiors
     "gallery": "interiors",
     "interior": "interiors",
     "interiors": "interiors",
+    "interior image": "interiors",
+    "interior images": "interiors",
+    "interior photo": "interiors",
+    "interior photos": "interiors",
+    "interior pictures": "interiors",
+
+    # Exteriors
     "exterior": "exteriors",
     "exteriors": "exteriors",
+    "exterior image": "exteriors",
+    "exterior images": "exteriors",
+    "exterior photo": "exteriors",
+    "exterior photos": "exteriors",
+    "exterior pictures": "exteriors",
+
+    # Amenities
+    "amenity": "amenities",
     "amenities": "amenities",
+    "amenity images": "amenities",
+    "amenities images": "amenities",
+    "amenity photos": "amenities",
+
+    # Social media
     "social media": "social-media",
     "social-media": "social-media",
+    "social_media": "social-media",
+    "social media posts": "social-media",
+    "social media images": "social-media",
+
+    # Brokers social media
+    "broker social media": "brokers-social-media",
+    "brokers social media": "brokers-social-media",
+    "broker-social-media": "brokers-social-media",
+    "brokers-social-media": "brokers-social-media",
+    "broker_social_media": "brokers-social-media",
+    "brokers_social_media": "brokers-social-media",
+
+    # Factsheets
     "factsheet": "factsheet",
+    "factsheets": "factsheet",
     "fact sheet": "factsheet",
-    "other": "other",
-    "all": "all",
+    "fact sheets": "factsheet",
+    "fact-sheet": "factsheet",
+    "fact-sheets": "factsheet",
+    "fact_sheet": "factsheet",
+    "fact_sheets": "factsheet",
+
+    # PPT
     "ppt": "ppt",
+    "ppts": "ppt",
+    "pptx": "ppt",
+    "presentation": "ppt",
+    "presentations": "ppt",
+    "powerpoint": "ppt",
+
+    # Renders
+    "render": "renders",
     "renders": "renders",
-    "price list": "price-list",
+    "rendering": "renders",
+    "renderings": "renders",
+    "render images": "renders",
+    "3d render": "renders",
+    "3d renders": "renders",
+
+    # Price
+    "price": "price",
+    "prices": "price",
+    "price list": "price",
+    "price lists": "price",
+    "price-list": "price",
+    "price-lists": "price",
+    "price_list": "price",
+    "price_lists": "price",
+    "price sheet": "price",
+    "price sheets": "price",
+
+    # Other
+    "other": "other",
+    "others": "other",
+    "other materials": "other",
+
+    # All marketing materials
+    "all": "all",
+    "all materials": "all",
+    "all marketing materials": "all",
+    "all marketing collateral": "all",
 }
+
 
 INDIVIDUAL_FILE_FOLDERS = {
     "brochures",

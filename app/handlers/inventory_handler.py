@@ -32,6 +32,14 @@ from app.retrieval.unit_details_connector import (
 
 from app.services.inventory_attribute_resolver import match_location
 
+from app.retrieval.project_coordinates_connector import (
+    ProjectCoordinatesConnector,
+)
+
+from app.retrieval.inventory_normalizer import (
+    clean_project_image_url,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,6 +63,7 @@ class InventoryHandler:
         self.unit_comparison_client = UnitComparisonClient()
         self.unit_layout_connector = UnitLayoutConnector()
         self.unit_details_connector = UnitDetailsConnector()
+        self.project_details_connector = ProjectCoordinatesConnector()
 
 
     @staticmethod
@@ -107,7 +116,10 @@ class InventoryHandler:
             )
 
         if operation == "project_comparison":
-            return self._handle_project_comparison(intent, result)
+            return await self._handle_project_comparison(
+                intent,
+                result,
+            )
 
         # Project-level inventory
         if (
@@ -842,6 +854,79 @@ class InventoryHandler:
                             )
 
 
+        # -----------------------------------------
+        # Additional unit comparison dynamic data
+        # View, Floor and Layout Plan images
+        # -----------------------------------------
+
+        async def fetch_comparison_extras(unit):
+
+            async def fetch_unit_details():
+                try:
+                    return await self.unit_details_connector.get_unit_areas(
+                        unit_id=str(unit.unit_id)
+                    )
+                except Exception:
+                    logger.exception(
+                        "COMPARISON_UNIT_DETAILS_FETCH_FAILED"
+                    )
+                    return {}
+
+            async def fetch_layout_plans():
+                if not self.payment_token or not self.user_id:
+                    return []
+
+                try:
+                    return await self.unit_layout_connector.get_layout_plans(
+                        unit_id=str(unit.unit_id),
+                        access_token=self.payment_token,
+                        user_id=self.user_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "COMPARISON_LAYOUT_PLAN_FETCH_FAILED"
+                    )
+                    return []
+
+            details, layout_plans = await asyncio.gather(
+                fetch_unit_details(),
+                fetch_layout_plans(),
+            )
+
+            return {
+                "details": details,
+                "layout_plans": layout_plans,
+            }
+
+        extra_results = await asyncio.gather(
+            *(
+                fetch_comparison_extras(unit)
+                for unit in selected
+            )
+        )
+
+        for comparison, extra in zip(
+            comparisons,
+            extra_results,
+        ):
+            details = extra["details"]
+
+            view = details.get("view")
+            floor = details.get("floor")
+
+            comparison["unit"]["view"] = (
+                view if view is not None and str(view).strip()
+                else "--"
+            )
+
+            comparison["unit"]["floor"] = (
+                floor if floor is not None and str(floor).strip()
+                else "--"
+            )
+
+            comparison["layout_plans"] = extra["layout_plans"]
+
+
         result.generation_context = {
             "service": "inventory",
             "operation": "unit_comparison",
@@ -868,8 +953,91 @@ class InventoryHandler:
         result.has_data = True
         return result
 
-    def _handle_project_comparison(self, intent, result):
-        """Compare exactly two projects from Active Projects API."""
+    @staticmethod
+    def _map_project_comparison_details(data: dict) -> dict:
+        """
+        Map Project Details API fields to the existing
+        project comparison HTML and generation context.
+
+        Preserve null and zero values from the API.
+        """
+
+        return {
+            "project_image": clean_project_image_url(
+                data.get("Project_Image__c")
+            ),
+
+            "project_name": data.get(
+                "Name"
+            ),
+
+            "location": data.get(
+                "Location_Name_Mob__c"
+            ),
+
+            "starting_price": data.get(
+                "Starting_Price_mob__c"
+            ),
+
+            "completion_date": data.get(
+                "Completion_Date_Mob__c"
+            ),
+
+            "bedrooms_categories": data.get(
+                "Bedrooms_Mob__c"
+            ),
+
+            "project_number": data.get(
+                "Project_Number__c"
+            ),
+
+            "project_configuration": data.get(
+                "Project_Configuration__c"
+            ),
+
+            "total_units": data.get(
+                "Total_Units__c"
+            ),
+
+            "total_available_units": data.get(
+                "Total_Available_Unit__c"
+            ),
+
+            "construction_status": data.get(
+                "Construction_Status__c"
+            ),
+
+            "construction_completion_percentage": data.get(
+                "latest_project_construction_percentage__c"
+            ),
+
+            "handover_date": data.get(
+                "Anticipated_Handover_Date__c"
+            ),
+
+            "payment_plan": data.get(
+                "Payment_Plan_Mob__c"
+            ),
+        }
+
+
+    async def _handle_project_comparison(
+        self,
+        intent,
+        result,
+    ):
+        """
+        Compare exactly two projects.
+
+        Active Projects API:
+            Project identification and Salesforce IDs.
+
+        Project Details API:
+            Latest project comparison UI fields.
+
+        Visible Units API:
+            Existing user-specific inventory context.
+        """
 
         requested_names = intent.compare_project_names or []
 
@@ -882,7 +1050,6 @@ class InventoryHandler:
         selected_projects = []
         selected_keys = set()
 
-        # Resolve both projects from the actual Active Projects snapshot.
         for name in requested_names:
 
             normalized_name = normalize_project_name(name)
@@ -911,14 +1078,100 @@ class InventoryHandler:
             selected_projects.append(matches[0])
             selected_keys.add(normalized_name)
 
-        comparisons = []
+        project_ids = []
 
         for project in selected_projects:
 
-            # Reuse your existing Active Projects API field mapping.
+            if (
+                not project.project_id
+                or not str(project.project_id).strip()
+            ):
+                logger.warning(
+                    "PROJECT_COMPARISON_ID_MISSING | project=%s",
+                    project.project_name,
+                )
+
+                result.messages.append(
+                    f"Project details are currently unavailable "
+                    f"for {project.project_name}."
+                )
+
+                return result
+
+            project_ids.append(
+                str(project.project_id).strip()
+            )
+
+        if len(set(project_ids)) != 2:
+            result.messages.append(
+                "Please select two different projects to compare."
+            )
+            return result
+
+        logger.info(
+            "PROJECT_COMPARISON_SELECTED_PROJECTS | "
+            "projects=%s | project_ids=%s",
+            [
+                project.project_name
+                for project in selected_projects
+            ],
+            project_ids,
+        )
+
+        project_details = await asyncio.gather(
+            *[
+                self.project_details_connector.fetch_project_details(
+                    project_id=project_id,
+                )
+                for project_id in project_ids
+            ],
+            return_exceptions=True,
+        )
+
+        # Validate both responses before comparison.
+
+        for index, details in enumerate(project_details):
+
+            if isinstance(details, asyncio.CancelledError):
+                raise details
+
+            if isinstance(details, BaseException):
+
+                if not isinstance(details, Exception):
+                    raise details
+
+                logger.warning(
+                    "PROJECT_COMPARISON_DETAILS_FAILED | "
+                    "project=%s | error_type=%s",
+                    selected_projects[index].project_name,
+                    type(details).__name__,
+                )
+
+                result.messages.append(
+                    "Unable to retrieve the latest project details "
+                    f"for {selected_projects[index].project_name}. "
+                    "Please try again."
+                )
+
+                return result
+
+        comparisons = []
+
+        for project, details in zip(
+            selected_projects,
+            project_details,
+        ):
+
             project_data = self._project_data(project)
 
-            # Snapshot units are scoped to the authenticated user.
+            project_data.update(
+                self._map_project_comparison_details(
+                    details
+                )
+            )
+
+            # Existing user-specific visible inventory.
+
             visible_units = [
                 unit
                 for unit in self.snapshot.units
@@ -950,44 +1203,58 @@ class InventoryHandler:
                 if unit.bedrooms is not None
             })
 
-            # Amenities can be a list or a string.
             raw_amenities = project.amenities
 
             if isinstance(raw_amenities, list):
                 amenities = [
                     value.strip()
                     for value in raw_amenities
-                    if isinstance(value, str) and value.strip()
+                    if isinstance(value, str)
+                    and value.strip()
                 ]
+
             elif isinstance(raw_amenities, str):
                 amenities = (
                     [raw_amenities.strip()]
                     if raw_amenities.strip()
                     else []
                 )
+
             else:
                 amenities = []
 
             comparisons.append({
                 "project": project_data,
+
                 "inventory": {
                     "visible_unit_count": len(visible_units),
                     "unit_types": unit_types,
                     "bedroom_types": bedroom_types,
                 },
+
                 "amenities": amenities,
             })
 
-        # Only verified project/inventory data is sent to LLM 2.
+            logger.info(
+                "PROJECT_COMPARISON_DATA_READY | "
+                "project=%s | project_id=%s | "
+                "construction_completion_percentage=%s",
+                project_data.get("project_name"),
+                project.project_id,
+                project_data.get(
+                    "construction_completion_percentage"
+                ),
+            )
+
         result.generation_context = {
             "service": "inventory",
             "operation": "project_comparison",
             "comparisons": comparisons,
         }
 
-        # Reuse the same HTML template as Unit Comparison.
         result.html_blocks.append({
             "card_type": "inventory_comparison",
+
             "html": self.template_service.render(
                 "compare-projects.html.j2",
                 comparisons=comparisons,
@@ -996,6 +1263,14 @@ class InventoryHandler:
         })
 
         result.has_data = True
+
+        logger.info(
+            "PROJECT_COMPARISON_COMPLETED | projects=%s",
+            [
+                item["project"].get("project_name")
+                for item in comparisons
+            ],
+        )
 
         return result
 

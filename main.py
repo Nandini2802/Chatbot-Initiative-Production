@@ -24,6 +24,7 @@ from app.scripts.refresh_api_cache import (
     refresh_marketing_cache,
     refresh_currency_cache,
     refresh_how_to_videos_cache,
+    refresh_faq_cache,
 )
 from app.persistence.redis_store import RedisCacheKeys
 from app.templates.dev.chat_harness import router as dev_router
@@ -230,6 +231,37 @@ async def lifespan(app: FastAPI):
             await refresh_how_to_videos_cache(
                 clients=clients,
                 secrets=secrets,
+            )
+
+        # Initialize Project FAQs if Redis cache is empty.
+
+        faq_cache_exists = await clients.redis.exists(
+            RedisCacheKeys.PROJECT_FAQS
+        )
+
+        if not faq_cache_exists:
+
+            logger.info(
+                "FAQ_CACHE_MISSING | Starting initial refresh"
+            )
+
+            faq_success = await refresh_faq_cache(
+                clients=clients,
+                secrets=secrets,
+            )
+
+            if faq_success:
+                logger.info(
+                    "FAQ_CACHE_INITIALIZED_SUCCESSFULLY"
+                )
+            else:
+                logger.error(
+                    "FAQ_CACHE_INITIALIZATION_FAILED"
+                )
+
+        else:
+            logger.info(
+                "FAQ_CACHE_ALREADY_AVAILABLE"
             )
 
         scheduler = create_cache_scheduler(

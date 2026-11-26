@@ -66,6 +66,23 @@ def create_cache_scheduler(clients, secrets):
         "HOW_TO_VIDEOS_CACHE_SCHEDULED | every_24_hours"
     )
 
+    scheduler.add_job(
+        refresh_faq_cache,
+        trigger="cron",
+        hour=0,
+        minute=45,
+        args=[clients, secrets],
+        id="faq_cache_refresh",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    logger.info(
+        "FAQ_CACHE_SCHEDULED | every_24_hours"
+    )
+
 
     scheduler.add_job(
         check_all_services,

@@ -154,10 +154,10 @@
 		var units = [
 		{% for unit in units %}
 			{
-				property: {{ (unit.unit_name or "N/A") | string | e | tojson }},
-				area: {% if unit.area_sqft is not none and unit.area_sqft != "" %}{{ unit.area_sqft | string | e | tojson }}{% else %}"N/A"{% endif %},
-				type: {% if unit.bedrooms is not none and unit.bedrooms != "" %}{% if unit.bedrooms | string == "0" %}"Studio"{% else %}{{ (unit.bedrooms | string ~ " BR") | e | tojson }}{% endif %}{% elif unit.unit_type %}{{ unit.unit_type | string | e | tojson }}{% else %}"N/A"{% endif %},
-				price: {% if unit.price is not none and unit.price != "" %}{{ (((unit.currency ~ " ") if unit.currency and unit.currency != "AED" else "") ~ "{:,.0f}".format(unit.price | float)) | e | tojson }}{% else %}"N/A"{% endif %}
+				property: {{ (unit.unit_name or "N/A") | string | tojson }},
+				area: {% if unit.area_sqft is not none and unit.area_sqft != "" %}{{ unit.area_sqft | string | tojson }}{% else %}"N/A"{% endif %},
+				type: {% if unit.bedrooms is not none and unit.bedrooms != "" %}{% if unit.bedrooms | string == "0" %}"Studio"{% else %}{{ (unit.bedrooms | string ~ " BR") | tojson }}{% endif %}{% elif unit.unit_type %}{{ unit.unit_type | string | tojson | replace('\\u0027', "'") }}{% else %}"N/A"{% endif %},
+				price: {% if unit.price is not none and unit.price != "" %}{{ (((unit.currency ~ " ") if unit.currency and unit.currency != "AED" else "") ~ "{:,.0f}".format(unit.price | float)) | tojson }}{% else %}"N/A"{% endif %}
 			}{% if not loop.last %},{% endif %}
 		{% endfor %}
 		];
@@ -170,14 +170,27 @@
 		function renderRows() {
 			var start = (current - 1) * PAGE_SIZE;
 			var slice = units.slice(start, start + PAGE_SIZE);
-			rowsEl.innerHTML = slice.map(function (u) {
-				return '<div class="unit-row">' +
-					'<div class="col-property">' + u.property + '</div>' +
-					'<div class="col-area">' + u.area + '</div>' +
-					'<div class="col-type">' + u.type + '</div>' +
-					'<div class="col-price">' + u.price + '</div>' +
-					'</div>';
-			}).join('');
+
+			rowsEl.textContent = '';
+
+			slice.forEach(function (u) {
+				var row = document.createElement('div');
+				row.className = 'unit-row';
+
+				function addCell(className, value) {
+					var cell = document.createElement('div');
+					cell.className = className;
+					cell.textContent = value == null ? 'N/A' : String(value);
+					row.appendChild(cell);
+				}
+
+				addCell('col-property', u.property);
+				addCell('col-area', u.area);
+				addCell('col-type', u.type);
+				addCell('col-price', u.price);
+
+				rowsEl.appendChild(row);
+			});
 		}
 
 		// Windowed page numbers: first, last, current ±1, ellipsis for gaps.

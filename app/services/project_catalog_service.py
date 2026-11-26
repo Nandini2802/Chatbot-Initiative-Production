@@ -55,4 +55,9 @@ class ProjectCatalogService:
             len(result),
         )
 
+        logger.info(
+            "MARKETING_CATALOG_PROJECT_NAMES | projects=%s",
+            result,
+        )
+
         return result

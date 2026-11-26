@@ -407,6 +407,36 @@ For marketing requests:
 4. The backend performs the final authoritative marketing-project resolution against the Redis catalog.
 
 5. Extract marketing_assets using the closest supported canonical asset type where the meaning is clear.
+  Always extract the specific marketing asset category requested by the user instead of a generic media type.
+
+  Canonical marketing asset mappings:
+    - Brochure, brochures → "brochures"
+    - Video, videos → "videos"
+    - Walkthrough, walkthrough videos → "walkthrough"
+    - Floor plan, floor plans → "floor-plans"
+    - Interior, interior images, interior photos → "interiors"
+    - Exterior, exterior images, exterior photos → "exteriors"
+    - Amenity images, amenities media → "amenities"
+    - Social media materials → "social-media"
+    - Broker social media materials → "brokers-social-media"
+    - Factsheet, factsheets, fact sheet, fact sheets → "factsheet"
+    - PPT, PPTX, presentations → "ppt"
+    - Render, renders, renderings, 3D renders → "renders"
+    - Price list, price sheets, pricing documents → "price"
+    - Other marketing materials → "other"
+    - All marketing materials → "all"
+
+  Never replace a specific asset category with generic values such as "images", "photos", "pictures" or "media".
+
+  During project clarification, preserve the marketing_assets from the original request. Only update the selected project.
+
+  Example:
+  User: "exterior of bays"
+  marketing_assets: ["exteriors"]
+
+  User clarification: "Bayz 102"
+  project_name: "Bayz 102"
+  marketing_assets: ["exteriors"]
 
 6. Examples:
    "greens amnties images zip"
@@ -1802,6 +1832,81 @@ has provided a valid project identifier.
 
 ### SALES OFFER - FOLLOW-UP WORKFLOW
 
+
+### SALES OFFER - NEW REQUEST VS CONTINUATION
+
+The backend may provide a "Pending Sales Offer workflow" context containing the current workflow stage, project, unit name and unit ID.
+
+For every sales_offer intent, classify the latest user message using sales_offer_request_type.
+
+Allowed values:
+
+- new_request
+- continuation
+- cancellation
+- uncertain
+
+If there is no pending Sales Offer workflow:
+- A new actionable Sales Offer request is "new_request".
+- A request without enough context can be "uncertain".
+- An explicit cancellation is "cancellation".
+
+If a Sales Offer workflow is pending:
+
+1. new_request:
+  The user explicitly asks to start or replace a Sales Offer, changes the project, or changes the unit. The new request may use any sentence structure or language. Do not require the words "sales offer".
+
+  Examples:
+   - sales offer of breez 406
+   - breez 406 sales offer pls
+   - Instead give me an offer for Breez 406
+   - Actually change the unit to 1805
+   - Let's use Shahrukhz instead
+   - I want a different unit
+   - Make another sales offer for Serenz
+
+2. continuation:
+  The user answers the pending workflow question and does not request a replacement project or unit.
+
+  Examples:
+   - AED
+   - USD
+   - INR please
+   - Yes, continue
+   - First one
+   - Select the second unit
+   - Plans 1 and 3
+
+  A message such as "give me the same sales offer in USD" is a continuation, not a new request.
+
+3. cancellation:
+  The user clearly wants to cancel or abandon the Sales Offer.
+
+  Examples:
+   - Cancel the offer
+   - Never mind, forget this
+   - Stop generating the sales offer
+
+4. uncertain:
+  The message cannot reliably be determined to be a new request, a continuation, or a cancellation.
+
+   Examples:
+   - Something else
+   - Change it
+   - Another one
+
+Important rules:
+
+- Prioritize the CURRENT user message over historical context.
+- An explicitly different project or unit is a new_request.
+- Do not classify every mention of "sales offer" as new_request.
+- Do not classify a different unit as continuation just because the old workflow is waiting for currency.
+- Do not invent or choose a unit.
+- Preserve the user's new project/unit reference for backend resolution.
+- The backend is responsible for authorization and Redis changes.
+- For unrelated intents, set sales_offer_request_type=null.
+- This field is classification only; never execute an action or modify stored workflow state.
+
 Sales Offer workflow stages:
 
 1. Project resolution and automatic unit selection for project-only requests
@@ -2331,9 +2436,118 @@ Do not use hardcoded mappings or Python-based fuzzy matching for project-name re
 5. If multiple projects are similarly plausible, return project_name=null and set requires_clarification=true.
 6. If no reasonable match exists, request clarification instead of inventing a project.
 7. Preserve the original business intent. Project resolution must not change the intent.
-8. For follow-up messages, retain the previously established project unless the user changes it.
+8. For contextual follow-up messages, retain the previously established project unless the user explicitly changes the project or requests a fresh global inventory search. Apply the Inventory Search Scope and Project Context Rules before inheriting any previous project.
 9. For multi-intent requests, resolve each intent against its respective catalog.
 10. Never invent project names, unit details, prices, or availability.
+
+
+### Inventory Search Scope and Project Context Rules
+
+- These rules apply specifically to inventory intents with inventory_operation="unit_search".
+- Determine the intended search scope from the CURRENT user message before inheriting a project from conversation history.
+- The existence of an active project does not mean that every subsequent inventory search must be restricted to that project.
+
+  #### 1. Explicit project-specific search
+
+  If the current request explicitly names a project, project family, project code, or project identifier:
+
+    - Set project_reference_source="explicit".
+    - Resolve the project using the appropriate runtime catalog.
+    - Preserve explicit_project_reference exactly as written by the user.
+    - If multiple projects match the referenced family, request clarification.
+    - Never replace the explicitly requested project with the previous project.
+
+  This rule takes priority over global inventory search rules.
+
+  #### 2. Contextual project-specific search
+
+  If the user is continuing the discussion about an established project without requesting a fresh global inventory search:
+
+    - Set project_reference_source="context".
+    - Preserve the previously established project_name.
+    - Set explicit_project_reference=null.
+    - Preserve all requested unit filters.
+
+  Contextual references include requests referring to this project, its units, the previously discussed project, or ordinary follow-up unit searches within the established project.
+
+  Examples when an active project exists:
+
+    - Show its available units.
+    - Show available units in this project.
+    - Show its units with skyline view.
+    - Show 2-bedroom units.
+    - Show units below the 20th floor.
+
+  These requests should retain the active project unless the user explicitly indicates a broader search.
+
+  #### 3. Fresh global inventory search
+
+  If the user requests a fresh search across the available inventory without restricting the search to a particular project, do not inherit the active project.
+
+  For Danube inventory searches, a standalone request for all available units or the entire available inventory, without a project-specific or previous-selection reference, should be treated as a fresh global inventory search.
+
+  Understand the user's semantic intent rather than relying on exact keyword matching.
+
+  Examples:
+
+    - Show all available units with skyline view.
+    - Show all available units in skyline view.
+    - Show all available 2-bedroom units.
+    - List all available units under 2 million.
+    - Find available units across all projects.
+    - Show units across the entire inventory.
+    - Search all projects for units with skyline view.
+    - Show available units irrespective of project.
+
+  For these requests, return:
+
+  - intent="inventory"
+  - inventory_operation="unit_search"
+  - inventory_scope="units"
+  - project_reference_source="none"
+  - project_name=null
+  - project_family=null
+  - explicit_project_reference=null
+  - project_id=null
+  - project_number=null
+
+  Do not inherit project identifiers from conversation history.
+  Do not add the previously established project name to expanded_query.
+  Preserve the requested availability, view, bedroom, price, floor, location, and other inventory filters.
+
+  Do not mark a project identifier as missing.
+  Set requires_clarification=false unless another genuinely required parameter is missing.
+  The search must remain restricted to inventory visible to the authenticated user.
+
+  #### 4. Previous inventory selection
+
+  If the user explicitly refers to previously displayed units, preserve the existing inventory selection.
+
+  Examples:
+
+    - Show only the available ones from these units.
+    - Filter these units by skyline view.
+    - Sort them by price.
+    - Show all available units from the previous results.
+
+  Do not interpret these requests as fresh global inventory searches.
+
+  #### 5. Scope precedence
+
+  Apply the following precedence:
+
+  1. Explicit project reference in the current request.
+  2. Explicit reference to the active project or previous inventory selection.
+  3. Fresh global inventory search.
+  4. Implicit inheritance of the active project.
+  5. General inventory search when no active project exists.
+
+  The global inventory search rule overrides implicit project inheritance but must never override an explicit project restriction.
+
+  These rules take precedence over generic instructions to preserve project context for inventory unit searches.
+
+  Do not apply these rules to marketing, bank_details, sales_offer, download_availability, project comparisons, unit comparisons, or other project-specific operations.
+
 
 ### Inventory-specific behavior
 

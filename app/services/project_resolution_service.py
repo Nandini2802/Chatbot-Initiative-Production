@@ -500,8 +500,8 @@ def resolve_comparison_project(
 
     Selection rules:
     1. Respect an explicitly requested number.
-    2. Prefer the unnumbered project.
-    3. Otherwise choose the lowest numbered variant.
+    2. If multiple project variants exist and no number is specified, ask for clarification.
+    3. Automatically select a project only when exactly one matching project exists.
     4. Allow guarded spelling correction.
     """
     names = _names(active_projects)
@@ -595,30 +595,11 @@ def resolve_comparison_project(
         ]
 
     else:
-        # Prefer the unnumbered base project.
         matching = [
             name
             for name, number in family
-            if number is None
         ]
-
-        # If unavailable, use the lowest numbered variant.
-        if not matching:
-            numbers = [
-                number
-                for _, number in family
-                if number is not None
-            ]
-
-            if numbers:
-                lowest = min(numbers)
-
-                matching = [
-                    name
-                    for name, number in family
-                    if number == lowest
-                ]
-
+        
     if len(matching) == 1:
         return ProjectResolution(
             "matched",

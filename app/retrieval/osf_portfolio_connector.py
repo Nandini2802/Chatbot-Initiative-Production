@@ -17,7 +17,11 @@ class OSFPortfolioConnector:
     def __init__(self):
         self.settings = get_settings()
 
-    async def fetch_portfolio(self) -> list[dict]:
+    async def fetch_portfolio(
+        self,
+        *,
+        require_user_context: bool = True,
+    ) -> list[dict]:
         url = self.settings.osf_portfolio_api_url
 
         if not url.startswith("https://"):
@@ -31,10 +35,13 @@ class OSFPortfolioConnector:
         if not api_key:
             raise ValueError("OSF Portfolio API key missing")
 
-        headers = build_middleware_headers({
-            "x_api_key": api_key,
-            "Accept": "application/json",
-        })
+        headers = build_middleware_headers(
+            {
+                "x_api_key": api_key,
+                "Accept": "application/json",
+            },
+            require_user_context=require_user_context,
+        )
 
         async with AsyncSession(
             impersonate="chrome"

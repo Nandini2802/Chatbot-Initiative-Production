@@ -50,6 +50,13 @@ from app.retrieval.construction_update_connector import (
 
 from app.services.inventory_attribute_resolver import match_location
 
+from app.persistence.redis_store import RedisCacheKeys
+from app.services.api_cache_service import APICacheService
+
+from app.scripts.refresh_api_cache import (
+    fetch_and_cache_project_faqs,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -198,11 +205,14 @@ class ProjectInformationHandler:
         inventory_snapshot,
         inventory_token: str,
         access_token: str,
+        redis_client=None,
     ):
 
         self.snapshot = inventory_snapshot
         self.inventory_token = inventory_token
         self.access_token = access_token
+
+        self.redis_client = redis_client
 
         # Existing project information API.
         self.connector = ProjectInformationConnector()
@@ -1089,6 +1099,50 @@ class ProjectInformationHandler:
             has_data=True,
         )
 
+    async def get_project_faq_portfolio(self) -> list[dict]:
+
+        # Preserve direct API access if Redis is not supplied.
+        if self.redis_client is None:
+            return await self.tour_connector.fetch_portfolio()
+
+        cache = APICacheService(
+            redis_client=self.redis_client
+        )
+
+        # Step 1: Try Redis.
+        try:
+            cached = await cache.get(
+                RedisCacheKeys.PROJECT_FAQS
+            )
+
+            if isinstance(cached, dict):
+
+                records = cached.get("data")
+
+                if isinstance(records, list) and records:
+
+                    logger.info(
+                        "FAQ_DATA_SOURCE | source=redis"
+                    )
+
+                    return records
+
+        except Exception:
+            logger.exception(
+                "FAQ_CACHE_READ_FAILED"
+            )
+
+        # Step 2: Cache miss.
+        logger.info(
+            "FAQ_DATA_SOURCE | source=live_api"
+        )
+
+        # Step 3: Fetch fresh data and populate Redis.
+        return await fetch_and_cache_project_faqs(
+            redis_client=self.redis_client,
+            connector=self.tour_connector,
+        )
+
     async def handle_project_faqs(
         self,
         intent,
@@ -1115,7 +1169,7 @@ class ProjectInformationHandler:
         # 2. Fetch OSF Portfolio API using existing connector.
         try:
             portfolio = (
-                await self.tour_connector.fetch_portfolio()
+                await self.get_project_faq_portfolio()
             )
 
         except Exception:

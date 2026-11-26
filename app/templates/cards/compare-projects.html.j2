@@ -99,7 +99,10 @@ body{margin:0;background:transparent;color:#fff;font-family:'Poppins',Arial,sans
             {% set p = item.project %}
             <div class="pc-col">
                 {{ field('Construction Status', p.construction_status) }}
-                {{ field('Construction Completion %', none) }}
+                {{ field(
+                    'Construction Completion %',
+                    p.construction_completion_percentage
+                ) }}
                 {{ field('Handover Date', p.handover_date) }}
                 {{ field('Completion Date', p.completion_date) }}
             </div>

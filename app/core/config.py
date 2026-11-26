@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     # Portfolio API
     osf_portfolio_api_url: str = ""
     osf_portfolio_timeout_seconds: float = 30.0
+    faq_cache_ttl_seconds: int = 259200
 
     # Construction Update 
     construction_update_api_url: str = ""

@@ -117,6 +117,7 @@ class IntentDispatcher:
                         inventory_snapshot=inventory_snapshot,
                         inventory_token=inventory_token,
                         access_token=access_token,
+                        redis_client=redis_client,
                     )
                 )
 

@@ -159,6 +159,23 @@ def is_general_inventory_unit_search(
         ))
     )
 
+def is_contextual_inventory_unit_search(
+    intent: RoutingIntent,
+) -> bool:
+    """
+    Identify inventory searches that inherit a project
+    from the existing conversation.
+    """
+
+    return (
+        intent.intent == "inventory"
+        and intent.inventory_operation == "unit_search"
+        and intent.inventory_scope in (None, "units")
+        and intent.project_reference_source == "context"
+        and not intent.explicit_project_reference
+    )
+
+
 def is_real_streaming_enabled() -> bool:
     return (
         os.getenv(
@@ -438,6 +455,29 @@ async def _stream_chat_response_impl(
             session_id=session_id,
             user_id=user_id,
             limit=10,
+        )
+
+        sales_offer_state = SalesOfferState(
+            clients.redis
+        )
+
+        pending_so = await sales_offer_state.load(
+            user_id=user_id,
+            session_id=str(session_id),
+        )
+
+        logger.info(
+            "SALES_OFFER_PENDING_CONTEXT | "
+            "session_id=%s | stage=%s | unit=%s",
+            session_id,
+            (
+                pending_so.get("stage")
+                if pending_so else None
+            ),
+            (
+                pending_so.get("unit_name")
+                if pending_so else None
+            ),
         )
 
         session_project_context = (
@@ -1755,6 +1795,11 @@ async def _stream_chat_response_impl(
                 walkthrough_features=walkthrough_features,
                 active_project_context=session_project_context,
                 project_codes=project_codes,
+                pending_sales_offer=(
+                    pending_so
+                    if selected_payment_plan_names is None
+                    else None
+                ),
             )
         
         print("\n========== ROUTER LLM OUTPUT ==========")
@@ -2149,16 +2194,6 @@ async def _stream_chat_response_impl(
             )
 
 
-        
-        sales_offer_state = SalesOfferState(
-            clients.redis
-        )
-
-        pending_so = await sales_offer_state.load(
-            user_id=user_id,
-            session_id=str(session_id),
-        )
-
         if comparison_override and pending_so:
             await sales_offer_state.clear(
                 user_id=user_id,
@@ -2166,38 +2201,83 @@ async def _stream_chat_response_impl(
             )
             pending_so = None
 
-
         normalized_message = message.strip().casefold()
 
-        new_sales_offer_request = bool(
-            re.search(
-                r"\b(?:generate|create|make|get)\s+"
-                r"(?:a\s+|the\s+)?sales\s+offer\b"
-                r"|\bsales\s+offer\s+for\b",
-                normalized_message,
+        sales_offer_decision = None
+
+        sales_offer_intents = [
+            intent
+            for intent in routing_result.intents
+            if intent.intent == "sales_offer"
+        ]
+
+        if sales_offer_intents:
+            sales_offer_decision = (
+                sales_offer_intents[0].sales_offer_request_type
             )
+
+        logger.info(
+            "SALES_OFFER_REQUEST_CLASSIFICATION | "
+            "session_id=%s | decision=%s | "
+            "pending_stage=%s",
+            session_id,
+            sales_offer_decision,
+            pending_so.get("stage") if pending_so else None,
         )
 
-        if pending_so and new_sales_offer_request:
+        if selected_payment_plan_names is not None:
+            sales_offer_decision = "continuation"
+
+        if (
+            pending_so
+            and sales_offer_decision == "new_request"
+        ):
+            logger.info(
+                "SALES_OFFER_NEW_REQUEST | "
+                "session_id=%s | old_stage=%s | "
+                "old_unit=%s",
+                session_id,
+                pending_so.get("stage"),
+                pending_so.get("unit_name"),
+            )
+
             await sales_offer_state.clear(
                 user_id=user_id,
                 session_id=str(session_id),
             )
+
             pending_so = None
 
-        # Explicit cancellation.
-        if pending_so and normalized_message in {
-            "cancel",
-            "cancel sales offer",
-            "stop sales offer",
-            "never mind",
-            "nevermind",
-        }:
+        elif (
+            pending_so
+            and sales_offer_decision == "cancellation"
+        ):
+            logger.info(
+                "SALES_OFFER_CANCELLED | session_id=%s",
+                session_id,
+            )
+
             await sales_offer_state.clear(
                 user_id=user_id,
                 session_id=str(session_id),
             )
+
             pending_so = None
+
+            # Preserve the existing routing path.
+            # The response is handled by the cancellation
+            # block added in Step 4.5.
+
+        elif (
+            pending_so
+            and sales_offer_decision == "continuation"
+        ):
+            logger.info(
+                "SALES_OFFER_CONTINUATION | "
+                "session_id=%s | stage=%s",
+                session_id,
+                pending_so.get("stage"),
+            )
 
         if selected_payment_plan_names is not None:
             if (
@@ -2209,6 +2289,46 @@ async def _stream_chat_response_impl(
                     "Payment-plan selection is not active "
                     "for this conversation."
                 )
+
+        if (
+            sales_offer_decision == "cancellation"
+            and selected_payment_plan_names is None
+        ):
+            async for event in emit_global_project_reply(
+                clients=clients,
+                session_id=session_id,
+                user_id=user_id,
+                correlation_id=correlation_id,
+                message=message,
+                reply="Your pending Sales Offer has been cancelled.",
+                started_at=started_at,
+                intent_name="sales_offer",
+            ):
+                yield event
+
+            return
+
+        if (
+            pending_so
+            and sales_offer_decision == "uncertain"
+            and selected_payment_plan_names is None
+        ):
+            async for event in emit_global_project_reply(
+                clients=clients,
+                session_id=session_id,
+                user_id=user_id,
+                correlation_id=correlation_id,
+                message=message,
+                reply=(
+                    "Would you like to continue the current "
+                    "Sales Offer or start a new one?"
+                ),
+                started_at=started_at,
+                intent_name="sales_offer",
+            ):
+                yield event
+
+            return
 
 
         if pending_so:
@@ -2873,15 +2993,19 @@ async def _stream_chat_response_impl(
             # break existing unit comparison, sales offer, or unit card flows.
             if any((intent.unit_id, intent.unit_name, intent.unit_number)):
                 continue
-            if is_general_inventory_unit_search(intent):
+            if (
+                is_general_inventory_unit_search(intent)
+                or is_contextual_inventory_unit_search(intent)
+            ):
+
                 logger.info(
                     "PROJECT_AMBIGUITY_SKIPPED | "
                     "intent=%s | operation=%s | "
-                    "reference_source=%s | "
-                    "reason=no_project_reference",
+                    "reference_source=%s | project=%s",
                     intent.intent,
                     intent.inventory_operation,
                     intent.project_reference_source,
+                    intent.project_name,
                 )
 
                 continue
@@ -3708,7 +3832,11 @@ async def _stream_chat_response_impl(
                     )
 
                 decision = resolve_session_project(
-                    message=check_message,
+                    message=(
+                        ""
+                        if is_contextual_inventory_unit_search(intent)
+                        else check_message
+                    ),
                     router_project=intent.project_name,
                     active_project=check_active_project,
                     allowed_projects=allowed_projects,
@@ -3853,7 +3981,6 @@ async def _stream_chat_response_impl(
                     resolutions = []
 
                     # Backend verifies the names using the
-                    # Active Projects API catalog.
                     for requested_name in requested_names:
 
                         comparison_match = resolve_comparison_project(

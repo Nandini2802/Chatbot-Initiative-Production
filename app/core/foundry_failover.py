@@ -19,10 +19,23 @@ import logging
 
 from contextlib import AsyncExitStack, asynccontextmanager
 
-from openai import AsyncOpenAI, RateLimitError
+from openai import (
+    AsyncOpenAI,
+    RateLimitError,
+    InternalServerError,
+    APIConnectionError,
+    APITimeoutError,
+)
 
 
 logger = logging.getLogger(__name__)
+
+FAILOVER_EXCEPTIONS = (
+    RateLimitError,
+    InternalServerError,
+    APIConnectionError,
+    APITimeoutError,
+)
 
 
 class FailoverResponses:
@@ -49,12 +62,15 @@ class FailoverResponses:
                 **kwargs
             )
 
-        except RateLimitError:
+        except FAILOVER_EXCEPTIONS as exc:
             logger.warning(
-                "FOUNDRY_RATE_LIMIT | "
+                "FOUNDRY_FAILOVER | "
                 "operation=parse | "
-                "primary=429 | "
-                "switching_to=secondary"
+                "error_type=%s | "
+                "status_code=%s | "
+                "switching_to=secondary",
+                type(exc).__name__,
+                getattr(exc, "status_code", None),
             )
 
             return await self.secondary.responses.parse(
@@ -63,8 +79,7 @@ class FailoverResponses:
 
     async def create(self, **kwargs):
         """
-        Used for normal Responses API requests,
-        including the startup Foundry check.
+        Used for normal Responses API requests.
         """
 
         try:
@@ -72,12 +87,15 @@ class FailoverResponses:
                 **kwargs
             )
 
-        except RateLimitError:
+        except FAILOVER_EXCEPTIONS as exc:
             logger.warning(
-                "FOUNDRY_RATE_LIMIT | "
+                "FOUNDRY_FAILOVER | "
                 "operation=create | "
-                "primary=429 | "
-                "switching_to=secondary"
+                "error_type=%s | "
+                "status_code=%s | "
+                "switching_to=secondary",
+                type(exc).__name__,
+                getattr(exc, "status_code", None),
             )
 
             return await self.secondary.responses.create(
@@ -89,12 +107,9 @@ class FailoverResponses:
         """
         Used for SSE / real-time LLM streaming.
 
-        Failover happens if the primary returns 429
-        while opening the stream.
-
-        Once a stream has started, we do not replay
-        it on another deployment. That prevents
-        duplicate or conflicting streamed tokens.
+        Failover is allowed only while opening the stream.
+        Once streaming begins, the request is not replayed
+        on another deployment.
         """
 
         async with AsyncExitStack() as stack:
@@ -106,12 +121,15 @@ class FailoverResponses:
                     )
                 )
 
-            except RateLimitError:
+            except FAILOVER_EXCEPTIONS as exc:
                 logger.warning(
-                    "FOUNDRY_RATE_LIMIT | "
+                    "FOUNDRY_FAILOVER | "
                     "operation=stream | "
-                    "primary=429 | "
-                    "switching_to=secondary"
+                    "error_type=%s | "
+                    "status_code=%s | "
+                    "switching_to=secondary",
+                    type(exc).__name__,
+                    getattr(exc, "status_code", None),
                 )
 
                 stream = await stack.enter_async_context(
@@ -138,17 +156,21 @@ class FailoverChatCompletions:
         self.secondary = secondary
 
     async def create(self, **kwargs):
+
         try:
             return await self.primary.chat.completions.create(
                 **kwargs
             )
 
-        except RateLimitError:
+        except FAILOVER_EXCEPTIONS as exc:
             logger.warning(
-                "FOUNDRY_RATE_LIMIT | "
+                "FOUNDRY_FAILOVER | "
                 "operation=chat.completions.create | "
-                "primary=429 | "
-                "switching_to=secondary"
+                "error_type=%s | "
+                "status_code=%s | "
+                "switching_to=secondary",
+                type(exc).__name__,
+                getattr(exc, "status_code", None),
             )
 
             return await self.secondary.chat.completions.create(

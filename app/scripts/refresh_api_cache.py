@@ -18,6 +18,16 @@ from app.retrieval.how_to_videos_client import (
     HowToVideosAPIClient,
 )
 
+from app.retrieval.osf_portfolio_connector import (
+    OSFPortfolioConnector,
+)
+
+from app.utils.project_faqs import (
+    FAQ_FIELD,
+    find_faq_entries,
+    extract_project_faqs,
+)
+
 
 
 logging.getLogger("app").setLevel(logging.INFO)
@@ -236,6 +246,109 @@ async def refresh_how_to_videos_cache(
         )
         return False
 
+async def fetch_and_cache_project_faqs(
+    redis_client,
+    connector=None,
+) -> list[dict]:
+
+    settings = get_settings()
+
+    cache = APICacheService(
+        redis_client=redis_client
+    )
+
+    connector = connector or OSFPortfolioConnector()
+
+    # Step 1: Fetch fresh OSF Portfolio data.
+    portfolio = await connector.fetch_portfolio(
+        require_user_context=False,
+    )
+
+    if not isinstance(portfolio, list) or not portfolio:
+        raise ValueError(
+            "OSF Portfolio returned no valid projects"
+        )
+
+    # Step 2: Keep only project names and FAQ data.
+    faq_records = []
+
+    for project in portfolio:
+
+        if not isinstance(project, dict):
+            continue
+
+        title = project.get("title")
+        name = project.get("name")
+
+        if not str(title or name or "").strip():
+            continue
+
+        faq_records.append({
+            "title": title,
+            "name": name,
+            FAQ_FIELD: find_faq_entries(project),
+        })
+
+    # Validate before replacing the existing cache.
+    if not faq_records or not any(
+        extract_project_faqs([record])
+        for record in faq_records
+    ):
+        raise ValueError(
+            "OSF Portfolio returned no valid FAQs"
+        )
+
+    # Step 3: Save FAQ data into Redis.
+    try:
+        await cache.set(
+            key=RedisCacheKeys.PROJECT_FAQS,
+            data={
+                "refreshed_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
+                "data": faq_records,
+            },
+            ttl_seconds=settings.faq_cache_ttl_seconds,
+        )
+
+    except Exception:
+        logger.exception(
+            "FAQ_CACHE_WRITE_FAILED"
+        )
+        # Fresh API data can still serve the request,
+        # but the scheduled refresh must detect failure.
+        raise
+
+    return faq_records
+
+
+async def refresh_faq_cache(
+    clients,
+    secrets=None,
+) -> bool:
+
+    try:
+        logger.info(
+            "FAQ_CACHE_REFRESH_STARTED"
+        )
+
+        records = await fetch_and_cache_project_faqs(
+            redis_client=clients.redis,
+        )
+
+        logger.info(
+            "FAQ_CACHE_REFRESH_SUCCESS | projects=%s",
+            len(records),
+        )
+
+        return True
+
+    except Exception:
+        logger.exception(
+            "FAQ_CACHE_REFRESH_FAILED"
+        )
+
+        return False
 
 async def main():
 

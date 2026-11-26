@@ -60,6 +60,14 @@ ProjectFieldName = Literal[
 class RoutingIntent(BaseModel):
     intent: IntentType
 
+    sales_offer_request_type: Literal[
+        "new_request",
+        "continuation",
+        "cancellation",
+        "uncertain",
+    ] | None = None
+
+
     project_reference_source: Literal[
         "explicit",
         "context",
