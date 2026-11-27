@@ -442,8 +442,8 @@ def find_unit(
         return partial
 
     raise SalesOfferResolutionError(
-        "I couldn't find that unit in your "
-        "authorized inventory."
+        "Sorry, I couldn't find that unit in your available inventory. "
+        "Please check the unit number and try again."
     )
 
 

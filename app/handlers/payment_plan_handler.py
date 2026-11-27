@@ -411,7 +411,9 @@ class PaymentPlanHandler:
 
         if not matches:
             result.messages.append(
-                "I couldn't find any payment plans for this project."
+                "Sorry, there are no payment plans available "
+                "for this project at the moment. "
+                "Can I help you with anything else?"
             )
             return result
 
@@ -434,9 +436,9 @@ class PaymentPlanHandler:
             preview = ", ".join(unit_names[:5])
 
             result.messages.append(
-                "Multiple units match your request. "
-                "Please specify the exact unit. "
-                f"Matching units include: {preview}."
+                "I found more than one unit matching your request. "
+                "Which one did you mean? "
+                f"Matching units: {preview}."
             )
             return result
 
@@ -455,7 +457,8 @@ class PaymentPlanHandler:
 
             if not matches:
                 result.messages.append(
-                    "I couldn't find any payment plans for this project."
+                    "Sorry, there are no payment plans available for "
+                    "this project at the moment. Can I help you with anything else?"
                 )
                 return result
 
@@ -473,7 +476,8 @@ class PaymentPlanHandler:
 
         if not unit.unit_id:
             result.messages.append(
-                "I couldn't find any payment plans for this project."
+                "Sorry, there are no payment plans available for "
+                "this project at the moment. Can I help you with anything else?"
             )
             return result
 
@@ -491,7 +495,8 @@ class PaymentPlanHandler:
 
         if not plans:
             result.messages.append(
-                "I couldn't find any payment plans for this project."
+                "Sorry, there are no payment plans available for "
+                "this project at the moment. Can I help you with anything else?"
             )
             return result
 
@@ -530,9 +535,9 @@ class PaymentPlanHandler:
             )
 
             result.messages.append(
-                f"I found {len(plan_options)} payment plans. "
-                "Please select one plan below, or reply "
-                "with its name or option number."
+                f"I found {len(plan_options)} payment plans for you. "
+                "Please select one below, or reply "
+                "with the plan name or option number."
             )
 
             result.html_blocks.append({
@@ -551,8 +556,8 @@ class PaymentPlanHandler:
             ]
             if len(selected_matches) != 1:
                 result.messages.append(
-                    "That payment plan is no longer available for this unit. "
-                    "Please request the payment plans again."
+                    "Sorry, that payment plan is no longer available for this unit. "
+                    "Would you like me to show the latest payment plans?"
                 )
                 return result
             plan = selected_matches[0]
@@ -569,8 +574,8 @@ class PaymentPlanHandler:
                 "PAYMENT_PLAN_INSTALLMENT_INVALID"
             )
             result.messages.append(
-                "The payment schedule could not be displayed "
-                "because the returned installment data is invalid."
+                "Sorry, I couldn't display the payment schedule right now. "
+                "Please try again shortly or contact support if the issue continues."
             )
             return result
 

@@ -315,8 +315,8 @@ class ProjectInformationHandler:
 
             if not matched_units:
                 return None, (
-                    "I couldn't find that unit in your "
-                    "authorized inventory."
+                    "Sorry, I couldn't find that unit in your available inventory. "
+                    "Please check the unit number and try again."
                 )
 
             candidate_sets.append({
@@ -327,8 +327,8 @@ class ProjectInformationHandler:
 
         if not candidate_sets:
             return None, (
-                "Please specify a project name, "
-                "number, ID, or unit."
+                "Which project would you like to know about? "
+                "You can share the project name, number, ID or a unit number."
             )
 
         matching_ids = set.intersection(
@@ -346,12 +346,13 @@ class ProjectInformationHandler:
 
         if len(matches) > 1:
             return None, (
-                "Multiple projects match your request. "
-                "Please specify the exact project."
+                "I found more than one project matching your request. "
+                "Which one did you mean?"
             )
 
         return None, (
-            "No project matches the supplied identifiers."
+            "Sorry, I couldn't find a project matching those details. "
+            "Could you check the name or ID and try again?"
         )
 
     @staticmethod
@@ -597,8 +598,8 @@ class ProjectInformationHandler:
             )
 
             return self.failure(
-                "Project amenities are temporarily "
-                "unavailable. Please try again."
+                "Sorry, project amenities aren't available right now. "
+                "Please try again in a few moments."
             )
 
         # 3. Normalize official project name.
@@ -704,8 +705,8 @@ class ProjectInformationHandler:
             )
 
             return self.failure(
-                f"No amenities are currently available "
-                f"for {project.project_name}."
+                f"There are no amenities listed for {project.project_name}. "
+                f"at the moment. Is there anything else you'd like to know about this project?"
             )
 
         # 7. Render original amenities HTML.
@@ -1182,8 +1183,8 @@ class ProjectInformationHandler:
             )
 
             return self.failure(
-                "Project FAQs are temporarily "
-                "unavailable. Please try again."
+                "Sorry, project FAQs aren't available right now "
+                "Please try again in a few moments."
             )
 
         # 3. Find matching OSF Portfolio project
@@ -1342,9 +1343,8 @@ class ProjectInformationHandler:
             )
 
             return self.failure(
-                f"A 3D tour is not currently "
-                f"available for "
-                f"{project.project_name}."
+                "Sorry, a 3D tour isn't available for this project yet. "
+                "Would you like to see brochures, images or videos instead?"
             )
 
         html = self.templates.render(
@@ -1776,6 +1776,6 @@ class ProjectInformationHandler:
             )
 
             return self.failure(
-                "Project information is temporarily "
-                "unavailable. Please try again."
+                "Sorry, project information isn't available right now. "
+                "Please try again in a few moments."
             )

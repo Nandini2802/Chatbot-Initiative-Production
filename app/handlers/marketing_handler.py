@@ -35,8 +35,8 @@ class MarketingHandler:
 
         if not project_name:
             result.messages.append(
-                "Which Danube project would you like "
-                "the marketing materials for?"
+                "Sure! Which Danube project would you "
+                "like the marketing materials for?"
             )
             return result
 
@@ -46,10 +46,9 @@ class MarketingHandler:
 
         if not asset_types:
             result.messages.append(
-                f"Which marketing materials would you "
+                f"Happy to help! Which materials would you "
                 f"like for {project_name} — brochures, "
-                "videos, floor plans, images, or all "
-                "marketing materials?"
+                "videos, floor plans, images, or everything?"
             )
             return result
 
@@ -62,8 +61,9 @@ class MarketingHandler:
 
         if not assets:
             result.messages.append(
-                "No requested marketing materials "
-                f"were found for {project_name}."
+                "Sorry, I couldn't find the requested marketing materials for "
+                f"{project_name} right now. "
+                "Would you like to see other materials available for this project?"
             )
             return result
 

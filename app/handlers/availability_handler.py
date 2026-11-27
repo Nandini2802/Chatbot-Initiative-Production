@@ -63,7 +63,8 @@ class AvailabilityHandler:
 
         if not allowed:
             result.messages.append(
-                "Download Availability is not available for your account."
+                "Sorry, Download Availability isn't enabled for your account. "
+                "Please contact your account manager if you need access."
             )
             return result
 
@@ -104,9 +105,9 @@ class AvailabilityHandler:
                 file_format = "EXCEL"
 
             result.messages.append(
-                f"No Download Availability report is currently "
-                f"available in {currency} and {file_format} format "
-                f"for {project_name}."
+                f"Sorry, there's no availability report available in "
+                f"{currency} and {file_format} format "
+                f"right now. Would you like to try a different currency or format? "
             )
 
             return result
@@ -114,8 +115,8 @@ class AvailabilityHandler:
         except AvailabilityAPIError:
 
             result.messages.append(
-                "The availability report could not "
-                "be generated right now. Please try again."
+                "Sorry, I couldn't generate the availability report right now. "
+                "Please try again in a few moments."
             )
             return result
 

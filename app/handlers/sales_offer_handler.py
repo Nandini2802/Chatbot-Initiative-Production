@@ -210,8 +210,8 @@ class SalesOfferHandler:
 
         if not units:
             return self.reply(
-                "No units were found for that project "
-                "in your authorized inventory."
+                "Sorry, I couldn't find any available units for that "
+                "project in your inventory. Would you like to try another project?"
             )
 
         mapper = InventoryHandler(self.snapshot)
@@ -260,8 +260,8 @@ class SalesOfferHandler:
         )
 
         return self.reply(
-            "Please specify the unit for which "
-            "you want to generate the sales offer. "
+            "Sure! Which unit would you like the sales offer for? "
+            "Please share the unit number, for example Unit 1203 "
             "You can type the unit name or ID "
             "from the listing.",
             html_blocks=[
@@ -288,8 +288,8 @@ class SalesOfferHandler:
             await self.clear()
 
             return self.reply(
-                "This unit is no longer available "
-                "in your authorized inventory."
+                "Sorry, this unit is no longer available. "
+                "Would you like to explore other available units?"
             )
 
         details = await self.connector.get_unit_details(
@@ -303,8 +303,9 @@ class SalesOfferHandler:
             await self.clear()
 
             return self.reply(
-                f"No payment plans are available "
-                f"for unit {details.unitName}."
+                f"Sorry, there are no payment plans available "
+                f"for unit {details.unitName} right now. "
+                f"Would you like to try another unit?"
             )
 
         mapping = [
@@ -328,9 +329,9 @@ class SalesOfferHandler:
             or len(set(normalized_names)) != len(mapping)
         ):
             return self.reply(
-                "The payment-plan list contains "
-                "missing or duplicate names. "
-                "Please contact support."
+                "Sorry, we ran into an issue with "
+                "the payment plan details for this unit. "
+                "Please contact support for help."
             )
 
         pending.update({
@@ -361,9 +362,9 @@ class SalesOfferHandler:
         )
 
         return self.reply(
-            f"Your sales offer is almost ready. Please select your "
+            f"Your sales offer is almost ready! Please select your"
             f"preferred payment plan for unit {details.unitName}, "
-            "or simply type your preferred payment plan(s) and send.",
+            "or simply type the plan name(s) and send.",
             html_blocks=[
                 {
                     "card_type": "sales_offer_plans",
@@ -416,8 +417,8 @@ class SalesOfferHandler:
             await self.clear()
 
             return self.reply(
-                "The selected payment plans are no longer "
-                "valid. Please start a new sales offer request."
+                "Sorry, the selected payment plans are no longer valid. "
+                "Let's start over: just ask for a new sales offer."
             )
 
         # Existing behavior: additional offer selection
@@ -448,8 +449,8 @@ class SalesOfferHandler:
 
         if not generated:
             return self.reply(
-                "The Sales Offer API did not "
-                "return any generated documents."
+                "Sorry, I couldn't generate your sales offer this time. "
+                " Please try again in a few moments."
             )
 
         document_ids = [
@@ -690,8 +691,8 @@ class SalesOfferHandler:
                     await self.clear()
 
                     return self.reply(
-                        "This unit is no longer available "
-                        "in your authorized inventory."
+                        "Sorry, this unit is no longer available. "
+                        "Would you like to explore other available units?"
                     )
 
                 return await self.ask_currency(
@@ -722,8 +723,9 @@ class SalesOfferHandler:
 
                     if currency is None:
                         return self.reply(
-                            f"Please specify a currency such as AED, "
-                            f"USD or INR for unit {pending['unit_name']}."
+                            f"Which currency would you like the sales offer for "
+                            f"unit {pending['unit_name']} in?"
+                            f"For example: AED, USD or INR."
                         )
 
                 # Read and validate currency from Redis.
@@ -892,6 +894,6 @@ class SalesOfferHandler:
             )
 
             return self.reply(
-                "The sales offer service is temporarily "
-                "unavailable. Please try again."
+                "Sorry, the sales offer service is unavailable right now. "
+                " Please try again in a few moments."
             )

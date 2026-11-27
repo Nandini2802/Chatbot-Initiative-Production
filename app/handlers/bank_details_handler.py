@@ -109,8 +109,8 @@ class BankDetailsHandler:
 
             if not accounts:
                 result.messages.append(
-                    "No matching bank accounts were found "
-                    f"for {project_name}."
+                    "Sorry, I couldn't find any bank account details matching your request. "
+                    "Could you check the project name and try again?"
                 )
 
                 result.generation_context = {
@@ -237,8 +237,8 @@ class BankDetailsHandler:
             )
 
             result.messages.append(
-                "Bank details are temporarily unavailable. "
-                "Please try again."
+                "Sorry, bank details aren't available right now. "
+                "Please try again in a few moments."
             )
 
             return result

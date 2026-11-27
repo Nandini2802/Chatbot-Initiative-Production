@@ -135,8 +135,9 @@ class InventoryHandler:
 
         if intent.inventory_scope != "units":
             result.messages.append(
-                "Please specify whether you want "
-                "project information or unit details."
+                "Just to make sure I get this right, "
+                "are you looking for project information "
+                " or details about a specific unit?"
             )
             return result
 
@@ -222,8 +223,8 @@ class InventoryHandler:
         # Unit details require exactly one match.
         if operation == "unit_details" and len(matches) != 1:
             result.messages.append(
-                "Multiple units match this identifier. "
-                "Please specify the project and exact unit."
+                "I found more than one unit with that number. "
+                "Could you tell me the project name and the exact unit you mean?"
             )
             return result
 
@@ -643,7 +644,7 @@ class InventoryHandler:
 
         if not projects:
             result.messages.append(
-                "No matching active project information was found."
+                "Sorry, I couldn't find an active project matching your request. Could you check the project name and try again?"
             )
             return result
 
@@ -669,7 +670,8 @@ class InventoryHandler:
 
         if len(identifiers) != 2:
             result.messages.append(
-                "Please provide exactly two units to compare."
+                "To compare units, please share exactly two unit numbers, "
+                "for example Unit 1203 and Unit 1507."
             )
             return result
 
@@ -708,7 +710,8 @@ class InventoryHandler:
 
             if key in selected_keys:
                 result.messages.append(
-                    "Please select different units to compare."
+                    "Looks like you've selected the same unit twice. "
+                    "Please choose two different units to compare."
                 )
                 return result
 
@@ -717,7 +720,7 @@ class InventoryHandler:
 
         if not self.payment_token or not self.user_id:
             result.messages.append(
-                "Authentication is required to compare units."
+                "Please sign in to compare units."
             )
             return result
 
@@ -745,8 +748,8 @@ class InventoryHandler:
         except Exception:
             logger.exception("UNIT_COMPARISON_API_ERROR")
             result.messages.append(
-                "Unable to compare units right now. "
-                "Please try again."
+                "Sorry, I'm unable to compare these units right now. "
+                "Please try again in a few moments."
             )
             return result
 
@@ -791,8 +794,9 @@ class InventoryHandler:
 
             if not matched:
                 result.messages.append(
-                    "Comparison data is unavailable for "
-                    "one or more selected units."
+                    "Sorry, comparison details aren't available for one "
+                    "or both of the selected units."
+                    "Please try different units or check back later."
                 )
                 return result
 
@@ -801,8 +805,8 @@ class InventoryHandler:
                 != selected_unit.project_id
             ):
                 result.messages.append(
-                    "The returned project information "
-                    "does not match the selected unit."
+                    "Sorry, the project details don't match the selected unit "
+                    "Please double-check the unit and project and try again."
                 )
                 return result
 
@@ -1069,7 +1073,7 @@ class InventoryHandler:
 
         if len(requested_names) != 2:
             result.messages.append(
-                "Please provide exactly two project names to compare."
+                "To compare projects, please share exactly two project names, for example Project A and Project B. "
             )
             return result
 
@@ -1090,8 +1094,8 @@ class InventoryHandler:
 
             if len(matches) != 1:
                 result.messages.append(
-                    f"Could not uniquely identify project '{name}'. "
-                    "Please provide the exact project name."
+                    f"I found more than one project matching '{name}'. "
+                    "Could you share the exact project name?"
                 )
                 return result
 

@@ -178,17 +178,17 @@ class IntentDispatcher:
                     result = HandlerResult(
                         intent="out_of_scope",
                         messages=[
-                            "I can help with Danube Properties "
-                            "projects and related services."
+                            "I'm here to help with Danube Properties projects, units, payment plans, "
+                            "sales offers, marketing materials and more. What would you like to know?"
                         ],
                     )
                 else:
                     result = HandlerResult(
                         intent=intent.intent,
                         messages=[
-                            "The requested "
+                            "Sorry, "
                             f"{intent.intent.replace('_', ' ')} "
-                            "service is not available yet."
+                            "isn't available just yet. Is there something else I can help you with in the meantime?"
                         ],
                     )
             else:

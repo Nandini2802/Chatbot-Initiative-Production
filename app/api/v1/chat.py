@@ -146,9 +146,9 @@ async def chat_query(
                 detail={
                     "code": "SESSION_RESUME_REQUIRED",
                     "message": (
-                        "Your previous conversation has been "
-                        "inactive for 30 minutes. "
-                        "Please choose Continue or New Chat."
+                        "Welcome back! Your previous chat has been "
+                        "inactive for 30 minutes. Would you like to "
+                        "continue where you left off or start a new chat? "
                     ),
                     "session_id": str(body.session_id),
                 },

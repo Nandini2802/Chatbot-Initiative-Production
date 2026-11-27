@@ -199,16 +199,16 @@ GENERAL_CONVERSATION_RESPONSES = {
     "greeting": GREETING_RESPONSE,
 
     "thanks": (
-        "You're welcome! Let me know if you need anything else."
+        "You're very welcome! If there's anything else I can help you with, just let me know."
     ),
 
     "goodbye": (
-        "Goodbye! Come back any time you need project details, "
-        "units or marketing materials."
+        "Goodbye, and thanks for chatting! Come back any time you need project details, "
+        "unit information or marketing materials."
     ),
 
     "acknowledgement": (
-        "Okay. Let me know what you need next."
+        "Got it! What would you like to do next?"
     ),
 
     "about_assistant": GREETING_RESPONSE.replace(
@@ -743,8 +743,8 @@ async def _stream_chat_response_impl(
         if selected_payment_plan is not None:
             if not pending_payment_selection:
                 raise ValueError(
-                    "Payment-plan selection is not active "
-                    "for this conversation."
+                    "There's no payment plan selection in progress. "
+                    "Would you like me to show the payment plans for a unit?"
                 )
 
             matched_plans = [
@@ -764,9 +764,8 @@ async def _stream_chat_response_impl(
                 payment_selection_decision = PaymentSelectionDecision(
                     status="clarify",
                     message=(
-                        "That payment plan is not available "
-                        "for the selected unit. Please choose "
-                        "one of the displayed plans."
+                        "That payment plan isn't available for this unit. "
+                        "Please choose one of the plans shown above."
                     ),
                 )
 
@@ -2347,8 +2346,8 @@ async def _stream_chat_response_impl(
                 != "payment_plan_selection"
             ):
                 raise ValueError(
-                    "Payment-plan selection is not active "
-                    "for this conversation."
+                    "There's no payment plan selection in progress. "
+                    "Would you like me to show the payment plans for a unit?"
                 )
 
         if (
@@ -5111,21 +5110,21 @@ async def _stream_chat_response_impl(
                         clarification_messages.append(
                             ambiguous_project_clarifications.get(
                                 index,
-                                "Which Danube project would you like "
+                                "Sure! Which Danube project would you like "
                                 "the availability report for?",
                             )
                         )
 
                     elif "currency" in missing:
                         clarification_messages.append(
-                            "Which currency would you like "
-                            "for the availability report?"
+                            "Which currency would you like the report in? "
+                            "For example: AED, USD or INR."
                         )
 
                     elif "file_format" in missing:
                         clarification_messages.append(
-                            "Would you like the report in PDF "
-                            "or Excel format?"
+                            "Which format would you prefer for the report: "
+                            "PDF or Excel?"
                         )
 
                     else:

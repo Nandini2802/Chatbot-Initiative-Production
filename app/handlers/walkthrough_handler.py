@@ -25,9 +25,9 @@ from app.services.walkthrough_feature_resolver import (
 logger = logging.getLogger(__name__)
 
 WALKTHROUGH_FALLBACK = (
-    "Great question! While we don't offer that feature yet, "
-    "I'd love to help you explore other features which are "
-    "available for you."
+    "Great question! That feature isn't available yet, "
+    "but I'd love to help you explore what you can do right now. "
+    "What would you like to try?"
 )
 
 
