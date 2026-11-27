@@ -164,14 +164,52 @@ class AvailabilityService:
             snapshot=self.snapshot,
         )
 
-        # 4. Call middleware.
-        report = await self.connector.download(
-            project_id=project.project_id,
-            currency=currency,
-            file_type=file_type,
-            access_token=access_token,
-            user_id=user_id,
+        listing_filters = getattr(
+            intent,
+            "listing_availability_filters",
+            None,
         )
+
+        if listing_filters is not None:
+
+            project_names = listing_filters.get(
+                "projectName",
+                [],
+            )
+
+            if (
+                len(project_names) != 1
+                or project_names[0].strip().casefold()
+                != project.project_name.strip().casefold()
+            ):
+                raise AvailabilityValidationError(
+                    "The original unit listing does not match "
+                    "the selected project. Please run the "
+                    "unit listing again."
+                )
+
+        # 4. Call middleware.
+        if listing_filters is None:
+
+            # Existing overall availability flow.
+            report = await self.connector.download(
+                project_id=project.project_id,
+                currency=currency,
+                file_type=file_type,
+                access_token=access_token,
+                user_id=user_id,
+            )
+
+        else:
+
+            report = await self.connector.download(
+                project_id=project.project_id,
+                currency=currency,
+                file_type=file_type,
+                access_token=access_token,
+                user_id=user_id,
+                listing_filters=listing_filters,
+            )
 
         # 5. Return verified response.
         return {

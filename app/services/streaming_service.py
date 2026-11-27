@@ -797,12 +797,72 @@ async def _stream_chat_response_impl(
 
         # Download Availability pending selection (scoped to authenticated user/session).
         availability_state = DownloadAvailabilityState(clients.redis)
+
+        listing_state_session_id = (
+            f"{session_id}:unit-listing"
+        )
+
+        latest_listing_availability = await availability_state.load(
+            user_id=user_id,
+            session_id=listing_state_session_id,
+        )
+
         pending_availability = await availability_state.load(
             user_id=user_id, session_id=str(session_id),
         )
 
         availability_followup = False
         routing_message = message
+
+        listing_download_requested = (
+            message.strip().casefold().rstrip(".")
+            == "download availability for listed units"
+        )
+
+        if listing_download_requested:
+
+            await availability_state.clear(
+                user_id=user_id,
+                session_id=str(session_id),
+            )
+
+            pending_availability = None
+
+            if latest_listing_availability:
+
+                listing_filters = (
+                    latest_listing_availability.get("filters") or {}
+                )
+
+                project_names = listing_filters.get(
+                    "projectName",
+                    [],
+                )
+
+                pending_availability = {
+                    "intent": "download_availability",
+                    "project_id": None,
+                    "project_name": (
+                        project_names[0]
+                        if len(project_names) == 1
+                        else None
+                    ),
+                    "currency": None,
+                    "file_format": None,
+                    "listing_availability_filters": listing_filters,
+                    "listing_unsupported_filters": (
+                        latest_listing_availability.get(
+                            "unsupported_filters",
+                            [],
+                        )
+                    ),
+                }
+
+                await availability_state.save(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                    state=pending_availability,
+                )
 
         if pending_availability:
             normalized_reply = message.strip().lower().lstrip(".")
@@ -2660,6 +2720,108 @@ async def _stream_chat_response_impl(
                 routing_result.requires_clarification = False
 
 
+        # Never accept internal listing context from LLM output.
+        for item in routing_result.intents:
+            item.listing_availability_filters = None
+
+
+        # Deterministically handle the Unit Listing download chip.
+        if listing_download_requested:
+
+            if not pending_availability:
+                listing_error = (
+                    "The unit listing has expired. "
+                    "Please run the unit listing again."
+                )
+
+            elif pending_availability.get(
+                "listing_unsupported_filters"
+            ):
+                listing_error = (
+                    "The availability report API does not support "
+                    "all filters used in this unit listing."
+                )
+
+            elif not pending_availability.get("project_name"):
+                listing_error = (
+                    "Please run a unit listing for one specific "
+                    "project before downloading availability."
+                )
+
+            else:
+                listing_error = None
+
+            if listing_error:
+
+                await availability_state.clear(
+                    user_id=user_id,
+                    session_id=str(session_id),
+                )
+
+                yield format_sse(
+                    "token",
+                    {"text": listing_error},
+                )
+
+                yield format_sse(
+                    "followups",
+                    {"chips": []},
+                )
+
+                error_response = ChatResponse(
+                    response=listing_error,
+                    session_id=session_id,
+                    correlation_id=correlation_id,
+                    followups=[],
+                    data={"files": []},
+                )
+
+                yield format_sse(
+                    "final",
+                    error_response.model_dump(mode="json"),
+                )
+
+                yield format_sse(
+                    "done",
+                    {"status": "completed"},
+                )
+
+                return
+
+            availability_followup = True
+
+            routing_message = (
+                "Download availability for "
+                f"{pending_availability['project_name']}"
+            )
+
+            routing_result.intents = [
+                RoutingIntent(
+                    intent="download_availability",
+                    original_query=message,
+                    expanded_query=routing_message,
+                    action="download",
+                    project_name=pending_availability["project_name"],
+                    project_id=None,
+                    unit_number=None,
+                    bedrooms=None,
+                    currency=None,
+                    file_format=None,
+                    bank_account_types=[],
+                    marketing_assets=[],
+                    missing_fields=[
+                        "currency",
+                        "file_format",
+                    ],
+                    requires_clarification=True,
+                    project_reference_source="explicit",
+                    explicit_project_reference=(
+                        pending_availability["project_name"]
+                    ),
+                )
+            ]
+
+            routing_result.requires_clarification = True
 
         # Merge pending parameters after LLM 1; do not let LLM defaults
         # overwrite a previously explicit user selection.
@@ -2674,6 +2836,52 @@ async def _stream_chat_response_impl(
 
         if pending_availability and availability_intents and availability_followup:
             for item in availability_intents:
+
+                saved_listing_filters = (
+                    pending_availability.get(
+                        "listing_availability_filters"
+                    )
+                )
+
+                if saved_listing_filters is not None:
+
+                    # Always preserve the original listing scope.
+                    item.listing_availability_filters = (
+                        saved_listing_filters
+                    )
+
+                    item.project_name = (
+                        pending_availability.get("project_name")
+                    )
+
+                    item.project_id = (
+                        pending_availability.get("project_id")
+                    )
+
+                    item.project_number = None
+                    item.unit_id = None
+                    item.unit_name = None
+                    item.unit_number = None
+
+                    item.project_reference_source = "explicit"
+                    item.explicit_project_reference = (
+                        item.project_name
+                    )
+
+                    # Only use explicitly selected currency/format.
+                    item.currency = pending_availability.get(
+                        "currency"
+                    )
+
+                    item.file_format = pending_availability.get(
+                        "file_format"
+                    )
+
+                    item.missing_fields = [
+                        "currency",
+                        "file_format",
+                    ]
+
                 if not any((item.project_id, item.project_name, item.project_number,
                             item.unit_id, item.unit_name, item.unit_number)):
                     item.project_id = pending_availability.get("project_id")
@@ -2985,6 +3193,9 @@ async def _stream_chat_response_impl(
                                 "project_name": selected_name,
                                 "currency": intent.currency,
                                 "file_format": intent.file_format,
+                                "listing_availability_filters": (
+                                    intent.listing_availability_filters
+                                ),
                             },
                         )
                 intent.requires_clarification = bool(intent.missing_fields)
@@ -3052,22 +3263,70 @@ async def _stream_chat_response_impl(
                 else:
                     catalog = inventory_active_names | inventory_unit_names
 
-                mentioned, candidates = project_mention_candidates(
-                    project_choice_original_message or message, catalog,
-                )
-                if not mentioned:
-                    reference = intent.explicit_project_reference or intent.project_name
-                    candidates = find_project_candidates(reference, catalog)
-                if not candidates:
-                    resolution = match_project_in_message(
+                raw_reference = (
+                    intent.explicit_project_reference or ""
+                ).strip()
+
+                candidates = []
+
+                if (
+                    intent.intent == "inventory"
+                    and intent.project_reference_source == "explicit"
+                    and raw_reference
+                ):
+                    candidates = find_project_candidates(
+                        raw_reference,
+                        catalog,
+                    )
+
+                    if not candidates:
+                        reference_resolution = match_project_reference(
+                            raw_reference,
+                            catalog,
+                        )
+
+                        if reference_resolution.status == "ambiguous":
+                            candidates = list(
+                                reference_resolution.candidates
+                            )
+
+                        elif reference_resolution.status == "matched":
+                            logger.info(
+                                "EXPLICIT_PROJECT_REFERENCE_RESOLVED | "
+                                "reference=%s | resolved=%s | method=%s",
+                                raw_reference,
+                                reference_resolution.name,
+                                reference_resolution.method,
+                            )
+
+                else:
+                    # Preserve existing behavior for other functionalities.
+                    mentioned, candidates = project_mention_candidates(
                         project_choice_original_message or message,
                         catalog,
                     )
 
-                    if resolution.status == "ambiguous":
-                        candidates = list(
-                            resolution.candidates
+                    if not mentioned:
+                        reference = (
+                            intent.explicit_project_reference
+                            or intent.project_name
                         )
+
+                        candidates = find_project_candidates(
+                            reference,
+                            catalog,
+                        )
+
+                    if not candidates:
+                        resolution = match_project_in_message(
+                            project_choice_original_message or message,
+                            catalog,
+                        )
+
+                        if resolution.status == "ambiguous":
+                            candidates = list(
+                                resolution.candidates
+                            )
 
                 raw_reference = (
                     intent.explicit_project_reference or ""
@@ -3840,7 +4099,15 @@ async def _stream_chat_response_impl(
                     message=(
                         ""
                         if is_contextual_inventory_unit_search(intent)
-                        else check_message
+                        else (
+                            intent.explicit_project_reference.strip()
+                            if (
+                                intent.intent == "inventory"
+                                and intent.project_reference_source == "explicit"
+                                and intent.explicit_project_reference
+                            )
+                            else check_message
+                        )
                     ),
                     router_project=intent.project_name,
                     active_project=check_active_project,
@@ -3860,9 +4127,6 @@ async def _stream_chat_response_impl(
                             intent.unit_number,
                         ])
                     ),
-                    # Bank details (account numbers) never use the
-                    # router's choice to settle an ambiguous name,
-                    # nor short project codes.
                     allow_router_tiebreak=False,
                     project_codes=(
                         None
@@ -4285,6 +4549,9 @@ async def _stream_chat_response_impl(
                             "project_name": intent.project_name,
                             "currency": intent.currency,
                             "file_format": intent.file_format,
+                            "listing_availability_filters": (
+                                intent.listing_availability_filters
+                            ),
                         },
                     )
 
@@ -4970,6 +5237,9 @@ async def _stream_chat_response_impl(
                         "project_name": intent.project_name,
                         "currency": intent.currency,
                         "file_format": intent.file_format,
+                        "listing_availability_filters": (
+                            intent.listing_availability_filters
+                        ),
                         # Only very short replies may continue it
                         # (see follow-up detection).
                         "after_no_report": True,
@@ -5370,6 +5640,92 @@ async def _stream_chat_response_impl(
                 )
 
             followup_chips = []
+
+        followup_chips = [
+            chip
+            for chip in (followup_chips or [])
+            if chip.strip().casefold().rstrip(".")
+            != "download availability for listed units"
+        ]
+            
+        listing_results = [
+            result
+            for result in handler_results
+            if result.has_data
+            and any(
+                block.get("card_type") == "inventory_listing"
+                for block in result.html_blocks
+            )
+        ]
+
+        if listing_results:
+
+            # A new listing supersedes the previous listing context.
+            await availability_state.clear(
+                user_id=user_id,
+                session_id=listing_state_session_id,
+            )
+
+            availability_allowed, _ = (
+                DownloadAvailabilityAccessService().check(
+                    key_features=key_features,
+                )
+            )
+
+            if availability_allowed and len(listing_results) == 1:
+
+                listing_context = (
+                    listing_results[0].generation_context.get(
+                        "listing_availability_context"
+                    )
+                )
+
+                if listing_context:
+
+                    listing_filters = (
+                        listing_context.get("filters") or {}
+                    )
+
+                    project_names = listing_filters.get(
+                        "projectName",
+                        [],
+                    )
+
+                    if len(project_names) == 1:
+
+                        # Save the original listing filters.
+                        await availability_state.save(
+                            user_id=user_id,
+                            session_id=listing_state_session_id,
+                            state=listing_context,
+                        )
+
+                        mandatory_chip = (
+                            "Download Availability for listed units"
+                        )
+
+                        # Remove duplicate availability chips.
+                        existing_chips = [
+                            chip
+                            for chip in (followup_chips or [])
+                            if "download availability"
+                            not in chip.casefold()
+                        ]
+
+                        # Mandatory first chip + two existing chips.
+                        followup_chips = [
+                            mandatory_chip,
+                            *existing_chips[:2],
+                        ]
+
+            elif not availability_allowed:
+
+                followup_chips = [
+                    chip
+                    for chip in (followup_chips or [])
+                    if "download availability"
+                    not in chip.casefold()
+                ]
 
 
         # 5A. PREPARE TEXT FOR DATABASE PERSISTENCE

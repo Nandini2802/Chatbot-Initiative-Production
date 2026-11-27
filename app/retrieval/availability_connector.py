@@ -8,6 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import get_settings
 from app.core.middleware_headers import build_middleware_headers
 
+from app.utils.availability_filters import (
+    AVAILABILITY_FILTER_KEYS,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,7 @@ class AvailabilityConnector:
         file_type: str,
         access_token: str,
         user_id: str,
+        listing_filters: dict[str, list[str]] | None = None,
     ) -> AvailabilityReport:
 
         if not access_token or not user_id:
@@ -62,11 +67,51 @@ class AvailabilityConnector:
             "Accept": "application/json",
         })
 
-        payload = {
-            "project_id": project_id,
-            "currency_code": currency,
-            "file_type": file_type,
-        }
+        if listing_filters is not None:
+
+            if not listing_filters.get("projectName"):
+                raise AvailabilityAPIError(
+                    "Project name is missing from the listing."
+                )
+
+            if set(listing_filters) - AVAILABILITY_FILTER_KEYS:
+                raise AvailabilityAPIError(
+                    "Unsupported availability filter."
+                )
+
+            for values in listing_filters.values():
+                if (
+                    not isinstance(values, list)
+                    or not values
+                    or not all(
+                        isinstance(value, str) and value.strip()
+                        for value in values
+                    )
+                ):
+                    raise AvailabilityAPIError(
+                        "Invalid availability filter values."
+                    )
+
+            payload = {
+                "currency_code": currency,
+                "file_type": file_type,
+                **listing_filters,
+            }
+
+        else:
+
+            # Existing Overall Project Download Availability.
+            payload = {
+                "project_id": project_id,
+                "currency_code": currency,
+                "file_type": file_type,
+            }
+
+        logger.info(
+            "AVAILABILITY_DOWNLOAD_PAYLOAD | mode=%s | payload=%s",
+            "filtered" if listing_filters is not None else "standard",
+            payload,
+        )
 
         try:
             async with AsyncSession(

@@ -135,6 +135,7 @@ class RoutingIntent(BaseModel):
 
     project_number: str | None = None
     project_id: str | None = None
+    listing_availability_filters: dict[str, list[str]] | None = None
     unit_id: str | None = None
     unit_name: str | None = None
 

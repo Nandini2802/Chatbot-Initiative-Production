@@ -86,17 +86,6 @@ class InventoryExtractionService:
             skyline_views,
         )
 
-        logger.info(
-            "VIEW_DEBUG_CATALOG | total_views=%s | "
-            "skyline_catalog_values=%s",
-            len(catalog.get("views", [])),
-            [
-                value
-                for value in catalog.get("views", [])
-                if "skyline" in value.casefold()
-            ],
-        )
-
         # Only recent textual context is passed.
         recent_history = [
             {

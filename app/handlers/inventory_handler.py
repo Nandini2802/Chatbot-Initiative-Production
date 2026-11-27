@@ -40,6 +40,11 @@ from app.retrieval.inventory_normalizer import (
     clean_project_image_url,
 )
 
+from app.utils.availability_filters import (
+    build_listing_availability_filters,
+    get_unsupported_availability_filters,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -417,6 +422,7 @@ class InventoryHandler:
             })
 
         elif operation != "unit_details":
+
             html_units = [
                 self._unit_data(unit)
                 for unit in price_sorted_matches
@@ -430,6 +436,26 @@ class InventoryHandler:
                     total_matches=len(matches),
                 ),
             })
+
+            # Preserve actual Unit Listing filters.
+            availability_filters = (
+                build_listing_availability_filters(
+                    intent=intent,
+                    displayed_units=price_sorted_matches,
+                )
+            )
+
+            unsupported_filters = (
+                get_unsupported_availability_filters(intent)
+            )
+
+            result.generation_context[
+                "listing_availability_context"
+            ] = {
+                "filters": availability_filters,
+                "unsupported_filters": unsupported_filters,
+                "total_matches": len(matches),
+            }
 
 
         result.has_data = True
